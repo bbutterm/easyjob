@@ -59,4 +59,17 @@ function fromWire(json) {
   };
 }
 
-module.exports = { id: 'openai', defaultModel: '', toWire: toWire, fromWire: fromWire };
+/* Кусок текста лежит в choices[0].delta.content. */
+function streamDelta(event) {
+  if (!event || !event.choices || !event.choices[0]) return '';
+  var delta = event.choices[0].delta;
+  return (delta && delta.content) || '';
+}
+
+function streamStop(event) {
+  if (event && event.choices && event.choices[0]) return event.choices[0].finish_reason || null;
+  return null;
+}
+
+module.exports = { id: 'openai', defaultModel: '', toWire: toWire, fromWire: fromWire,
+  streamDelta: streamDelta, streamStop: streamStop };

@@ -84,6 +84,7 @@
       note: 'Персональные данные. Минимизируются: в модель уходит только то, что нужно задаче.',
       vars: [
         { key: 'user.displayName', type: 'string', required: false, pii: true,
+          contextField: 'userSummary',
           source: 'профиль', budget: 'мал',
           note: 'Имя. Нужно только при генерации текста резюме. В остальных задачах не передаётся.' },
         { key: 'user.city', type: 'string', required: false, pii: true,
@@ -144,6 +145,7 @@
         { key: 'resume.education', type: 'object[]', required: false, pii: true,
           source: 'резюме', budget: 'мал', note: 'Образование: place, program, period.' },
         { key: 'resume.rawText', type: 'string', required: false, pii: true,
+          contextField: 'rawResumeText',
           source: 'загруженный файл после разбора', budget: 'большой',
           note: 'Текст загруженного резюме. Используется только в задаче resume.review, '
             + 'если структурный разбор не удался.' }
@@ -158,6 +160,7 @@
         { key: 'vacancy.company', type: 'string', required: false, pii: false,
           source: 'ввод пользователя', budget: 'мал', note: 'Компания.' },
         { key: 'vacancy.rawText', type: 'string', required: true, pii: false,
+          contextField: 'vacancyRawText',
           source: 'вставленный текст', budget: 'большой',
           note: 'Полный текст объявления. Усекается по бюджету с сохранением блока требований.' },
         { key: 'vacancy.requirements', type: 'object[]', required: false, pii: false,
@@ -348,7 +351,8 @@
     GROUPS.forEach(function (g) {
       g.vars.forEach(function (v) {
         out.push({ group: g.id, groupTitle: g.title, key: v.key, type: v.type,
-          required: v.required, pii: v.pii, source: v.source, budget: v.budget, note: v.note });
+          required: v.required, pii: v.pii, source: v.source, budget: v.budget,
+          contextField: v.contextField || '', note: v.note });
       });
     });
     return out;
@@ -356,6 +360,26 @@
 
   function piiKeys() {
     return allVariables().filter(function (v) { return v.pii; }).map(function (v) { return v.key; });
+  }
+
+  /* Имена полей, под которыми чувствительные переменные реально лежат
+     в объекте контекста. Используется при скрытии данных в журналах. */
+  function piiFields() {
+    var out = [];
+    GROUPS.forEach(function (g) {
+      g.vars.forEach(function (v) {
+        if (!v.pii) return;
+        var last = v.key.split('.').pop();
+        if (out.indexOf(last) < 0) out.push(last);
+        if (v.contextField && out.indexOf(v.contextField) < 0) out.push(v.contextField);
+      });
+    });
+    /* Поля, которые собираются приложением и не имеют отдельной
+       переменной в каталоге, но содержат те же данные. */
+    ['answers', 'user', 'vacancyRawText'].forEach(function (extra) {
+      if (out.indexOf(extra) < 0) out.push(extra);
+    });
+    return out;
   }
 
   function task(id) {
@@ -370,6 +394,7 @@
     tasks: TASKS,
     allVariables: allVariables,
     piiKeys: piiKeys,
+    piiFields: piiFields,
     task: task
   };
 });

@@ -43,11 +43,37 @@
 
   /* Грубая оценка размера в токенах. Для кириллицы отношение хуже,
      чем для латиницы, поэтому делитель занижен намеренно.
-     Точный подсчёт — только через счётчик токенов провайдера. */
+     Точный подсчёт — только через счётчик токенов провайдера.
+
+     Изображение считается отдельно: его вес для модели зависит от
+     разрешения кадра, а не от длины строки base64. Если оценивать
+     картинку как текст, любой настоящий кадр «весит» сотни тысяч
+     токенов и отбрасывается ещё до отправки. */
   function estimateTokens(value) {
     if (value === null || value === undefined) return 0;
-    var text = typeof value === 'string' ? value : JSON.stringify(value);
-    return Math.ceil(text.length / 3);
+    if (typeof value === 'string') return Math.ceil(value.length / 3);
+
+    var imageTokens = 0;
+    var payload = value;
+    if (value && typeof value === 'object' && value.image) {
+      payload = {};
+      Object.keys(value).forEach(function (key) {
+        if (key !== 'image') payload[key] = value[key];
+      });
+      imageTokens = estimateImageTokens(value.image);
+    }
+    return Math.ceil(JSON.stringify(payload).length / 3) + imageTokens;
+  }
+
+  /* Вес изображения у моделей с поддержкой картинок примерно
+     пропорционален числу пикселей. Делитель 750 — распространённая
+     оценка для кадра; при неизвестном разрешении берём консервативную
+     оценку кадра 1280x720. */
+  function estimateImageTokens(image) {
+    if (!image) return 0;
+    var width = Number(image.width) || 1280;
+    var height = Number(image.height) || 720;
+    return Math.ceil((width * height) / 750);
   }
 
   function create(options) {
@@ -217,9 +243,11 @@
       clearSession: clearSession,
       clearMoment: clearMoment,
       build: build,
-      estimateTokens: estimateTokens
+      estimateTokens: estimateTokens,
+      estimateImageTokens: estimateImageTokens
     };
   }
 
-  return { create: create, estimateTokens: estimateTokens, LAYERS: LAYERS, DEFAULT_SHARES: DEFAULT_SHARES };
+  return { create: create, estimateTokens: estimateTokens, estimateImageTokens: estimateImageTokens,
+    LAYERS: LAYERS, DEFAULT_SHARES: DEFAULT_SHARES };
 });

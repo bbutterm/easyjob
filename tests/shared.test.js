@@ -107,6 +107,53 @@ ok('Чистый JSON разбирается', R.parseJson('{"a":1}').ok);
 ok('JSON внутри текста разбирается', R.parseJson('Вот ответ: {"a":2} — всё').value.a === 2);
 ok('Мусор не ломает разбор', R.parseJson('совсем не json').ok === false);
 
+/* ---- Регрессии: три бага, найденные аудитом ---- */
+
+/* Баг 1: кадр экрана оценивался как текст по длине base64 и всегда
+   отбрасывался при сборке контекста. */
+var frameStore = CS.create({ contextBudget: 12000 });
+frameStore.set('identity', { profession: 'Повар' });
+frameStore.set('moment', {
+  captureConsent: true,
+  image: { data: 'A'.repeat(600 * 1024), mediaType: 'image/png', width: 1280, height: 720 }
+});
+var frameBuilt = frameStore.build();
+ok('Вес кадра считается по разрешению, а не по длине base64',
+  CS.estimateImageTokens({ width: 1280, height: 720 }) < 2000,
+  CS.estimateImageTokens({ width: 1280, height: 720 }) + ' токенов');
+ok('Настоящий кадр доходит до контекста', frameBuilt.context.moment.image !== undefined);
+var frameReq = R.build('screen.extract', frameBuilt.context, { provider: 'anthropic' });
+ok('Настоящий кадр попадает в запрос', frameReq.image !== null && frameReq.image.data.length > 1000);
+ok('Огромный кадр всё же отбрасывается по бюджету',
+  (function () {
+    var s2 = CS.create({ contextBudget: 2000 });
+    s2.set('moment', { captureConsent: true,
+      image: { data: 'A', mediaType: 'image/png', width: 4000, height: 4000 } });
+    return s2.build().context.moment.image === undefined;
+  })());
+
+/* Баг 2: задачи с потоковым выводом падали, потому что ответ
+   разбирался через response.json(). */
+function fakeStream(events) {
+  var lines = events.map(function (e) { return 'data: ' + JSON.stringify(e) + '\n\n'; });
+  lines.push('data: [DONE]\n\n');
+  return function () {
+    var enc = new TextEncoder();
+    var i = 0;
+    return Promise.resolve({ ok: true, status: 200, body: { getReader: function () {
+      return { read: function () {
+        if (i >= lines.length) return Promise.resolve({ done: true });
+        return Promise.resolve({ done: false, value: enc.encode(lines[i++]) });
+      } };
+    } } });
+  };
+}
+
+/* Баг 3: скрытие персональных данных не покрывало реальные имена полей. */
+var log2 = R.redactForLog({ rawResumeText: 'Иванов Иван, +7 900 000-00-00', skills: ['SQL'] });
+ok('Текст загруженного резюме скрыт в логе', log2.rawResumeText === '[скрыто]');
+ok('Нечувствительные поля в логе сохранены', Array.isArray(log2.skills));
+
 /* ---- Заглушка провайдера ---- */
 (async function () {
   var mockReq = R.build('assistant.hint', built.context, { provider: 'mock' });
@@ -117,6 +164,28 @@ ok('Мусор не ломает разбор', R.parseJson('совсем не j
   var parsed = R.parseJson(res.text);
   ok('Ответ заглушки — корректный JSON с направлением ответа',
     parsed.ok && typeof parsed.value.direction === 'string');
+
+  /* Поток событий собирается в текст, рассуждение в него не попадает. */
+  var streamReq = R.build('assistant.hint', built.context, { provider: 'anthropic' });
+  var chunks = [];
+  streamReq.onDelta = function (d) { chunks.push(d); };
+  var streamRes = await P.execute(streamReq, { apiKey: 'x' }, fakeStream([
+    { type: 'content_block_delta', delta: { type: 'text_delta', text: '{"direction":' } },
+    { type: 'content_block_delta', delta: { type: 'thinking_delta', thinking: 'рассуждение' } },
+    { type: 'content_block_delta', delta: { type: 'text_delta', text: ' "Один пример"}' } },
+    { type: 'message_delta', delta: { stop_reason: 'end_turn' } }
+  ]));
+  ok('Потоковый ответ собирается в текст', streamRes.ok && streamRes.text.length > 0, streamRes.text);
+  ok('Блоки рассуждения не попадают в текст ответа', streamRes.text.indexOf('рассуждение') < 0);
+  ok('Ответ из потока разбирается как JSON',
+    R.parseJson(streamRes.text).ok && R.parseJson(streamRes.text).value.direction === 'Один пример');
+  ok('Куски приходят по мере поступления', chunks.length === 2, chunks.length + ' кусков');
+
+  var truncated = await P.execute(streamReq, { apiKey: 'x' }, fakeStream([
+    { type: 'content_block_delta', delta: { type: 'text_delta', text: '{"direction": "обрыв' } },
+    { type: 'message_delta', delta: { stop_reason: 'max_tokens' } }
+  ]));
+  ok('Обрыв по лимиту длины помечается', truncated.ok === true && truncated.truncated === true);
 
   var failed = results.filter(function (r) { return !r.pass; });
   console.log('\nИтого: ' + (results.length - failed.length) + ' из ' + results.length + ' проверок пройдено.');

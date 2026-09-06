@@ -84,4 +84,22 @@ function fromWire(json) {
   };
 }
 
-module.exports = { id: 'anthropic', defaultModel: DEFAULT_MODEL, toWire: toWire, fromWire: fromWire };
+/* Извлечение куска текста из события потока.
+   Формат: событие content_block_delta с полем delta.text. Блоки
+   рассуждения приходят как thinking_delta и в текст не попадают. */
+function streamDelta(event) {
+  if (!event || typeof event !== 'object') return '';
+  if (event.type === 'content_block_delta' && event.delta) {
+    return event.delta.type === 'text_delta' ? (event.delta.text || '') : '';
+  }
+  return '';
+}
+
+/* Причина остановки приходит отдельным событием. */
+function streamStop(event) {
+  if (event && event.type === 'message_delta' && event.delta) return event.delta.stop_reason || null;
+  return null;
+}
+
+module.exports = { id: 'anthropic', defaultModel: DEFAULT_MODEL, toWire: toWire, fromWire: fromWire,
+  streamDelta: streamDelta, streamStop: streamStop };

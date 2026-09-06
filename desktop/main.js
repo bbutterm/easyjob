@@ -274,27 +274,33 @@ ipcMain.handle('app:openExternal', function (event, url) {
 
 /* Кадр берётся из выбранного пользователем источника. Он существует
    только в памяти и не сохраняется на диск. */
-async function captureFrame(sourceId, size) {
+async function captureFrame(sourceId, requestedSize) {
   if (fakeCapture && sourceId === FAKE_SOURCE_ID) {
     const image = nativeImage.createFromDataURL('data:image/png;base64,' + FAKE_PNG);
+    const frameSize = image.getSize();
     return {
       base64: image.toPNG().toString('base64'),
       mediaType: 'image/png',
+      width: frameSize.width,
+      height: frameSize.height,
       capturedAt: Date.now(),
       fake: true
     };
   }
   const sources = await desktopCapturer.getSources({
     types: ['screen', 'window'],
-    thumbnailSize: size || { width: 1280, height: 720 }
+    thumbnailSize: requestedSize || { width: 1280, height: 720 }
   });
   const match = sources.filter(function (s) { return s.id === sourceId; })[0];
   if (!match) return null;
   const image = match.thumbnail;
   if (!image || image.isEmpty()) return null;
+  const frameSize = image.getSize();
   return {
     base64: image.toPNG().toString('base64'),
     mediaType: 'image/png',
+    width: frameSize.width,
+    height: frameSize.height,
     capturedAt: Date.now()
   };
 }

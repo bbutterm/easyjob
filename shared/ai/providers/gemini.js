@@ -50,4 +50,16 @@ function fromWire(json) {
   };
 }
 
-module.exports = { id: 'gemini', defaultModel: '', toWire: toWire, fromWire: fromWire };
+function streamDelta(event) {
+  var candidate = event && event.candidates && event.candidates[0];
+  if (!candidate || !candidate.content) return '';
+  return (candidate.content.parts || []).map(function (p) { return p.text || ''; }).join('');
+}
+
+function streamStop(event) {
+  var candidate = event && event.candidates && event.candidates[0];
+  return (candidate && candidate.finishReason) || null;
+}
+
+module.exports = { id: 'gemini', defaultModel: '', toWire: toWire, fromWire: fromWire,
+  streamDelta: streamDelta, streamStop: streamStop };

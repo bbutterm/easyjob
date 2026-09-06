@@ -74,10 +74,21 @@
     var moment = context.moment || {};
 
     /* Изображение уходит в запрос, только если провайдер умеет
-       принимать изображения и пользователь дал согласие на захват. */
+       принимать изображения и пользователь дал согласие на захват.
+       Формат кадра: { data, mediaType, width, height }. */
     var image = null;
     if (moment.image && AiCapabilities.supportsVision(profileId) && moment.captureConsent === true) {
-      image = { mediaType: moment.imageMediaType || 'image/png', data: moment.image };
+      var frame = typeof moment.image === 'string'
+        ? { data: moment.image, mediaType: moment.imageMediaType || 'image/png' }
+        : moment.image;
+      if (frame && frame.data) {
+        image = {
+          mediaType: frame.mediaType || 'image/png',
+          data: frame.data,
+          width: frame.width || null,
+          height: frame.height || null
+        };
+      }
     }
 
     var system = AiPrompts.buildSystem(taskId, { policy: policy });
@@ -102,9 +113,13 @@
   }
 
   /* Убирает персональные данные из объекта перед записью в лог.
-     Список чувствительных переменных берётся из каталога. */
+
+     Имя переменной в каталоге и имя поля в объекте контекста могут
+     различаться (resume.rawText → rawResumeText), поэтому список
+     собирается из обоих: последнего сегмента ключа и явного
+     contextField, если он задан в каталоге. */
   function redactForLog(payload) {
-    var sensitive = AiVariables.piiKeys().map(function (k) { return k.split('.').pop(); });
+    var sensitive = AiVariables.piiFields();
     function walk(value) {
       if (Array.isArray(value)) return value.map(walk);
       if (value && typeof value === 'object') {

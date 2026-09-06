@@ -113,8 +113,12 @@ function create(options) {
       const moment = { captureConsent: true, capturedAt: frame.capturedAt };
 
       if (cfg.readMode === 'vision') {
-        moment.image = frame.base64;
-        moment.imageMediaType = frame.mediaType;
+        moment.image = {
+          data: frame.base64,
+          mediaType: frame.mediaType,
+          width: frame.width,
+          height: frame.height
+        };
       } else if (cfg.readMode === 'text') {
         const recognized = await Ocr.recognize(frame);
         if (!recognized.ok) {
