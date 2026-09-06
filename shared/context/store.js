@@ -151,22 +151,42 @@
     }
 
     /* Сборка контекста под бюджет. Возвращает слои и отчёт об усечении,
-       чтобы приложение могло честно показать, что было отброшено. */
-    function build(overrideBudget) {
+       чтобы приложение могло честно показать, что было отброшено.
+
+       options.protect  — поля вида 'preparation.weakSpots', которые
+                          усечение не трогает; 'session.currentTurn' —
+                          последняя реплика всегда остаётся.
+       options.drop     — поля, которые нужно выбросить до начала
+                          (используется подгонкой под жёсткий предел). */
+    function build(overrideBudget, options) {
+      var opts = options || {};
       var total = overrideBudget || budget;
       var report = { budget: total, layers: {}, dropped: [] };
       var out = {};
+      var protect = opts.protect || [];
+      var forced = opts.drop || [];
 
       LAYERS.forEach(function (layer) {
         var allowed = Math.floor(total * shares[layer]);
-        var value = data[layer];
+        var value = JSON.parse(JSON.stringify(data[layer] || {}));
+
+        forced.forEach(function (path) {
+          var parts = path.split('.');
+          if (parts[0] !== layer) return;
+          if (parts[1] === 'currentTurn') return;
+          if (value[parts[1]] !== undefined) {
+            delete value[parts[1]];
+            report.dropped.push(path + ': выброшено при подгонке под предел');
+          }
+        });
+
         var size = estimateTokens(value);
         if (size <= allowed) {
           out[layer] = value;
           report.layers[layer] = { tokens: size, allowed: allowed, truncated: false };
           return;
         }
-        var trimmed = truncateLayer(layer, value, allowed, report);
+        var trimmed = truncateLayer(layer, value, allowed, report, protect);
         out[layer] = trimmed;
         report.layers[layer] = { tokens: estimateTokens(trimmed), allowed: allowed, truncated: true };
       });
@@ -177,10 +197,25 @@
       return { context: out, report: report };
     }
 
+    /* Поля, которые ещё можно выбросить, в порядке предпочтения. Нужно
+       подгонке под предел: она выбрасывает по одному и пересчитывает. */
+    function droppable(order, protect) {
+      var prot = protect || [];
+      var out = [];
+      (order || []).forEach(function (path) {
+        var parts = path.split('.');
+        if (prot.indexOf(path) >= 0) return;
+        if (data[parts[0]] && data[parts[0]][parts[1]] !== undefined) out.push(path);
+      });
+      return out;
+    }
+
     /* Правила усечения зависят от слоя: что выбросить в первую очередь,
        определяется смыслом задачи, а не длиной поля. */
-    function truncateLayer(layer, value, allowed, report) {
+    function truncateLayer(layer, value, allowed, report, protect) {
       var copy = JSON.parse(JSON.stringify(value || {}));
+      var prot = protect || [];
+      function protectedKey(key) { return prot.indexOf(layer + '.' + key) >= 0; }
 
       if (layer === 'identity') {
         /* Слой мал по построению. Если он не влез — бюджет задан неверно. */
@@ -193,7 +228,7 @@
           'skills', 'experience', 'requirements', 'weakSpots'];
         for (var i = 0; i < order.length && estimateTokens(copy) > allowed; i++) {
           var key = order[i];
-          if (copy[key] === undefined) continue;
+          if (copy[key] === undefined || protectedKey(key)) continue;
           if (key === 'experience' && Array.isArray(copy.experience) && copy.experience.length > 1) {
             copy.experience = copy.experience.slice(0, 1);
             report.dropped.push('preparation.experience: оставлено последнее место работы');
@@ -206,7 +241,9 @@
       }
 
       if (layer === 'session') {
-        while (Array.isArray(copy.turns) && copy.turns.length > 2 && estimateTokens(copy) > allowed) {
+        /* Последняя реплика — текущий вопрос или ответ — не вытесняется никогда. */
+        var keepTurns = protectedKey('turns') ? (copy.turns || []).length : 1;
+        while (Array.isArray(copy.turns) && copy.turns.length > keepTurns && estimateTokens(copy) > allowed) {
           copy.turns.shift();
           report.dropped.push('session.turns: вытеснена ранняя реплика');
         }
@@ -218,8 +255,9 @@
         return copy;
       }
 
-      /* moment: изображение отбрасывается первым — оно дороже всего. */
-      if (copy.image) {
+      /* moment: изображение отбрасывается первым — оно дороже всего.
+         Найденный вопрос собеседующего не трогается. */
+      if (copy.image && !protectedKey('image')) {
         delete copy.image;
         report.dropped.push('moment.image: кадр отброшен, остался текст');
       }
@@ -243,6 +281,7 @@
       clearSession: clearSession,
       clearMoment: clearMoment,
       build: build,
+      droppable: droppable,
       estimateTokens: estimateTokens,
       estimateImageTokens: estimateImageTokens
     };

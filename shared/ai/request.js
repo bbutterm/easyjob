@@ -12,10 +12,13 @@
     deps = {
       vars: require('./variables.js'),
       caps: require('./capabilities.js'),
-      prompts: require('./prompts.js')
+      prompts: require('./prompts.js'),
+      tokens: require('../context/tokens.js'),
+      policy: require('../context/policy.js')
     };
   } else {
-    deps = { vars: root.AiVariables, caps: root.AiCapabilities, prompts: root.AiPrompts };
+    deps = { vars: root.AiVariables, caps: root.AiCapabilities, prompts: root.AiPrompts,
+      tokens: root.TokenCounter, policy: root.ContextPolicy };
   }
   var api = factory(deps);
   if (typeof module === 'object' && module.exports) module.exports = api;
@@ -26,6 +29,8 @@
   var AiVariables = deps.vars;
   var AiCapabilities = deps.caps;
   var AiPrompts = deps.prompts;
+  var TokenCounter = deps.tokens;
+  var ContextPolicy = deps.policy;
 
   /* Значения по умолчанию для каждой задачи: длина ответа, бюджет
      контекста и формат. Подсказка на живом интервью намеренно
@@ -119,6 +124,60 @@
     };
   }
 
+  /* Размер сериализованного запроса: система, сообщение, изображение,
+     служебные токены. Точность зависит от наличия токенизатора. */
+  function measure(request) {
+    return TokenCounter.countRequest({
+      system: request.system,
+      messages: [{ text: request.userText }],
+      image: request.image ? { width: request.image.width, height: request.image.height } : null,
+      schema: request.schema ? request.schema.shape : null
+    });
+  }
+
+  /* Подгонка под жёсткий предел. Собирает запрос, меряет его целиком,
+     при переполнении выбрасывает поля по порядку политики (кроме
+     обязательных) и меряет снова. Если после всего не помещается —
+     запрос не отправляется: возвращается ok:false с отчётом.
+
+     store   — ContextStore с заполненными слоями
+     runtime — как в build, плюс thinkingKnownOff и policyOverrides */
+  function fit(taskId, store, runtime) {
+    var rt = runtime || {};
+    var policy = ContextPolicy.policyFor(taskId, rt.policyOverrides);
+    var allowance = ContextPolicy.inputAllowance(policy, rt.thinkingKnownOff === true);
+    var protect = policy.required || [];
+    var dropped = [];
+    var candidates = store.droppable(policy.dropFirst, protect);
+    var last = null;
+
+    for (var step = 0; step <= candidates.length; step++) {
+      var built = store.build(undefined, { protect: protect, drop: dropped });
+      var request = build(taskId, built.context, rt);
+      request.maxOutputTokens = Math.min(request.maxOutputTokens,
+        rt.thinkingKnownOff === true ? policy.outputReserveThinkingOff : policy.outputReserve);
+      var size = measure(request);
+      last = { request: request, built: built, size: size };
+      if (size.tokens <= allowance) {
+        request.sizing = { inputTokens: size.tokens, allowance: allowance, cap: policy.inputCap,
+          exact: size.exact, dropped: built.report.dropped.concat([]), fits: true };
+        return { ok: true, request: request, report: built.report, sizing: request.sizing };
+      }
+      if (step === candidates.length) break;
+      dropped.push(candidates[step]);
+    }
+
+    return {
+      ok: false,
+      overflow: true,
+      error: 'Контекст не помещается в предел задачи: ' + last.size.tokens + ' токенов при допустимых '
+        + allowance + (last.size.exact ? '' : ' (оценка)') + '. Обязательные поля сохранены, остальное уже выброшено.',
+      sizing: { inputTokens: last.size.tokens, allowance: allowance, cap: policy.inputCap, exact: last.size.exact,
+        dropped: last.built.report.dropped, fits: false },
+      report: last.built.report
+    };
+  }
+
   /* Убирает персональные данные из объекта перед записью в лог.
 
      Имя переменной в каталоге и имя поля в объекте контекста могут
@@ -164,6 +223,8 @@
 
   return {
     build: build,
+    fit: fit,
+    measure: measure,
     defaultsFor: defaultsFor,
     redactForLog: redactForLog,
     parseJson: parseJson,

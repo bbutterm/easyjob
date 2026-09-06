@@ -57,7 +57,7 @@ function prepView(sid, prep) {
 async function ensureRequirements(sid, vacancy) {
   if (vacancy.requirements && vacancy.requirements.length) return vacancy;
   const result = await ai.run(sid, 'vacancy.parse', { vacancy });
-  if (!result.ok) throw new HttpError(502, result.error);
+  if (!result.ok) throw new HttpError(result.overflow ? 422 : 502, result.error, result.overflow ? { overflow: true, sizing: result.sizing } : null);
   const reqs = Array.isArray(result.json.requirements) ? result.json.requirements : [];
   if (!reqs.length) throw new HttpError(422, 'В тексте вакансии не удалось выделить требования.');
   const cleaned = reqs.map(function (r, i) {
@@ -72,7 +72,7 @@ async function ensureRequirements(sid, vacancy) {
    требования, чтобы экран не зависел от изменения вакансии. */
 async function buildMatch(sid, prep, resume, vacancy) {
   const result = await ai.run(sid, 'match.requirements', { resume, vacancy, prep });
-  if (!result.ok) throw new HttpError(502, result.error);
+  if (!result.ok) throw new HttpError(result.overflow ? 422 : 502, result.error, result.overflow ? { overflow: true, sizing: result.sizing } : null);
   const byId = {};
   (vacancy.requirements || []).forEach(function (r) { byId[r.id] = r; });
   const items = (result.json.items || []).map(function (m) {
@@ -163,7 +163,7 @@ function register(r) {
     const resume = db.resumes.get(sid, params.id);
     if (!resume) throw new HttpError(404, 'Резюме не найдено');
     const result = await ai.run(sid, 'resume.review', { resume });
-    if (!result.ok) throw new HttpError(502, result.error);
+    if (!result.ok) throw new HttpError(result.overflow ? 422 : 502, result.error, result.overflow ? { overflow: true, sizing: result.sizing } : null);
     db.resumes.setReview(sid, resume.id, result.json);
     sendJson(res, 200, { review: result.json, mock: result.mock, dropped: result.dropped });
   });
@@ -244,7 +244,7 @@ function register(r) {
     const resume = db.resumes.get(sid, prep.resumeId);
     const vacancy = db.vacancies.get(sid, prep.vacancyId);
     const result = await ai.run(sid, 'questions.generate', { resume, vacancy, prep });
-    if (!result.ok) throw new HttpError(502, result.error);
+    if (!result.ok) throw new HttpError(result.overflow ? 422 : 502, result.error, result.overflow ? { overflow: true, sizing: result.sizing } : null);
     const questions = (result.json.questions || []).map(function (q, i) {
       return { id: safeId(q.id, 'q' + (i + 1)), topic: str(q.topic, 60, 'topic') || 'Общее',
         text: str(q.text, 500, 'text', true), why: str(q.why, 500, 'why'), guidance: str(q.guidance, 800, 'guidance') };
@@ -281,7 +281,7 @@ function register(r) {
     const resume = db.resumes.get(sid, prep.resumeId);
     const vacancy = db.vacancies.get(sid, prep.vacancyId);
     const result = await ai.run(sid, 'prep.card', { resume, vacancy, prep, includeAnswers: true });
-    if (!result.ok) throw new HttpError(502, result.error);
+    if (!result.ok) throw new HttpError(result.overflow ? 422 : 502, result.error, result.overflow ? { overflow: true, sizing: result.sizing } : null);
     db.preps.set(sid, prep.id, { card: result.json });
     sendJson(res, 200, { card: result.json, mock: result.mock, dropped: result.dropped });
   });
@@ -350,7 +350,7 @@ function register(r) {
     const resume = db.resumes.get(sid, prep.resumeId);
     const vacancy = db.vacancies.get(sid, prep.vacancyId);
     const result = await ai.run(sid, 'interview.summary', { resume, vacancy, prep, turns: interview.turns });
-    if (!result.ok) throw new HttpError(502, result.error);
+    if (!result.ok) throw new HttpError(result.overflow ? 422 : 502, result.error, result.overflow ? { overflow: true, sizing: result.sizing } : null);
     const finished = db.interviews.finish(sid, interview.id, result.json);
     sendJson(res, 200, Object.assign({}, finished, { mock: result.mock }));
   });
@@ -360,7 +360,7 @@ function register(r) {
     const vacancy = db.vacancies.get(sid, prep.vacancyId);
     const result = await ai.run(sid, 'interview.turn', { resume, vacancy, prep, turns: interview.turns },
       { streaming: !!onDelta, onDelta });
-    if (!result.ok) throw new HttpError(502, result.error);
+    if (!result.ok) throw new HttpError(result.overflow ? 422 : 502, result.error, result.overflow ? { overflow: true, sizing: result.sizing } : null);
     const text = str(result.text, 2000, 'turn', true);
     interview.turns.push({ role: 'interviewer', text, ts: Date.now() });
     db.interviews.setTurns(sid, interview.id, interview.turns);

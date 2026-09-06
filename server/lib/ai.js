@@ -80,8 +80,21 @@ async function resolveApiKey(c) {
 /* Сборка контекста из записей базы. resume.data — структура резюме
    ({ profession, summary, experience, skills, achievements, education }
    либо { rawText }). */
+const ContextPolicy = require('../../shared/context/policy.js');
+
+/* Жёсткий предел на размер запроса включён всегда; CONTEXT_POLICY=legacy
+   возвращает прежние широкие бюджеты слоёв (для сравнения). */
+function policyMode() {
+  return process.env.CONTEXT_POLICY === 'legacy' ? 'legacy' : 'policy';
+}
+
 function buildStore(taskId, parts) {
-  const store = ContextStore.create({ contextBudget: AiRequest.defaultsFor(taskId).contextBudget });
+  const policy = ContextPolicy.policyFor(taskId);
+  const legacy = policyMode() === 'legacy';
+  const store = ContextStore.create({
+    contextBudget: legacy ? AiRequest.defaultsFor(taskId).contextBudget : policy.inputCap,
+    windowTurns: legacy ? 12 : Math.max(2, policy.windowTurns || 8)
+  });
   const resume = parts.resume ? parts.resume.data : {};
   const prep = parts.prep || {};
   const vacancy = parts.vacancy || null;
@@ -132,11 +145,23 @@ async function run(sessionId, taskId, parts, options) {
   }
 
   const store = buildStore(taskId, parts);
-  const built = store.build();
-  const request = AiRequest.build(taskId, built.context, {
+  const fitted = AiRequest.fit(taskId, store, {
     provider: c.provider, model: c.model, locale: c.locale,
-    endpoint: c.endpoint || undefined, streaming: opts.streaming
+    endpoint: c.endpoint || undefined, streaming: opts.streaming,
+    thinkingKnownOff: process.env.AI_THINKING_OFF === '1'
   });
+  if (!fitted.ok) {
+    /* Не помещается даже после сброса всего необязательного — платный
+       вызов не делается, пользователь получает понятную ошибку. */
+    log.warn('ai.overflow', { requestId, task: taskId, sizing: fitted.sizing });
+    db.usage.record(sessionId, { requestId, phase, task: taskId, provider: c.provider, model: c.model,
+      ok: false, ms: 0, usageStatus: 'not_applicable', attempts: 0, outcome: 'overflow',
+      tokensEstimate: fitted.sizing.inputTokens });
+    return { ok: false, overflow: true, error: fitted.error, dropped: fitted.report.dropped, requestId,
+      sizing: fitted.sizing };
+  }
+  const request = fitted.request;
+  const built = { report: fitted.report };
   if (opts.onDelta) request.onDelta = opts.onDelta;
 
   const started = Date.now();
@@ -167,12 +192,14 @@ async function run(sessionId, taskId, parts, options) {
       cost: u && u.cost !== undefined ? u.cost : undefined,
       usageStatus: c.provider === 'mock' ? 'not_applicable' : (u ? 'reported' : 'unknown'),
       attempts: attemptLog.length, outcome: a.outcome || null,
+      tokensEstimate: request.sizing ? request.sizing.inputTokens : 0,
+      estimateExact: request.sizing ? request.sizing.exact : false,
       ok: a.ok, ms: a.ms
     });
   });
   log.info('ai.task', { requestId, phase, task: taskId, provider: c.provider, ok: result.ok, ms,
     attempts: result.attempts, usageStatus: result.usage ? 'reported' : 'unknown',
-    dropped: built.report.dropped, error: result.error });
+    sizing: request.sizing, dropped: built.report.dropped, error: result.error });
 
   if (!result.ok) return { ok: false, error: result.error || 'Сервис модели не ответил', dropped: built.report.dropped, requestId };
 
@@ -184,7 +211,8 @@ async function run(sessionId, taskId, parts, options) {
     json = parsed.value;
   }
   return { ok: true, text: result.text, json, truncated: result.truncated === true,
-    mock: result.mock === true, dropped: built.report.dropped, usage: result.usage, requestId };
+    mock: result.mock === true, dropped: built.report.dropped, usage: result.usage, requestId,
+    sizing: request.sizing };
 }
 
 module.exports = { run, config, isLive, describe, policyCheck };

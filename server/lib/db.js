@@ -101,7 +101,8 @@ function open(file) {
   const ucols = db.prepare('PRAGMA table_info(usage)').all().map(function (c) { return c.name; });
   [['request_id', 'TEXT'], ['phase', "TEXT DEFAULT 'main'"], ['usage_status', "TEXT DEFAULT 'reported'"],
     ['attempts', 'INTEGER DEFAULT 1'], ['tokens_cache_read', 'INTEGER DEFAULT 0'],
-    ['tokens_reasoning', 'INTEGER DEFAULT 0'], ['cost', 'REAL'], ['outcome', 'TEXT']].forEach(function (col) {
+    ['tokens_reasoning', 'INTEGER DEFAULT 0'], ['cost', 'REAL'], ['outcome', 'TEXT'],
+    ['tokens_estimate', 'INTEGER DEFAULT 0'], ['estimate_exact', 'INTEGER DEFAULT 0']].forEach(function (col) {
     if (ucols.indexOf(col[0]) < 0) db.exec('ALTER TABLE usage ADD COLUMN ' + col[0] + ' ' + col[1]);
   });
   return db;
@@ -373,13 +374,15 @@ const usage = {
      в токенах стоят нули, но это НЕ «бесплатно»; not_applicable — заглушка. */
   record(sid, entry) {
     db.prepare(`INSERT INTO usage (session_id, task, provider, model, tokens_in, tokens_out, ok, ms, created_at,
-        request_id, phase, usage_status, attempts, tokens_cache_read, tokens_reasoning, cost, outcome)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+        request_id, phase, usage_status, attempts, tokens_cache_read, tokens_reasoning, cost, outcome,
+        tokens_estimate, estimate_exact)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
       .run(sid, entry.task, entry.provider, entry.model || '', entry.tokensIn || 0, entry.tokensOut || 0,
         entry.ok ? 1 : 0, entry.ms || 0, now(),
         entry.requestId || null, entry.phase || 'main', entry.usageStatus || 'reported',
         entry.attempts || 1, entry.tokensCacheRead || 0, entry.tokensReasoning || 0,
-        entry.cost === undefined ? null : entry.cost, entry.outcome || null);
+        entry.cost === undefined ? null : entry.cost, entry.outcome || null,
+        entry.tokensEstimate || 0, entry.estimateExact ? 1 : 0);
   },
   byRequest(sid, requestId) {
     return db.prepare('SELECT * FROM usage WHERE session_id = ? AND request_id = ?').all(sid, requestId);
