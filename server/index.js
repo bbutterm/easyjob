@@ -15,6 +15,12 @@ const session = require('./lib/session.js');
 const log = require('./lib/log.js');
 const Router = require('./lib/router.js');
 const api = require('./routes/api.js');
+const admin = require('./routes/admin.js');
+const retention = require('./lib/retention.js');
+const { createLimiter, clientAddress } = require('./lib/ratelimit.js');
+
+/* Маршруты, которые вызывают модель: считаются отдельно и строже. */
+const EXPENSIVE = /^\/api\/(preps(\/[^/]+\/(rebuild|questions|card|interviews))?|resumes\/[^/]+\/review|vacancies|interviews\/[^/]+\/(turns|continue|finish))\/?$/;
 
 const ROOT = path.resolve(__dirname, '..');
 
@@ -36,11 +42,17 @@ function createApp(options) {
     freePrepsPerDay: opts.freePrepsPerDay !== undefined ? opts.freePrepsPerDay
       : (Number(process.env.FREE_PREPS_PER_DAY) || 1),
     secure: opts.secure !== undefined ? opts.secure : process.env.TRUST_PROXY === '1',
-    staticDir: opts.staticDir || process.env.STATIC_DIR || ROOT
+    staticDir: opts.staticDir || process.env.STATIC_DIR || ROOT,
+    adminToken: opts.adminToken !== undefined ? opts.adminToken : (process.env.ADMIN_TOKEN || ''),
+    retentionDays: opts.retentionDays !== undefined ? opts.retentionDays
+      : (Number(process.env.DATA_RETENTION_DAYS) || 90),
+    rateLimit: Object.assign({ perMinute: 120, expensivePerMinute: 12 }, opts.rateLimit || {})
   };
+  if (process.env.RATE_LIMIT_PER_MINUTE) cfg.rateLimit.perMinute = Number(process.env.RATE_LIMIT_PER_MINUTE);
+  if (process.env.RATE_LIMIT_EXPENSIVE_PER_MINUTE) cfg.rateLimit.expensivePerMinute = Number(process.env.RATE_LIMIT_EXPENSIVE_PER_MINUTE);
 
   log.setLevel(process.env.LOG_LEVEL || 'info');
-  db.open(cfg.dbFile);
+  const dbHandle = db.open(cfg.dbFile);
   session.init(process.env.SESSION_SECRET);
   if (!process.env.SESSION_SECRET) {
     log.warn('SESSION_SECRET не задан: сессии сбросятся при перезапуске сервера');
@@ -48,6 +60,11 @@ function createApp(options) {
 
   const router = Router.create();
   api.register(router);
+  admin.register(router, cfg);
+
+  const ipLimiter = createLimiter({ windowMs: 60000, max: cfg.rateLimit.perMinute });
+  const expensiveLimiter = createLimiter({ windowMs: 60000, max: cfg.rateLimit.expensivePerMinute });
+  const retentionTimer = opts.retention === false ? null : retention.schedule(cfg.retentionDays);
 
   const indexFile = path.join(cfg.staticDir, 'index.html');
 
@@ -78,9 +95,29 @@ function createApp(options) {
       if (req.method !== 'GET' && req.method !== 'HEAD' && !sameOrigin(req)) {
         throw new Router.HttpError(403, 'Запрос с чужого адреса');
       }
+      res.setHeader('x-content-type-options', 'nosniff');
+      res.setHeader('referrer-policy', 'no-referrer');
+
+      const isApi = req.url.indexOf('/api/') === 0;
+      if (isApi) {
+        const byIp = ipLimiter.hit(clientAddress(req, cfg.secure));
+        if (!byIp.allowed) {
+          res.setHeader('retry-after', String(byIp.retryAfterSec));
+          throw new Router.HttpError(429, 'Слишком много запросов. Подождите ' + byIp.retryAfterSec + ' с.');
+        }
+      }
+
       const cookies = Router.parseCookies(req.headers.cookie);
       const { session: current } = session.resolve(cookies, res, cfg.secure);
       const ctx = { session: current, freePrepsPerDay: cfg.freePrepsPerDay };
+
+      if (isApi && req.method === 'POST' && EXPENSIVE.test(req.url.split('?')[0])) {
+        const bySession = expensiveLimiter.hit(current.id);
+        if (!bySession.allowed) {
+          res.setHeader('retry-after', String(bySession.retryAfterSec));
+          throw new Router.HttpError(429, 'Слишком частые запросы к модели. Подождите ' + bySession.retryAfterSec + ' с.');
+        }
+      }
       const handled = await router.dispatch(req, res, ctx);
       if (handled === undefined && !res.headersSent) {
         if (req.url.indexOf('/api/') === 0) Router.sendJson(res, 404, { error: 'Нет такого маршрута' });
@@ -97,7 +134,11 @@ function createApp(options) {
   }
 
   const server = http.createServer(handle);
-  server.on('close', function () { db.close(); });
+  server.on('close', function () {
+    ipLimiter.stop(); expensiveLimiter.stop();
+    if (retentionTimer) clearInterval(retentionTimer);
+    db.closeIf(dbHandle);
+  });
   return { server, cfg };
 }
 
@@ -107,6 +148,7 @@ if (require.main === module) {
   const host = process.env.HOST || '127.0.0.1';
   server.listen(port, host, function () {
     log.info('server.started', { host, port, db: cfg.dbFile, freePrepsPerDay: cfg.freePrepsPerDay,
+      retentionDays: cfg.retentionDays, rateLimit: cfg.rateLimit, admin: !!cfg.adminToken,
       ai: require('./lib/ai.js').describe() });
   });
   process.on('SIGTERM', function () { server.close(function () { process.exit(0); }); });

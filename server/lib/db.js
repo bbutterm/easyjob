@@ -100,6 +100,13 @@ function close() {
   if (db) { db.close(); db = null; }
 }
 
+/* Закрыть только ту базу, которую открыл вызывающий: событие close у
+   http-сервера приходит асинхронно и не должно закрывать базу, уже
+   открытую следующим экземпляром (важно для проверок). */
+function closeIf(handle) {
+  if (db && db === handle) { db.close(); db = null; }
+}
+
 function id(prefix) {
   return prefix + '_' + crypto.randomBytes(9).toString('base64url');
 }
@@ -128,6 +135,26 @@ const sessions = {
   },
   setPaidUntil(sid, ts) {
     db.prepare('UPDATE sessions SET paid_until = ? WHERE id = ?').run(ts, sid);
+  },
+  /* Удалить сессии, к которым не обращались с указанного момента, вместе
+     с их резюме, вакансиями, подготовками и интервью. Оплаченные сессии
+     сохраняются до конца оплаченного периода. */
+  removeInactiveSince(cutoff) {
+    const stale = db.prepare('SELECT id FROM sessions WHERE last_seen_at < ? AND paid_until < ?')
+      .all(cutoff, Date.now()).map(function (r) { return r.id; });
+    let resumesRemoved = 0, prepsRemoved = 0;
+    const tx = function () {
+      stale.forEach(function (sid) {
+        resumesRemoved += db.prepare('DELETE FROM resumes WHERE session_id = ?').run(sid).changes;
+        db.prepare('DELETE FROM vacancies WHERE session_id = ?').run(sid);
+        db.prepare('DELETE FROM interviews WHERE session_id = ?').run(sid);
+        prepsRemoved += db.prepare('DELETE FROM preps WHERE session_id = ?').run(sid).changes;
+        db.prepare('DELETE FROM sessions WHERE id = ?').run(sid);
+      });
+    };
+    db.exec('BEGIN');
+    try { tx(); db.exec('COMMIT'); } catch (e) { db.exec('ROLLBACK'); throw e; }
+    return { sessions: stale.length, resumes: resumesRemoved, preps: prepsRemoved };
   }
 };
 
@@ -316,7 +343,25 @@ const usage = {
   totals(sid) {
     return db.prepare(`SELECT COUNT(*) AS requests, COALESCE(SUM(tokens_in), 0) AS tokensIn,
       COALESCE(SUM(tokens_out), 0) AS tokensOut FROM usage WHERE session_id = ?`).get(sid);
+  },
+  /* Сводка для владельца: по задачам и по дням, без привязки к содержимому. */
+  summary(days) {
+    const since = Date.now() - (Number(days) || 30) * 24 * 3600 * 1000;
+    return {
+      since,
+      byTask: db.prepare(`SELECT task, provider, COUNT(*) AS requests, SUM(ok) AS succeeded,
+          COALESCE(SUM(tokens_in), 0) AS tokensIn, COALESCE(SUM(tokens_out), 0) AS tokensOut,
+          ROUND(AVG(ms)) AS avgMs
+        FROM usage WHERE created_at >= ? GROUP BY task, provider ORDER BY requests DESC`).all(since),
+      byDay: db.prepare(`SELECT date(created_at / 1000, 'unixepoch') AS day, COUNT(*) AS requests,
+          COUNT(DISTINCT session_id) AS sessions,
+          COALESCE(SUM(tokens_in), 0) AS tokensIn, COALESCE(SUM(tokens_out), 0) AS tokensOut
+        FROM usage WHERE created_at >= ? GROUP BY day ORDER BY day DESC`).all(since),
+      sessions: db.prepare('SELECT COUNT(*) AS total, SUM(paid_until > ?) AS paid FROM sessions').get(Date.now()),
+      preps: db.prepare('SELECT COUNT(*) AS total FROM preps WHERE created_at >= ?').get(since).total,
+      resumes: db.prepare('SELECT COUNT(*) AS total FROM resumes').get().total
+    };
   }
 };
 
-module.exports = { open, close, id, sessions, resumes, vacancies, preps, interviews, usage };
+module.exports = { open, close, closeIf, id, sessions, resumes, vacancies, preps, interviews, usage };

@@ -139,6 +139,17 @@ const VACANCY_TEXT = 'Ищем повара в ресторан полного �
   await page.waitForFunction("!document.body.innerText.includes('предыдущей версии')", null, { timeout: 15000 });
   ok('Пересборка через сервер снимает отметку', true);
 
+  /* ---- Черновик политики данных ---- */
+  await page.goto(base + '/#/privacy');
+  await page.waitForSelector('text=Обработка данных');
+  const privacyText = await page.locator('#main').innerText();
+  ok('Страница политики называет сервис модели и регион', privacyText.indexOf('Заглушка без сети') >= 0);
+  ok('Политика помечена как черновик', privacyText.indexOf('черновик') >= 0);
+  await page.goto(base + '/#/vacancy/new');
+  await page.waitForSelector('#vac-title');
+  ok('На форме отправки есть уведомление со ссылкой на политику',
+    await page.locator('a[href="#/privacy"]').first().isVisible());
+
   ok('Нет сторонних запросов', external.length === 0, external.join(', '));
   ok('Нет ошибок в консоли', errors.length === 0, errors.join(' | '));
 

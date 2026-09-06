@@ -3209,15 +3209,77 @@ var ScreensCore = (function () {
             + '<li><b>Источник требований:</b> вставленный текст (в демо используется подготовленный разбор)</li>'
             + '</ul>'
           : note('info', '<div>Чтобы собрать подготовку, укажите должность, вставьте текст вакансии и выберите резюме.</div>'))
+      + (Api.live.enabled
+          ? '<p class="small muted">Нажимая «Создать подготовку», вы отправляете резюме и текст вакансии на сервер '
+            + 'и сервису модели. Как они обрабатываются — <a href="#/privacy">черновик политики данных</a>.</p>'
+          : '')
       + '  <div class="btn-row">'
       + '    <button type="button" class="btn btn--primary" data-act="vacancy:create"'
-      + (ready ? '' : ' aria-disabled="true" disabled') + '>Создать подготовку</button>'
+      + (ready ? '' : ' aria-disabled="true" disabled') + (Store.get().pending ? ' disabled' : '') + '>'
+      + (Store.get().pending ? 'Подождите…' : 'Создать подготовку') + '</button>'
       + '    <a class="btn" href="#/vacancies">Отмена</a>'
       + '  </div>'
       + '</div>';
   }
 
+  /* ---------------- Черновик политики обработки данных ---------------- */
+
+  function privacy() {
+    var live = Api.live.enabled;
+    var ai = Api.live.ai || {};
+    return ''
+      + pageHead('Обработка данных', 'Черновик. До запуска формулировки должен просмотреть юрист.')
+      + note('demo', '<div><strong>Это черновик, а не юридический документ.</strong> Он описывает, как сервис '
+        + 'устроен сейчас, чтобы вы понимали, куда уходят данные. Формулировки будут переписаны юристом.</div>')
+      + '<div class="card stack">'
+      + '  <h2>Что сервис получает</h2>'
+      + '  <ul>'
+      + '    <li>Текст резюме и то, что вы вводите в мастере: опыт, навыки, образование, пожелания.</li>'
+      + '    <li>Текст вакансии, который вы вставляете.</li>'
+      + '    <li>Ваши ответы на вопросы и реплики в тренировочном интервью.</li>'
+      + '  </ul>'
+      + '  <p class="muted">Файлы резюме не читаются: работает только вставленный текст. Звук не записывается, '
+      + '  экран не считывается.</p>'
+      + '</div>'
+      + '<div class="card stack">'
+      + '  <h2>Куда данные уходят</h2>'
+      + (live
+          ? '<ul>'
+            + '<li>Хранятся в базе этого сервера' + (ai.dataRegion === 'ru' ? '.' : '.') + '</li>'
+            + '<li>Для разбора отправляются сервису модели: <b>' + esc(ai.title || 'не задан') + '</b>'
+            + (ai.dataRegion === 'ru' ? ' — обработка в РФ.' : ai.dataRegion === 'global'
+                ? ' — <span class="tag tag--alert">обработка за пределами РФ</span>. Это трансграничная передача персональных данных.'
+                : ai.live ? '.' : ' — сейчас это заглушка, данные никуда не отправляются.') + '</li>'
+            + '</ul>'
+          : '<p class="muted">В демо-режиме данные не покидают вкладку браузера и удаляются при перезагрузке.</p>')
+      + '</div>'
+      + '<div class="card stack">'
+      + '  <h2>Сколько хранятся</h2>'
+      + '  <p class="muted">Данные сессии, к которой не обращались 90 дней, удаляются автоматически вместе с резюме, '
+      + '  вакансиями и подготовками. Срок задаётся владельцем сервера. Удалить раньше можно кнопками '
+      + '  в разделе «Настройки и данные».</p>'
+      + '</div>'
+      + '<div class="card stack">'
+      + '  <h2>Что не собирается</h2>'
+      + '  <ul>'
+      + '    <li>Нет аккаунтов, паролей и почты: сессия анонимная, по cookie.</li>'
+      + '    <li>Нет сторонних счётчиков и трекеров: страница не делает запросов никуда, кроме этого сервера.</li>'
+      + '    <li>Ключ доступа к сервису модели вам не виден и в браузер не передаётся.</li>'
+      + '    <li>В журналах сервера текст резюме и ответы скрыты.</li>'
+      + '  </ul>'
+      + '</div>'
+      + '<div class="card stack">'
+      + '  <h2>Что ещё не решено</h2>'
+      + '  <ul class="muted">'
+      + '    <li>Юридическое лицо-оператор и уведомление регулятора об обработке.</li>'
+      + '    <li>Точная формулировка согласия и порядок его отзыва.</li>'
+      + '    <li>Порядок ответа на запрос об удалении данных.</li>'
+      + '  </ul>'
+      + '</div>';
+  }
+
   return {
+    privacy: privacy,
     pageHead: pageHead,
     prepTitle: prepTitle,
     staleBanner: staleBanner,
@@ -3956,8 +4018,9 @@ var ScreensPrep = (function () {
       + '</div>'
       + '<div class="card stack">'
       + '  <h2>Черновик о приватности</h2>'
-      + '  <p class="muted">Прототип не отправляет введённый текст и выбранные файлы на сервер, не подключает '
-      + '  аналитику и внешние сервисы. Формулировки будут переписаны юристом до запуска: это рабочий черновик.</p>'
+      + '  <p class="muted">Что сервис получает, куда отправляет и сколько хранит — на отдельной странице. '
+      + '  Формулировки будут переписаны юристом до запуска: это рабочий черновик.</p>'
+      + '  <div class="btn-row"><a class="btn" href="#/privacy">Открыть черновик политики</a></div>'
       + '</div>';
   }
 
@@ -4123,7 +4186,7 @@ var ScreensPrep = (function () {
   }
 
   var KNOWN = ['start', 'auth', 'onboarding', 'overview', 'resumes', 'resume', 'vacancies',
-    'vacancy', 'prep', 'interviews', 'assistant', 'plans', 'history', 'settings'];
+    'vacancy', 'prep', 'interviews', 'assistant', 'plans', 'history', 'settings', 'privacy'];
 
   /* ---------------- Отрисовка ---------------- */
 
@@ -4155,6 +4218,7 @@ var ScreensPrep = (function () {
       case 'plans': return ScreensPrep.plans();
       case 'history': return ScreensPrep.history();
       case 'settings': return ScreensPrep.settings();
+      case 'privacy': return ScreensCore.privacy();
       default: return '';
     }
   }
@@ -4164,6 +4228,7 @@ var ScreensPrep = (function () {
     if (name === 'vacancy') return 'vacancies';
     if (name === 'prep') return 'vacancies';
     if (name === 'history') return 'settings';
+    if (name === 'privacy') return 'settings';
     return name;
   }
 
@@ -4186,6 +4251,7 @@ var ScreensPrep = (function () {
       + '  <div class="sidebar__nav">' + links + '</div>'
       + '  <div class="sidebar__foot">'
       + '    <a class="navlink" href="#/history"><span>История</span></a>'
+      + '    <a class="navlink" href="#/privacy"><span>Обработка данных</span></a>'
       + '    <a class="navlink" href="#/start"><span>Выйти из демо</span></a>'
       + '  </div>'
       + '</nav>';

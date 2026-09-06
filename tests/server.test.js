@@ -45,7 +45,8 @@ const VACANCY_TEXT = 'Ищем повара в ресторан.\n\nТребов
   + '— Работа по технологическим картам\n— Действующая медицинская книжка\n— Опыт с авторским меню\n\nУсловия: сменный график.';
 
 (async () => {
-  const { server } = createApp({ dbFile: ':memory:', freePrepsPerDay: 2, secure: false });
+  const { server } = createApp({ dbFile: ':memory:', freePrepsPerDay: 2, secure: false,
+    adminToken: 'admin-test-token', retention: false, rateLimit: { perMinute: 1000, expensivePerMinute: 1000 } });
   await new Promise(function (r) { server.listen(0, '127.0.0.1', r); });
   const base = 'http://127.0.0.1:' + server.address().port;
   const a = client(base);
@@ -154,7 +155,76 @@ const VACANCY_TEXT = 'Ищем повара в ресторан.\n\nТребов
   const missing = await fetch(base + '/api/nope');
   ok('Неизвестный маршрут API даёт 404', missing.status === 404);
 
+  /* ---- Сводка владельца ---- */
+  const noToken = await fetch(base + '/api/admin/usage');
+  ok('Сводка без токена недоступна', noToken.status === 401);
+  const wrongToken = await fetch(base + '/api/admin/usage', { headers: { authorization: 'Bearer wrong' } });
+  ok('Неверный токен отклоняется', wrongToken.status === 401);
+  const summary = await (await fetch(base + '/api/admin/usage?days=7', {
+    headers: { authorization: 'Bearer admin-test-token' } })).json();
+  ok('Сводка отдаёт счётчики по задачам', Array.isArray(summary.byTask) && summary.byTask.length > 0);
+  ok('В сводке нет содержимого резюме', JSON.stringify(summary).indexOf('горячего цеха') < 0);
+
+  /* ---- Автоудаление по сроку хранения ---- */
+  const db = require('../server/lib/db.js');
+  const before = db.sessions.removeInactiveSince(Date.now() - 3600 * 1000);
+  ok('Свежие сессии не удаляются', before.sessions === 0);
+  const after = db.sessions.removeInactiveSince(Date.now() + 1000);
+  ok('Неактивные сессии удаляются вместе с резюме и подготовками',
+    after.sessions >= 2 && after.resumes >= 1 && after.preps >= 1, JSON.stringify(after));
+  const gone = await a.call('GET', '/api/resumes/' + resume.data.id);
+  ok('После удаления данных сессии резюме недоступно', gone.status === 404);
+
   server.close();
+
+  /* ---- Ограничение частоты: отдельный сервер с низким порогом ---- */
+  const strict = createApp({ dbFile: ':memory:', freePrepsPerDay: 100, secure: false, retention: false,
+    rateLimit: { perMinute: 5, expensivePerMinute: 2 } });
+  await new Promise(function (r) { strict.server.listen(0, '127.0.0.1', r); });
+  const sbase = 'http://127.0.0.1:' + strict.server.address().port;
+  const c = client(sbase);
+  let last = null;
+  for (let i = 0; i < 6; i++) last = await c.call('GET', '/api/health');
+  ok('Шестой запрос в минуту с одного адреса получает 429', last.status === 429 && !!last.res.headers.get('retry-after'));
+  strict.server.close();
+
+  const strict2 = createApp({ dbFile: ':memory:', freePrepsPerDay: 100, secure: false, retention: false,
+    rateLimit: { perMinute: 1000, expensivePerMinute: 2 } });
+  await new Promise(function (r) { strict2.server.listen(0, '127.0.0.1', r); });
+  const s2base = 'http://127.0.0.1:' + strict2.server.address().port;
+  const d = client(s2base);
+  await d.call('GET', '/api/health');
+  const r1 = await d.call('POST', '/api/vacancies', { title: 'Повар', rawText: VACANCY_TEXT });
+  const r2 = await d.call('POST', '/api/vacancies', { title: 'Повар', rawText: VACANCY_TEXT });
+  const r3 = await d.call('POST', '/api/vacancies', { title: 'Повар', rawText: VACANCY_TEXT });
+  ok('Третий запрос к модели в минуту с одной сессии получает 429',
+    r1.status === 201 && r2.status === 201 && r3.status === 429 && /модели/.test(r3.data.error),
+    [r1.status, r2.status, r3.status].join('/') + ' ' + (r3.data && r3.data.error));
+  strict2.server.close();
+
+  /* ---- Обмен ключа GigaChat на токен ---- */
+  const GigaChatAuth = require('../server/lib/gigachat-auth.js');
+  GigaChatAuth.reset();
+  let exchanges = 0;
+  const fakeOauth = function (url, opts) {
+    exchanges += 1;
+    const okAuth = opts.headers.authorization === 'Basic ключ' && /rquid/i.test(Object.keys(opts.headers).join(','));
+    return Promise.resolve({ ok: okAuth, status: okAuth ? 200 : 401,
+      json: () => Promise.resolve(okAuth ? { access_token: 'tok-' + exchanges, expires_at: Date.now() + 10 * 60 * 1000 }
+        : { message: 'нет' }) });
+  };
+  const t1 = await GigaChatAuth.getToken('ключ', 'GIGACHAT_API_PERS', fakeOauth);
+  const t2 = await GigaChatAuth.getToken('ключ', 'GIGACHAT_API_PERS', fakeOauth);
+  ok('Токен GigaChat получен обменом ключа', t1 === 'tok-1');
+  ok('Повторный вызов берёт токен из кэша', t2 === 'tok-1' && exchanges === 1);
+  GigaChatAuth.reset();
+  const [p1, p2] = await Promise.all([GigaChatAuth.getToken('ключ', '', fakeOauth), GigaChatAuth.getToken('ключ', '', fakeOauth)]);
+  ok('Параллельные запросы делают один обмен', p1 === p2 && exchanges === 2);
+  GigaChatAuth.reset();
+  let authErr = null;
+  try { await GigaChatAuth.getToken('плохой', '', fakeOauth); } catch (e) { authErr = e.message; }
+  ok('Ошибка обмена объясняется', /токен GigaChat/.test(authErr || ''), authErr);
+
   const failed = results.filter(function (r) { return !r.pass; });
   console.log('\nИтого: ' + (results.length - failed.length) + ' из ' + results.length + ' проверок пройдено.');
   process.exit(failed.length ? 1 : 0);

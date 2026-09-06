@@ -43,7 +43,7 @@
   }
 
   var KNOWN = ['start', 'auth', 'onboarding', 'overview', 'resumes', 'resume', 'vacancies',
-    'vacancy', 'prep', 'interviews', 'assistant', 'plans', 'history', 'settings'];
+    'vacancy', 'prep', 'interviews', 'assistant', 'plans', 'history', 'settings', 'privacy'];
 
   /* ---------------- Отрисовка ---------------- */
 
@@ -75,6 +75,7 @@
       case 'plans': return ScreensPrep.plans();
       case 'history': return ScreensPrep.history();
       case 'settings': return ScreensPrep.settings();
+      case 'privacy': return ScreensCore.privacy();
       default: return '';
     }
   }
@@ -84,6 +85,7 @@
     if (name === 'vacancy') return 'vacancies';
     if (name === 'prep') return 'vacancies';
     if (name === 'history') return 'settings';
+    if (name === 'privacy') return 'settings';
     return name;
   }
 
@@ -106,6 +108,7 @@
       + '  <div class="sidebar__nav">' + links + '</div>'
       + '  <div class="sidebar__foot">'
       + '    <a class="navlink" href="#/history"><span>История</span></a>'
+      + '    <a class="navlink" href="#/privacy"><span>Обработка данных</span></a>'
       + '    <a class="navlink" href="#/start"><span>Выйти из демо</span></a>'
       + '  </div>'
       + '</nav>';

@@ -15,11 +15,16 @@ const Variables = require('../../shared/ai/variables.js');
 const db = require('./db.js');
 const log = require('./log.js');
 
+const GigaChatAuth = require('./gigachat-auth.js');
+
 function config() {
   return {
     provider: process.env.AI_PROVIDER || 'mock',
     model: process.env.AI_MODEL || '',
     apiKey: process.env.AI_API_KEY || '',
+    /* GigaChat: ключ авторизации обменивается на временный токен сам. */
+    authKey: process.env.AI_AUTH_KEY || '',
+    scope: process.env.AI_SCOPE || '',
     endpoint: process.env.AI_ENDPOINT || '',
     folderId: process.env.AI_FOLDER_ID || '',
     locale: process.env.AI_LOCALE || 'ru-RU',
@@ -41,8 +46,16 @@ function describe() {
     model: c.model || profile.defaultModel || '',
     live: c.provider !== 'mock',
     dataRegion: profile.dataRegion,
-    hasKey: !!c.apiKey
+    hasKey: !!(c.apiKey || c.authKey)
   };
+}
+
+/* Ключ для запроса: как есть, либо временный токен GigaChat по ключу авторизации. */
+async function resolveApiKey(c) {
+  if (c.provider === 'gigachat' && c.authKey) {
+    return GigaChatAuth.getToken(c.authKey, c.scope);
+  }
+  return c.apiKey;
 }
 
 /* Сборка контекста из записей базы. resume.data — структура резюме
@@ -98,8 +111,15 @@ async function run(sessionId, taskId, parts, options) {
   if (opts.onDelta) request.onDelta = opts.onDelta;
 
   const started = Date.now();
+  let apiKey;
+  try {
+    apiKey = await resolveApiKey(c);
+  } catch (e) {
+    log.error('ai.auth', { provider: c.provider, error: e.message });
+    return { ok: false, error: e.message, dropped: built.report.dropped };
+  }
   const result = await Providers.execute(request, {
-    apiKey: c.apiKey, endpoint: c.endpoint || undefined, folderId: c.folderId || undefined,
+    apiKey, endpoint: c.endpoint || undefined, folderId: c.folderId || undefined,
     timeoutMs: c.timeoutMs, signal: opts.signal
   });
   const ms = Date.now() - started;
