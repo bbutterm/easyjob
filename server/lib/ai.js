@@ -98,6 +98,11 @@ function memoryEnabled() {
   return process.env.CONTEXT_MEMORY === '1';
 }
 
+/* Что включено — для /api/health и клиента; секретов здесь нет. */
+function contextFlags() {
+  return { memory: memoryEnabled(), policy: policyMode(), evidence: memoryEnabled() && db.evidence.available() };
+}
+
 const INTERVIEW_TASKS = ['interview.turn', 'interview.summary', 'context.compact'];
 
 /* Компактный снимок подготовки: профиль, требования, версии исходников.
@@ -374,4 +379,4 @@ async function run(sessionId, taskId, parts, options) {
     sizing: request.sizing, context: contextInfo };
 }
 
-module.exports = { run, config, isLive, describe, policyCheck, buildStore, snapshotFor, makeSnapshot, memoryEnabled };
+module.exports = { run, config, isLive, describe, policyCheck, buildStore, snapshotFor, makeSnapshot, memoryEnabled, contextFlags };

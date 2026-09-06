@@ -507,6 +507,8 @@ textarea[aria-invalid="true"] { border-color: var(--danger); background: var(--d
   background: var(--surface-2); margin-bottom: var(--space-4);
 }
 .toolbar label { font-size: 13px; font-weight: 550; }
+.chat-status { font-size: 13px; }
+.chat-memory { font-size: 13px; margin: 0; }
 .toolbar select { width: auto; min-width: 150px; }
 
 /* ---------------- Чат ---------------- */
@@ -2410,7 +2412,7 @@ var Api = (function () {
   }
 
   /* Потоковый ответ (Server-Sent Events) через fetch. */
-  async function stream(path, body, onDelta) {
+  async function stream(path, body, onDelta, onStatus) {
     var res;
     try {
       res = await fetch(path, {
@@ -2444,6 +2446,7 @@ var Api = (function () {
         var payload;
         try { payload = JSON.parse(line.slice(5).trim()); } catch (e) { continue; }
         if (eventName === 'delta' && onDelta) onDelta(payload.text || '');
+        if (eventName === 'status' && onStatus) onStatus(payload.text || '');
         if (eventName === 'done') done = payload;
         if (eventName === 'error') throw new ApiError(502, payload.error || 'Ошибка в потоке ответа');
       }
@@ -3626,9 +3629,30 @@ var ScreensPrep = (function () {
     var pending = chat.pending
       ? '<div class="msg"><span class="msg__who">' + (isLivePrep(prep) ? 'Интервьюер' : 'Интервьюер (демо-сценарий)') + '</span>'
         + '<div class="msg__body">' + (chat.partial ? escLines(chat.partial) : '')
+        + (chat.status && !chat.partial ? '<span class="muted chat-status">' + esc(chat.status) + ' </span>' : '')
         + '<span class="dots" aria-label="Готовится следующая реплика">'
         + '<span></span><span></span><span></span></span></div></div>'
       : '';
+
+    /* Состояние контекста с сервера: исходники изменились — интервью идёт
+       на прежней версии; память интервью — версия и покрытие. */
+    var ctx = isLivePrep(prep) ? chat.context : null;
+    var contextBlock = '';
+    if (ctx && ctx.sourcesChanged) {
+      contextBlock += note('info', '<div><strong>Резюме или вакансия изменились после начала интервью.</strong> '
+        + 'Интервью продолжается на прежней версии. Чтобы использовать новую, пересоберите подготовку и начните '
+        + 'новое интервью.</div>');
+    }
+    var memoryLine = '';
+    if (ctx && ctx.memoryStatus === 'valid') {
+      memoryLine = 'Память интервью: версия ' + esc(String(ctx.memoryVersion)) + ', покрыты реплики до № '
+        + esc(String((ctx.compaction && ctx.compaction.coveredThroughSeq) || Math.max(0, ctx.windowFrom - 1)));
+    } else if (ctx && ctx.memoryStatus === 'stale') {
+      memoryLine = 'Память интервью устарела: исходники изменились, реплики идут окном.';
+    } else if (ctx && ctx.compaction && ctx.compaction.ran && ctx.compaction.ok === false) {
+      memoryLine = 'Память интервью не обновилась: ' + esc(ctx.compaction.error || 'ошибка сжатия') + '. Реплики идут окном.';
+    }
+    if (memoryLine) contextBlock += '<p class="muted chat-memory">' + memoryLine + '</p>';
 
     var failedBlock = chat.failed
       ? note('alert', '<div><strong>Демонстрационная ошибка отправки.</strong> Так выглядит состояние, когда реплика '
@@ -3642,6 +3666,7 @@ var ScreensPrep = (function () {
             + ' из ' + DEMO_DATA.interviewScript.length)
       + sourcesBar(prep)
       + '<div class="card stack">'
+      + contextBlock
       + '  <div class="chat" id="chat-log" role="log" aria-live="polite">' + messages + pending + '</div>'
       + failedBlock
       + UI.field({ id: 'chat-input', label: 'Ваш ответ', type: 'textarea', model: 'chatDraft',
@@ -4595,7 +4620,8 @@ var ScreensPrep = (function () {
       Store.update(function () {
         var chat = ScreensPrep.ensureChat(prep);
         chat.started = true; chat.index = 0; chat.finished = false; chat.failed = false;
-        chat.interviewId = first.interviewId; chat.summary = null; chat.partial = '';
+        chat.interviewId = first.interviewId; chat.summary = null; chat.partial = ''; chat.status = '';
+        chat.context = first.context || null; chat.lastTurn = null;
         chat.messages = [
           { who: 'system', text: Api.live.ai && Api.live.ai.live
             ? 'Интервьюер — модель. Ответы сохраняются на сервере.'
@@ -4607,34 +4633,54 @@ var ScreensPrep = (function () {
     } catch (e) { liveFail(e); }
   }
 
+  /* Идентификатор реплики от клиента: повтор после обрыва сети уходит с
+     тем же id, и сервер не создаёт дубля, а отдаёт прежний ответ. */
+  function newTurnId() {
+    return 't' + Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
+  }
+
+  function applyTurnResult(chat, done) {
+    chat.pending = false; chat.partial = ''; chat.status = ''; chat.index += 1;
+    chat.lastTurn = null;
+    chat.context = done.context || null;
+    chat.messages.push({ who: 'bot', text: done.turn.text });
+  }
+
   async function liveSendChat(prep) {
     var chat = prep.chat;
     var text = String(chat.draft || '').trim();
     if (!text) { UI.toast('Введите ответ, чтобы отправить его.'); return; }
+    var turn = { text: text, clientTurnId: newTurnId() };
     Store.update(function () {
       chat.messages.push({ who: 'user', text: text });
-      chat.draft = ''; chat.failed = false; chat.pending = true; chat.partial = '';
+      chat.draft = ''; chat.failed = false; chat.pending = true; chat.partial = ''; chat.status = '';
+      chat.lastTurn = turn;
     });
     try {
-      var done = await Api.stream('/api/interviews/' + chat.interviewId + '/turns', { text: text }, function (delta) {
-        chat.partial += delta;
+      var done = await Api.stream('/api/interviews/' + chat.interviewId + '/turns', turn, function (delta) {
+        chat.partial += delta; chat.status = '';
+        Store.notify();
+      }, function (status) {
+        chat.status = status;
         Store.notify();
       });
-      Store.update(function () {
-        chat.pending = false; chat.partial = ''; chat.index += 1;
-        chat.messages.push({ who: 'bot', text: done.turn.text });
-      });
+      Store.update(function () { applyTurnResult(chat, done); });
     } catch (e) {
-      Store.update(function () { chat.pending = false; chat.partial = ''; chat.failed = true; chat.failError = e.message; });
+      Store.update(function () { chat.pending = false; chat.partial = ''; chat.status = ''; chat.failed = true; chat.failError = e.message; });
     }
   }
 
+  /* Повтор: та же реплика с тем же clientTurnId. Если она уже сохранена,
+     сервер отдаст готовый ответ интервьюера или сгенерирует недостающий;
+     без сохранённой реплики — просто продолжение. */
   async function liveRetryChat(prep) {
     var chat = prep.chat;
     Store.update(function () { chat.failed = false; chat.pending = true; });
     try {
-      var done = await Api.request('POST', '/api/interviews/' + chat.interviewId + '/continue');
-      Store.update(function () { chat.pending = false; chat.index += 1; chat.messages.push({ who: 'bot', text: done.turn.text }); });
+      var done = chat.lastTurn
+        ? await Api.request('POST', '/api/interviews/' + chat.interviewId + '/turns', chat.lastTurn)
+        : await Api.request('POST', '/api/interviews/' + chat.interviewId + '/continue');
+      Store.update(function () { applyTurnResult(chat, done); });
     } catch (e) {
       Store.update(function () { chat.pending = false; chat.failed = true; chat.failError = e.message; });
     }

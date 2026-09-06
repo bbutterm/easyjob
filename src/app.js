@@ -450,7 +450,8 @@
       Store.update(function () {
         var chat = ScreensPrep.ensureChat(prep);
         chat.started = true; chat.index = 0; chat.finished = false; chat.failed = false;
-        chat.interviewId = first.interviewId; chat.summary = null; chat.partial = '';
+        chat.interviewId = first.interviewId; chat.summary = null; chat.partial = ''; chat.status = '';
+        chat.context = first.context || null; chat.lastTurn = null;
         chat.messages = [
           { who: 'system', text: Api.live.ai && Api.live.ai.live
             ? 'Интервьюер — модель. Ответы сохраняются на сервере.'
@@ -462,34 +463,54 @@
     } catch (e) { liveFail(e); }
   }
 
+  /* Идентификатор реплики от клиента: повтор после обрыва сети уходит с
+     тем же id, и сервер не создаёт дубля, а отдаёт прежний ответ. */
+  function newTurnId() {
+    return 't' + Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
+  }
+
+  function applyTurnResult(chat, done) {
+    chat.pending = false; chat.partial = ''; chat.status = ''; chat.index += 1;
+    chat.lastTurn = null;
+    chat.context = done.context || null;
+    chat.messages.push({ who: 'bot', text: done.turn.text });
+  }
+
   async function liveSendChat(prep) {
     var chat = prep.chat;
     var text = String(chat.draft || '').trim();
     if (!text) { UI.toast('Введите ответ, чтобы отправить его.'); return; }
+    var turn = { text: text, clientTurnId: newTurnId() };
     Store.update(function () {
       chat.messages.push({ who: 'user', text: text });
-      chat.draft = ''; chat.failed = false; chat.pending = true; chat.partial = '';
+      chat.draft = ''; chat.failed = false; chat.pending = true; chat.partial = ''; chat.status = '';
+      chat.lastTurn = turn;
     });
     try {
-      var done = await Api.stream('/api/interviews/' + chat.interviewId + '/turns', { text: text }, function (delta) {
-        chat.partial += delta;
+      var done = await Api.stream('/api/interviews/' + chat.interviewId + '/turns', turn, function (delta) {
+        chat.partial += delta; chat.status = '';
+        Store.notify();
+      }, function (status) {
+        chat.status = status;
         Store.notify();
       });
-      Store.update(function () {
-        chat.pending = false; chat.partial = ''; chat.index += 1;
-        chat.messages.push({ who: 'bot', text: done.turn.text });
-      });
+      Store.update(function () { applyTurnResult(chat, done); });
     } catch (e) {
-      Store.update(function () { chat.pending = false; chat.partial = ''; chat.failed = true; chat.failError = e.message; });
+      Store.update(function () { chat.pending = false; chat.partial = ''; chat.status = ''; chat.failed = true; chat.failError = e.message; });
     }
   }
 
+  /* Повтор: та же реплика с тем же clientTurnId. Если она уже сохранена,
+     сервер отдаст готовый ответ интервьюера или сгенерирует недостающий;
+     без сохранённой реплики — просто продолжение. */
   async function liveRetryChat(prep) {
     var chat = prep.chat;
     Store.update(function () { chat.failed = false; chat.pending = true; });
     try {
-      var done = await Api.request('POST', '/api/interviews/' + chat.interviewId + '/continue');
-      Store.update(function () { chat.pending = false; chat.index += 1; chat.messages.push({ who: 'bot', text: done.turn.text }); });
+      var done = chat.lastTurn
+        ? await Api.request('POST', '/api/interviews/' + chat.interviewId + '/turns', chat.lastTurn)
+        : await Api.request('POST', '/api/interviews/' + chat.interviewId + '/continue');
+      Store.update(function () { applyTurnResult(chat, done); });
     } catch (e) {
       Store.update(function () { chat.pending = false; chat.failed = true; chat.failError = e.message; });
     }

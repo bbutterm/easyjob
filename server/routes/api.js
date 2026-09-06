@@ -94,7 +94,7 @@ async function buildMatch(sid, prep, resume, vacancy) {
 
 function register(r) {
   r.get('/api/health', function ({ res }) {
-    sendJson(res, 200, { ok: true, ai: ai.describe(), time: Date.now() });
+    sendJson(res, 200, { ok: true, ai: ai.describe(), context: ai.contextFlags(), time: Date.now() });
   });
 
   r.get('/api/me', function ({ res, ctx }) {

@@ -322,9 +322,30 @@ var ScreensPrep = (function () {
     var pending = chat.pending
       ? '<div class="msg"><span class="msg__who">' + (isLivePrep(prep) ? 'Интервьюер' : 'Интервьюер (демо-сценарий)') + '</span>'
         + '<div class="msg__body">' + (chat.partial ? escLines(chat.partial) : '')
+        + (chat.status && !chat.partial ? '<span class="muted chat-status">' + esc(chat.status) + ' </span>' : '')
         + '<span class="dots" aria-label="Готовится следующая реплика">'
         + '<span></span><span></span><span></span></span></div></div>'
       : '';
+
+    /* Состояние контекста с сервера: исходники изменились — интервью идёт
+       на прежней версии; память интервью — версия и покрытие. */
+    var ctx = isLivePrep(prep) ? chat.context : null;
+    var contextBlock = '';
+    if (ctx && ctx.sourcesChanged) {
+      contextBlock += note('info', '<div><strong>Резюме или вакансия изменились после начала интервью.</strong> '
+        + 'Интервью продолжается на прежней версии. Чтобы использовать новую, пересоберите подготовку и начните '
+        + 'новое интервью.</div>');
+    }
+    var memoryLine = '';
+    if (ctx && ctx.memoryStatus === 'valid') {
+      memoryLine = 'Память интервью: версия ' + esc(String(ctx.memoryVersion)) + ', покрыты реплики до № '
+        + esc(String((ctx.compaction && ctx.compaction.coveredThroughSeq) || Math.max(0, ctx.windowFrom - 1)));
+    } else if (ctx && ctx.memoryStatus === 'stale') {
+      memoryLine = 'Память интервью устарела: исходники изменились, реплики идут окном.';
+    } else if (ctx && ctx.compaction && ctx.compaction.ran && ctx.compaction.ok === false) {
+      memoryLine = 'Память интервью не обновилась: ' + esc(ctx.compaction.error || 'ошибка сжатия') + '. Реплики идут окном.';
+    }
+    if (memoryLine) contextBlock += '<p class="muted chat-memory">' + memoryLine + '</p>';
 
     var failedBlock = chat.failed
       ? note('alert', '<div><strong>Демонстрационная ошибка отправки.</strong> Так выглядит состояние, когда реплика '
@@ -338,6 +359,7 @@ var ScreensPrep = (function () {
             + ' из ' + DEMO_DATA.interviewScript.length)
       + sourcesBar(prep)
       + '<div class="card stack">'
+      + contextBlock
       + '  <div class="chat" id="chat-log" role="log" aria-live="polite">' + messages + pending + '</div>'
       + failedBlock
       + UI.field({ id: 'chat-input', label: 'Ваш ответ', type: 'textarea', model: 'chatDraft',

@@ -412,6 +412,9 @@ const VACANCY_TEXT = 'Ищем повара в ресторан.\n\nТребов
   const diid = di.data.interviewId;
   const dbD = require('../server/lib/db.js');
   const prepD = dbD.preps.get(sidD, dp.data.id);
+  const hD = await dc.call('GET', '/api/health');
+  ok('F: здоровье сервера сообщает флаги контекста без секретов', hD.data.context && hD.data.context.memory === true
+    && hD.data.context.policy === 'policy' && hD.data.context.evidence === true && JSON.stringify(hD.data).indexOf('KEY') < 0);
   ok('D: первая реплика закрепляет снимок подготовки на версиях исходников',
     di.data.context && di.data.context.snapshotPinned === true && prepD.snapshot && prepD.snapshot.resumeRev === 1
     && prepD.snapshot.profile.experience[0].company === 'Пушкин', JSON.stringify(di.data.context));

@@ -51,7 +51,7 @@ var Api = (function () {
   }
 
   /* Потоковый ответ (Server-Sent Events) через fetch. */
-  async function stream(path, body, onDelta) {
+  async function stream(path, body, onDelta, onStatus) {
     var res;
     try {
       res = await fetch(path, {
@@ -85,6 +85,7 @@ var Api = (function () {
         var payload;
         try { payload = JSON.parse(line.slice(5).trim()); } catch (e) { continue; }
         if (eventName === 'delta' && onDelta) onDelta(payload.text || '');
+        if (eventName === 'status' && onStatus) onStatus(payload.text || '');
         if (eventName === 'done') done = payload;
         if (eventName === 'error') throw new ApiError(502, payload.error || 'Ошибка в потоке ответа');
       }

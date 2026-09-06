@@ -7,6 +7,7 @@ const { chromium } = require('playwright');
 const { createApp } = require('../server/index.js');
 
 process.env.AI_PROVIDER = 'mock';
+process.env.CONTEXT_MEMORY = '1';
 process.env.SESSION_SECRET = 'test-secret';
 process.env.LOG_LEVEL = 'error';
 
@@ -96,12 +97,34 @@ const VACANCY_TEXT = 'Ищем повара в ресторан полного �
   await page.waitForSelector('#chat-input', { timeout: 15000 });
   const firstBot = await page.locator('.msg:not(.msg--user):not(.msg--sys) .msg__body').first().innerText();
   ok('Первый вопрос интервьюера пришёл с сервера', firstBot.length > 10, firstBot.slice(0, 50));
+  const turnBodies = [];
+  page.on('request', function (req) {
+    if (/\/api\/interviews\/[^/]+\/turns$/.test(req.url()) && req.method() === 'POST') {
+      try { turnBodies.push(JSON.parse(req.postData() || '{}')); } catch (e) { turnBodies.push({}); }
+    }
+  });
   await page.fill('#chat-input', 'Отвечал за горячий цех.');
   await page.click('button:has-text("Отправить ответ")');
   await page.waitForFunction(function () {
     return document.querySelectorAll('.msg:not(.msg--sys)').length >= 3;
   }, null, { timeout: 15000 });
   ok('Ответ ушёл и интервьюер продолжил', (await page.locator('.msg--user').count()) === 1);
+  ok('Реплика уходит с clientTurnId для идемпотентного повтора',
+    turnBodies.length === 1 && /^t[a-z0-9]{8,}$/.test(turnBodies[0].clientTurnId || ''), JSON.stringify(turnBodies[0]));
+  ok('До порога сжатия строки о памяти нет', (await page.locator('.chat-memory').count()) === 0);
+  /* Ещё ответы — до порога сжатия: память появляется в интерфейсе. */
+  const moreAnswers = ['Работал по технологическим картам.', 'Медкнижки сейчас нет.', 'Меню разрабатывал дважды в год.'];
+  for (let i = 0; i < moreAnswers.length; i++) {
+    await page.fill('#chat-input', moreAnswers[i]);
+    await page.click('button:has-text("Отправить ответ")');
+    await page.waitForFunction(function (n) {
+      return document.querySelectorAll('.msg--user').length === n && !document.querySelector('.dots');
+    }, i + 2, { timeout: 15000 });
+  }
+  const memoryLine = await page.locator('.chat-memory').innerText();
+  ok('После сжатия интерфейс показывает версию памяти и покрытие', /Память интервью: версия 1, покрыты реплики до № \d+/.test(memoryLine), memoryLine);
+  ok('Все реплики ушли с разными clientTurnId', turnBodies.length === 4
+    && new Set(turnBodies.map(function (b) { return b.clientTurnId; })).size === 4);
   await page.click('button:has-text("Завершить и выйти")');
   await page.click('.modal button:has-text("Завершить")');
   await page.waitForSelector('text=Итог пробного интервью', { timeout: 15000 });
