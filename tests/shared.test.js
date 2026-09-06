@@ -110,6 +110,36 @@ ok('Чистый JSON разбирается', R.parseJson('{"a":1}').ok);
 ok('JSON внутри текста разбирается', R.parseJson('Вот ответ: {"a":2} — всё').value.a === 2);
 ok('Мусор не ломает разбор', R.parseJson('совсем не json').ok === false);
 
+/* ---- Российские провайдеры и регион обработки данных ---- */
+ok('Есть провайдеры с обработкой в РФ',
+  C.ids().filter(C.isRussianRegion).length >= 2,
+  C.ids().filter(C.isRussianRegion).join(', '));
+ok('Зарубежные провайдеры помечены как трансграничная передача',
+  C.needsCrossBorderNotice('anthropic') && C.needsCrossBorderNotice('openai'));
+ok('Локальная модель не считается трансграничной передачей',
+  !C.needsCrossBorderNotice('openai_compatible'));
+
+var yaReq = R.build('match.requirements', { identity: { profession: 'Повар' } },
+  { provider: 'yandex', model: 'yandexgpt-lite' });
+var yaWire = P.adapter('yandex').toWire(yaReq, { apiKey: 'k', folderId: 'b1g' });
+ok('YandexGPT: модель задана строкой modelUri', yaWire.body.modelUri === 'gpt://b1g/yandexgpt-lite');
+ok('YandexGPT: сообщение содержит поле text, а не content',
+  yaWire.body.messages[0].text !== undefined && yaWire.body.messages[0].content === undefined);
+ok('YandexGPT: системная инструкция отдельным сообщением',
+  yaWire.body.messages[0].role === 'system');
+ok('YandexGPT: разбор ответа',
+  (function () {
+    var parsed = P.adapter('yandex').fromWire({ result: {
+      alternatives: [{ message: { role: 'assistant', text: ' ответ ' }, status: 'ALTERNATIVE_STATUS_FINAL' }],
+      usage: { inputTextTokens: '10', completionTokens: '5' } } });
+    return parsed.ok && parsed.text === 'ответ' && parsed.usage.input === 10;
+  })());
+ok('GigaChat использует адаптер, совместимый с OpenAI', P.adapter('gigachat').id === 'openai');
+ok('Провайдеру без поддержки изображений кадр не уходит',
+  R.build('screen.extract', { moment: { captureConsent: true,
+    image: { data: 'A', mediaType: 'image/png', width: 1280, height: 720 } } },
+    { provider: 'yandex' }).image === null);
+
 /* ---- Минимизация данных и защита от подмены инструкций ---- */
 
 var fullCtx = {

@@ -45,6 +45,7 @@
       promptCache: 'explicit_breakpoints',
       reasoning: 'adaptive_thinking_plus_effort',
       defaultModel: 'claude-opus-5',
+      dataRegion: 'global',
       verified: true,
       notes: [
         'Системная инструкция — отдельное поле system, а не роль в messages.',
@@ -70,6 +71,7 @@
       promptCache: 'automatic_prefix',
       reasoning: 'effort_parameter',
       defaultModel: '',
+      dataRegion: 'global',
       verified: false,
       notes: [
         'Системная инструкция передаётся первым сообщением с ролью system.',
@@ -92,6 +94,7 @@
       promptCache: 'explicit_cached_content',
       reasoning: 'thinking_config',
       defaultModel: '',
+      dataRegion: 'global',
       verified: false,
       notes: [
         'История называется contents, каждое сообщение состоит из parts.',
@@ -114,11 +117,60 @@
       promptCache: 'none',
       reasoning: 'none',
       defaultModel: '',
+      dataRegion: 'self',
       verified: false,
       notes: [
         'Строгий JSON-режим чаще всего отсутствует: ответ приходится разбирать защищённо.',
         'Изображения обычно не поддерживаются — режим чтения экрана переключается на текстовый.',
         'Контекст меньше облачных моделей: бюджет усечения задаётся жёстче.'
+      ]
+    },
+
+    yandex: {
+      id: 'yandex',
+      title: 'YandexGPT',
+      endpoint: 'https://llm.api.cloud.yandex.net/foundationModels/v1/completion',
+      auth: { header: 'Authorization', scheme: 'Api-Key' },
+      systemChannel: 'message_role',
+      messageShape: 'roles_with_text_field',
+      jsonMode: 'best_effort_instruction',
+      maxTokensField: 'completionOptions.maxTokens',
+      vision: false,
+      streaming: true,
+      promptCache: 'none',
+      reasoning: 'none',
+      defaultModel: 'yandexgpt-lite',
+      dataRegion: 'ru',
+      verified: false,
+      notes: [
+        'Модель задаётся строкой modelUri вида gpt://<каталог>/<модель>.',
+        'В сообщении поле text, а не content — общий адаптер не подходит.',
+        'Обработка идёт внутри РФ: подходит для данных с персональными данными.',
+        'Изображения не поддерживаются — режим чтения экрана переключается на текстовый.'
+      ]
+    },
+
+    gigachat: {
+      id: 'gigachat',
+      title: 'GigaChat',
+      endpoint: 'https://gigachat.devices.sberbank.ru/api/v1/chat/completions',
+      auth: { header: 'Authorization', scheme: 'Bearer' },
+      systemChannel: 'message_role',
+      messageShape: 'roles_system_user_assistant',
+      jsonMode: 'best_effort_instruction',
+      maxTokensField: 'max_tokens',
+      vision: false,
+      streaming: true,
+      promptCache: 'none',
+      reasoning: 'none',
+      defaultModel: '',
+      dataRegion: 'ru',
+      verified: false,
+      notes: [
+        'Интерфейс совместим с форматом OpenAI, поэтому используется тот же адаптер.',
+        'Токен доступа обменивается на ключ авторизации отдельным запросом и живёт ограниченное время: '
+          + 'обновление токена в прототипе не реализовано.',
+        'Обработка идёт внутри РФ: подходит для данных с персональными данными.'
       ]
     },
 
@@ -136,6 +188,7 @@
       promptCache: 'none',
       reasoning: 'none',
       defaultModel: 'mock-1',
+      dataRegion: 'none',
       verified: true,
       notes: [
         'Возвращает фиксированные ответы. Используется в прототипе и в тестах.',
@@ -162,6 +215,20 @@
     return Object.keys(PROFILES);
   }
 
+  /* Обрабатываются ли данные внутри РФ. Важно для персональных данных:
+     отправка их в зарубежный сервис — трансграничная передача. */
+  function isRussianRegion(id) {
+    return profile(id).dataRegion === 'ru';
+  }
+
+  /* Сервис, которому нельзя доверять персональные данные без
+     дополнительных оснований. Локальная модель считается безопасной:
+     данные не покидают машину пользователя. */
+  function needsCrossBorderNotice(id) {
+    return profile(id).dataRegion === 'global';
+  }
+
   return { profiles: PROFILES, profile: profile, ids: ids,
-    supportsVision: supportsVision, supportsStrictJson: supportsStrictJson };
+    supportsVision: supportsVision, supportsStrictJson: supportsStrictJson,
+    isRussianRegion: isRussianRegion, needsCrossBorderNotice: needsCrossBorderNotice };
 });

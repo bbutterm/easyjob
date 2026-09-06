@@ -4,7 +4,7 @@
 > `shared/ai/request.js` командой `node tools/gen-ai-docs.js`. Руками не править —
 > правьте исходники и перегенерируйте.
 
-Всего переменных: **53**, из них с персональными данными: **16**. Задач: **10**. Провайдеров: **5**.
+Всего переменных: **53**, из них с персональными данными: **16**. Задач: **10**. Провайдеров: **7**.
 
 ## Группы переменных
 
@@ -201,13 +201,15 @@
 
 Набор переменных одинаков для всех сервисов. Различается только способ их передачи.
 
-| Провайдер | Системная инструкция | Формат истории | Структурированный ответ | Поле длины | Изображения | Поток | Кэш префикса | Глубина рассуждения | Сверено |
-| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| **Anthropic Claude** (`anthropic`) | top_level_field | roles_user_assistant | output_config_format | `max_tokens` | да | да | explicit_breakpoints | adaptive_thinking_plus_effort | да |
-| **OpenAI и совместимые** (`openai`) | message_role | roles_system_user_assistant | response_format_json_schema | `max_completion_tokens` | да | да | automatic_prefix | effort_parameter | **нет** |
-| **Google Gemini** (`gemini`) | system_instruction_field | contents_parts | response_schema | `maxOutputTokens` | да | да | explicit_cached_content | thinking_config | **нет** |
-| **Локальная или своя модель с совместимым интерфейсом** (`openai_compatible`) | message_role | roles_system_user_assistant | best_effort_instruction | `max_tokens` | нет | да | none | none | **нет** |
-| **Заглушка без сети** (`mock`) | top_level_field | roles_user_assistant | native | `max_tokens` | да | нет | none | none | да |
+| Провайдер | Где данные | Системная инструкция | Формат истории | Структурированный ответ | Поле длины | Изображения | Поток | Кэш префикса | Глубина рассуждения | Сверено |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| **Anthropic Claude** (`anthropic`) | за рубежом | top_level_field | roles_user_assistant | output_config_format | `max_tokens` | да | да | explicit_breakpoints | adaptive_thinking_plus_effort | да |
+| **OpenAI и совместимые** (`openai`) | за рубежом | message_role | roles_system_user_assistant | response_format_json_schema | `max_completion_tokens` | да | да | automatic_prefix | effort_parameter | **нет** |
+| **Google Gemini** (`gemini`) | за рубежом | system_instruction_field | contents_parts | response_schema | `maxOutputTokens` | да | да | explicit_cached_content | thinking_config | **нет** |
+| **Локальная или своя модель с совместимым интерфейсом** (`openai_compatible`) | у себя | message_role | roles_system_user_assistant | best_effort_instruction | `max_tokens` | нет | да | none | none | **нет** |
+| **YandexGPT** (`yandex`) | РФ | message_role | roles_with_text_field | best_effort_instruction | `completionOptions.maxTokens` | нет | да | none | none | **нет** |
+| **GigaChat** (`gigachat`) | РФ | message_role | roles_system_user_assistant | best_effort_instruction | `max_tokens` | нет | да | none | none | **нет** |
+| **Заглушка без сети** (`mock`) | — | top_level_field | roles_user_assistant | native | `max_tokens` | да | нет | none | none | да |
 
 Столбец «Сверено» означает, что форма запроса проверена по актуальной документации.
 Для остальных сервисов адаптер написан по общеизвестной схеме интерфейса и требует
@@ -238,6 +240,19 @@
 - Строгий JSON-режим чаще всего отсутствует: ответ приходится разбирать защищённо.
 - Изображения обычно не поддерживаются — режим чтения экрана переключается на текстовый.
 - Контекст меньше облачных моделей: бюджет усечения задаётся жёстче.
+
+### YandexGPT
+
+- Модель задаётся строкой modelUri вида gpt://<каталог>/<модель>.
+- В сообщении поле text, а не content — общий адаптер не подходит.
+- Обработка идёт внутри РФ: подходит для данных с персональными данными.
+- Изображения не поддерживаются — режим чтения экрана переключается на текстовый.
+
+### GigaChat
+
+- Интерфейс совместим с форматом OpenAI, поэтому используется тот же адаптер.
+- Токен доступа обменивается на ключ авторизации отдельным запросом и живёт ограниченное время: обновление токена в прототипе не реализовано.
+- Обработка идёт внутри РФ: подходит для данных с персональными данными.
 
 ### Заглушка без сети
 

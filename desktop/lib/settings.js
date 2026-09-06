@@ -48,11 +48,25 @@ function init(userDataDir) {
   return data;
 }
 
-/* Защита от случайной записи лишнего: сохраняем только известные ключи. */
+const ALLOWED_PROVIDERS = ['mock', 'yandex', 'gigachat', 'openai_compatible',
+  'anthropic', 'openai', 'gemini'];
+const ALLOWED_READ_MODES = ['mock', 'vision', 'text'];
+
+/* Защита от случайной записи лишнего: сохраняем только известные ключи
+   и проверяем значения, а не только имена полей. */
 function sanitize(input) {
   const out = {};
   Object.keys(DEFAULTS).forEach(function (key) {
-    if (input[key] !== undefined) out[key] = input[key];
+    if (input[key] === undefined) return;
+    const value = input[key];
+    if (key === 'provider' && ALLOWED_PROVIDERS.indexOf(value) < 0) return;
+    if (key === 'readMode' && ALLOWED_READ_MODES.indexOf(value) < 0) return;
+    if (key === 'endpoint' && value && !/^https?:\/\//.test(String(value))) return;
+    if (typeof DEFAULTS[key] === 'number' && typeof value !== 'number') return;
+    if (typeof DEFAULTS[key] === 'boolean' && typeof value !== 'boolean') return;
+    if (typeof DEFAULTS[key] === 'string' && typeof value !== 'string') return;
+    if (key === 'intervalSec') { out[key] = Math.max(5, Math.min(120, value)); return; }
+    out[key] = value;
   });
   return out;
 }

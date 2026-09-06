@@ -8,6 +8,7 @@
 var anthropic = require('./anthropic.js');
 var openai = require('./openai.js');
 var gemini = require('./gemini.js');
+var yandex = require('./yandex.js');
 var mock = require('./mock.js');
 
 var ADAPTERS = {
@@ -17,6 +18,10 @@ var ADAPTERS = {
      что и OpenAI, но с другим адресом и часто без ключа. */
   openai_compatible: openai,
   gemini: gemini,
+  yandex: yandex,
+  /* Интерфейс GigaChat совместим с форматом OpenAI — адаптер тот же,
+     отличается только адрес сервиса и способ получения токена. */
+  gigachat: openai,
   mock: mock
 };
 

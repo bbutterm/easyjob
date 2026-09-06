@@ -16,10 +16,12 @@
       <span>Провайдер</span>
       <select id="provider">
         <option value="mock">Заглушка без сети (по умолчанию)</option>
-        <option value="anthropic">Anthropic Claude</option>
-        <option value="openai">OpenAI и совместимые</option>
-        <option value="gemini">Google Gemini</option>
-        <option value="openai_compatible">Локальная модель с совместимым интерфейсом</option>
+        <option value="yandex">YandexGPT — данные в РФ</option>
+        <option value="gigachat">GigaChat — данные в РФ</option>
+        <option value="openai_compatible">Локальная модель — данные не покидают компьютер</option>
+        <option value="anthropic">Anthropic Claude — данные за рубежом</option>
+        <option value="openai">OpenAI — данные за рубежом</option>
+        <option value="gemini">Google Gemini — данные за рубежом</option>
       </select>
     </label>
     <label class="field">
@@ -39,6 +41,7 @@
   </div>
   <p class="small muted">Ключ не записывается на диск: он живёт до закрытия программы.
     Можно передать его через переменную окружения <code>ASSISTANT_API_KEY</code>.</p>
+  <div id="regionNote"></div>
 
   <div class="grid-2">
     <label class="field">
@@ -136,8 +139,20 @@
     el('interval').value = s.intervalSec;
     el('keyState').textContent = s.hasApiKey ? 'Ключ задан (в памяти)' : 'Ключ не задан';
     el('keyState').className = 'tag ' + (s.hasApiKey ? 'tag--ok' : '');
+    updateRegionNote();
     log('Настройки загружены. Ключ на диск не пишется.');
   });
+
+  var CROSS_BORDER = ['anthropic', 'openai', 'gemini'];
+  function updateRegionNote() {
+    var box = el('regionNote');
+    if (CROSS_BORDER.indexOf(el('provider').value) < 0) { box.innerHTML = ''; return; }
+    box.innerHTML = '<div class="note note--danger">Выбран зарубежный сервис. Кадр экрана и текст '
+      + 'резюме уйдут за пределы РФ. Если в кадре есть лицо, имя или речь другого человека, '
+      + 'это передача его персональных данных без его согласия. Для таких данных выбирайте '
+      + 'сервис с обработкой в РФ или локальную модель.</div>';
+  }
+  el('provider').addEventListener('change', updateRegionNote);
 
   el('save').addEventListener('click', function () {
     window.assistant.settings.set({
