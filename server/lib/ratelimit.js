@@ -41,11 +41,16 @@ function createLimiter(options) {
   return { hit, sweep, stop: () => clearInterval(timer), size: () => buckets.size };
 }
 
-/* Адрес клиента: за прокси берётся из X-Forwarded-For, иначе из сокета. */
+/* Адрес клиента. За прокси: X-Real-IP, который выставляет nginx, иначе
+   ПОСЛЕДНИЙ элемент X-Forwarded-For — его дописывает наш прокси, а
+   левые элементы клиент может подставить сам. Без прокси — сокет. */
 function clientAddress(req, trustProxy) {
   if (trustProxy) {
-    const forwarded = String(req.headers['x-forwarded-for'] || '').split(',')[0].trim();
-    if (forwarded) return forwarded;
+    const real = String(req.headers['x-real-ip'] || '').trim();
+    if (real) return real;
+    const parts = String(req.headers['x-forwarded-for'] || '').split(',').map(function (p) { return p.trim(); })
+      .filter(Boolean);
+    if (parts.length) return parts[parts.length - 1];
   }
   return (req.socket && req.socket.remoteAddress) || 'unknown';
 }

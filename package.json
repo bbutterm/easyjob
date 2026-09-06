@@ -17,7 +17,7 @@
     "test:live": "node --no-warnings tests/live.test.js"
   },
   "engines": {
-    "node": ">=20"
+    "node": ">=22.5"
   },
   "devDependencies": {
     "playwright": "1.56.1"

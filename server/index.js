@@ -50,6 +50,7 @@ function createApp(options) {
   };
   if (process.env.RATE_LIMIT_PER_MINUTE) cfg.rateLimit.perMinute = Number(process.env.RATE_LIMIT_PER_MINUTE);
   if (process.env.RATE_LIMIT_EXPENSIVE_PER_MINUTE) cfg.rateLimit.expensivePerMinute = Number(process.env.RATE_LIMIT_EXPENSIVE_PER_MINUTE);
+  if (process.env.RATE_LIMIT_SESSIONS_PER_HOUR) cfg.rateLimit.sessionsPerHour = Number(process.env.RATE_LIMIT_SESSIONS_PER_HOUR);
 
   log.setLevel(process.env.LOG_LEVEL || 'info');
   const dbHandle = db.open(cfg.dbFile);
@@ -64,6 +65,8 @@ function createApp(options) {
 
   const ipLimiter = createLimiter({ windowMs: 60000, max: cfg.rateLimit.perMinute });
   const expensiveLimiter = createLimiter({ windowMs: 60000, max: cfg.rateLimit.expensivePerMinute });
+  /* Новые сессии с одного адреса: иначе сброс cookie обнуляет лимиты. */
+  const sessionLimiter = createLimiter({ windowMs: 3600000, max: cfg.rateLimit.sessionsPerHour || 60 });
   const retentionTimer = opts.retention === false ? null : retention.schedule(cfg.retentionDays);
 
   const indexFile = path.join(cfg.staticDir, 'index.html');
@@ -77,7 +80,12 @@ function createApp(options) {
     fs.readFile(indexFile, function (err, data) {
       if (err) { Router.sendJson(res, 404, { error: 'index.html не собран: node build.js' }); return; }
       res.writeHead(200, { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-cache',
-        'x-content-type-options': 'nosniff', 'referrer-policy': 'no-referrer' });
+        'x-content-type-options': 'nosniff', 'referrer-policy': 'no-referrer', 'x-frame-options': 'DENY',
+        /* Страница собрана в один файл со встроенными скриптами и стилями,
+           поэтому inline разрешён; всё остальное — только с этого адреса. */
+        'content-security-policy': "default-src 'self'; script-src 'self' 'unsafe-inline'; "
+          + "style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'; "
+          + "frame-ancestors 'none'; base-uri 'self'; form-action 'self'" });
       res.end(data);
     });
   }
@@ -97,21 +105,39 @@ function createApp(options) {
       }
       res.setHeader('x-content-type-options', 'nosniff');
       res.setHeader('referrer-policy', 'no-referrer');
+      res.setHeader('x-frame-options', 'DENY');
 
-      const isApi = req.url.indexOf('/api/') === 0;
+      /* Путь нормализуется один раз: сегменты вроде /../ в сыром адресе
+         не должны отличать проверку лимитов от выбора маршрута. */
+      const pathname = new URL(req.url, 'http://localhost').pathname;
+      const address = clientAddress(req, cfg.secure);
+      const isApi = pathname.indexOf('/api/') === 0;
       if (isApi) {
-        const byIp = ipLimiter.hit(clientAddress(req, cfg.secure));
+        const byIp = ipLimiter.hit(address);
         if (!byIp.allowed) {
           res.setHeader('retry-after', String(byIp.retryAfterSec));
           throw new Router.HttpError(429, 'Слишком много запросов. Подождите ' + byIp.retryAfterSec + ' с.');
         }
       }
 
-      const cookies = Router.parseCookies(req.headers.cookie);
-      const { session: current } = session.resolve(cookies, res, cfg.secure);
-      const ctx = { session: current, freePrepsPerDay: cfg.freePrepsPerDay };
+      /* Страница отдаётся без сессии: она создаётся при первом обращении
+         к API. Иначе каждый заход на сайт из общей сети расходовал бы
+         лимит новых сессий. */
+      if (!isApi) { serveStatic(req, res); return; }
 
-      if (isApi && req.method === 'POST' && EXPENSIVE.test(req.url.split('?')[0])) {
+      const cookies = Router.parseCookies(req.headers.cookie);
+      const ipHash = session.hashAddress(address);
+      if (!session.verify(cookies[session.COOKIE])) {
+        const newSessions = sessionLimiter.hit(address);
+        if (!newSessions.allowed) {
+          res.setHeader('retry-after', String(newSessions.retryAfterSec));
+          throw new Router.HttpError(429, 'Слишком много новых сессий с этого адреса.');
+        }
+      }
+      const { session: current } = session.resolve(cookies, res, cfg.secure, ipHash);
+      const ctx = { session: current, ipHash, freePrepsPerDay: cfg.freePrepsPerDay, secure: cfg.secure };
+
+      if (isApi && req.method === 'POST' && EXPENSIVE.test(pathname)) {
         const bySession = expensiveLimiter.hit(current.id);
         if (!bySession.allowed) {
           res.setHeader('retry-after', String(bySession.retryAfterSec));
@@ -119,10 +145,7 @@ function createApp(options) {
         }
       }
       const handled = await router.dispatch(req, res, ctx);
-      if (handled === undefined && !res.headersSent) {
-        if (req.url.indexOf('/api/') === 0) Router.sendJson(res, 404, { error: 'Нет такого маршрута' });
-        else serveStatic(req, res);
-      }
+      if (handled === undefined && !res.headersSent) Router.sendJson(res, 404, { error: 'Нет такого маршрута' });
     } catch (e) {
       const status = e.status || 500;
       if (status >= 500) log.error('request.failed', { method: req.method, url: req.url, error: e.message, stack: e.stack });
@@ -135,7 +158,7 @@ function createApp(options) {
 
   const server = http.createServer(handle);
   server.on('close', function () {
-    ipLimiter.stop(); expensiveLimiter.stop();
+    ipLimiter.stop(); expensiveLimiter.stop(); sessionLimiter.stop();
     if (retentionTimer) clearInterval(retentionTimer);
     db.closeIf(dbHandle);
   });

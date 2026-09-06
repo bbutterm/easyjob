@@ -93,6 +93,10 @@ function open(file) {
   db.exec('PRAGMA journal_mode = WAL');
   db.exec('PRAGMA foreign_keys = ON');
   db.exec(SCHEMA);
+  /* Поле добавлено позже схемы: у существующих баз его нет. */
+  const cols = db.prepare('PRAGMA table_info(sessions)').all().map(function (c) { return c.name; });
+  if (cols.indexOf('ip_hash') < 0) db.exec('ALTER TABLE sessions ADD COLUMN ip_hash TEXT');
+  db.exec('CREATE INDEX IF NOT EXISTS sessions_ip ON sessions(ip_hash)');
   return db;
 }
 
@@ -121,11 +125,28 @@ function parse(text, fallback) {
 /* ---- Сессии ---- */
 
 const sessions = {
-  create() {
-    const row = { id: id('s'), created_at: now(), last_seen_at: now(), paid_until: 0 };
-    db.prepare('INSERT INTO sessions (id, created_at, last_seen_at, paid_until) VALUES (?, ?, ?, ?)')
-      .run(row.id, row.created_at, row.last_seen_at, row.paid_until);
+  create(ipHash) {
+    const row = { id: id('s'), created_at: now(), last_seen_at: now(), paid_until: 0, ip_hash: ipHash || '' };
+    db.prepare('INSERT INTO sessions (id, created_at, last_seen_at, paid_until, ip_hash) VALUES (?, ?, ?, ?, ?)')
+      .run(row.id, row.created_at, row.last_seen_at, row.paid_until, row.ip_hash);
     return row;
+  },
+  touchIp(sid, ipHash) {
+    if (ipHash) db.prepare('UPDATE sessions SET ip_hash = ? WHERE id = ? AND (ip_hash IS NULL OR ip_hash = \'\')').run(ipHash, sid);
+  },
+  /* Удалить сессию со всем содержимым по запросу пользователя. Учёт
+     расходов остаётся: в нём нет содержимого, только счётчики. */
+  removeOne(sid) {
+    db.exec('BEGIN');
+    try {
+      const resumes = db.prepare('DELETE FROM resumes WHERE session_id = ?').run(sid).changes;
+      db.prepare('DELETE FROM vacancies WHERE session_id = ?').run(sid);
+      db.prepare('DELETE FROM interviews WHERE session_id = ?').run(sid);
+      const preps = db.prepare('DELETE FROM preps WHERE session_id = ?').run(sid).changes;
+      db.prepare('DELETE FROM sessions WHERE id = ?').run(sid);
+      db.exec('COMMIT');
+      return { resumes, preps };
+    } catch (e) { db.exec('ROLLBACK'); throw e; }
   },
   get(sid) {
     return db.prepare('SELECT * FROM sessions WHERE id = ?').get(sid) || null;
@@ -289,10 +310,17 @@ const preps = {
     db.prepare('DELETE FROM interviews WHERE prep_id = ? AND session_id = ?').run(pid, sid);
     return db.prepare('DELETE FROM preps WHERE id = ? AND session_id = ?').run(pid, sid).changes > 0;
   },
-  countToday(sid) {
+  /* Подготовок за сегодня: по сессии и по всем сессиям с того же адреса.
+     Иначе лимит обходится сбросом cookie. */
+  countToday(sid, ipHash) {
     const dayStart = new Date(); dayStart.setHours(0, 0, 0, 0);
-    return db.prepare('SELECT COUNT(*) AS c FROM preps WHERE session_id = ? AND created_at >= ?')
+    const bySession = db.prepare('SELECT COUNT(*) AS c FROM preps WHERE session_id = ? AND created_at >= ?')
       .get(sid, dayStart.getTime()).c;
+    if (!ipHash) return bySession;
+    const byIp = db.prepare(`SELECT COUNT(*) AS c FROM preps
+      WHERE created_at >= ? AND session_id IN (SELECT id FROM sessions WHERE ip_hash = ?)`)
+      .get(dayStart.getTime(), ipHash).c;
+    return Math.max(bySession, byIp);
   }
 };
 

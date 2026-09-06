@@ -98,7 +98,9 @@ const VACANCY_TEXT = 'Ищем повара в ресторан полного �
   ok('Первый вопрос интервьюера пришёл с сервера', firstBot.length > 10, firstBot.slice(0, 50));
   await page.fill('#chat-input', 'Отвечал за горячий цех.');
   await page.click('button:has-text("Отправить ответ")');
-  await page.waitForFunction("document.querySelectorAll('.msg:not(.msg--sys)').length >= 3", null, { timeout: 15000 });
+  await page.waitForFunction(function () {
+    return document.querySelectorAll('.msg:not(.msg--sys)').length >= 3;
+  }, null, { timeout: 15000 });
   ok('Ответ ушёл и интервьюер продолжил', (await page.locator('.msg--user').count()) === 1);
   await page.click('button:has-text("Завершить и выйти")');
   await page.click('.modal button:has-text("Завершить")');
@@ -136,7 +138,9 @@ const VACANCY_TEXT = 'Ищем повара в ресторан полного �
   ok('Сервер пометил подготовку устаревшей после правки резюме',
     (await page.locator('#main').innerText()).indexOf('предыдущей версии') >= 0);
   await page.click('button:has-text("Пересобрать демо")');
-  await page.waitForFunction("!document.body.innerText.includes('предыдущей версии')", null, { timeout: 15000 });
+  await page.waitForFunction(function () {
+    return !document.body.innerText.includes('предыдущей версии');
+  }, null, { timeout: 15000 });
   ok('Пересборка через сервер снимает отметку', true);
 
   /* ---- Черновик политики данных ---- */
@@ -150,8 +154,15 @@ const VACANCY_TEXT = 'Ищем повара в ресторан полного �
   ok('На форме отправки есть уведомление со ссылкой на политику',
     await page.locator('a[href="#/privacy"]').first().isVisible());
 
+  await page.goto(base + '/#/settings');
+  await page.waitForSelector('text=Мои данные');
+  ok('В настройках есть удаление своих данных с сервера',
+    await page.locator('button:has-text("Удалить все мои данные с сервера")').isVisible());
+
   ok('Нет сторонних запросов', external.length === 0, external.join(', '));
   ok('Нет ошибок в консоли', errors.length === 0, errors.join(' | '));
+  ok('Страница отдана с политикой безопасности содержимого',
+    /frame-ancestors 'none'/.test((await (await fetch(base + '/')).headers.get('content-security-policy')) || ''));
 
   await browser.close();
   server.close();

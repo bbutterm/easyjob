@@ -23,11 +23,16 @@
 
   /* ---------------- Работа с путями состояния ---------------- */
 
+  var FORBIDDEN_KEYS = ['__proto__', 'constructor', 'prototype'];
+
   function setPath(path, value) {
     var parts = path.split('.');
+    for (var k = 0; k < parts.length; k++) {
+      if (FORBIDDEN_KEYS.indexOf(parts[k]) >= 0) return;
+    }
     var target = Store.get();
     for (var i = 0; i < parts.length - 1; i++) {
-      if (target[parts[i]] === undefined || target[parts[i]] === null) return;
+      if (!Object.prototype.hasOwnProperty.call(target, parts[i]) || target[parts[i]] === null) return;
       target = target[parts[i]];
     }
     target[parts[parts.length - 1]] = value;
@@ -598,6 +603,20 @@
       case 'data:reset':
         Store.resetDemo();
         UI.toast('Демо сброшено к исходному состоянию.');
+        return;
+      case 'data:delete-server':
+        UI.confirm({
+          title: 'Удалить все данные с сервера?',
+          body: '<p>Резюме, вакансии, подготовки и переписка интервью будут удалены немедленно и без возможности '
+            + 'восстановления. Сессия завершится.</p>',
+          act: 'data:delete-server-confirm', confirmLabel: 'Удалить всё', danger: true
+        });
+        return;
+      case 'data:delete-server-confirm':
+        Api.request('DELETE', '/api/me').then(function () {
+          window.location.hash = '#/start';
+          window.location.reload();
+        }).catch(function (e) { UI.toast('Не удалось удалить: ' + e.message); });
         return;
       case 'data:clear-answers':
         UI.confirm({

@@ -123,12 +123,13 @@ function listFiles(dir) {
   await control.waitForSelector('.source', { timeout: 15000 });
   const sourceCount = await control.locator('.source').count();
   ok('Список источников получен', sourceCount > 0, sourceCount + ' шт. (в этой среде — только тестовый)');
-  ok('Тестовый источник помечен в интерфейсе',
-    (await control.locator('.source').first().innerText()).includes('тестовый'));
+  /* В списке может оказаться и настоящий экран Xvfb — ищем помеченный тестовый. */
+  const testSource = control.locator('.source', { hasText: 'тестовый' });
+  ok('Тестовый источник помечен в интерфейсе', (await testSource.count()) === 1);
   ok('Кнопка запуска заблокирована до выбора источника',
     await control.locator('#start').isDisabled());
 
-  await control.locator('.source').first().click();
+  await testSource.first().click();
   ok('После выбора источника запуск разрешён',
     await control.locator('#start').isEnabled());
 

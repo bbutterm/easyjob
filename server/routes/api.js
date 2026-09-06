@@ -15,10 +15,19 @@ function str(value, max, name, required) {
   return s;
 }
 
+/* Идентификаторы из ответа модели: только буквы, цифры, дефис и
+   подчёркивание. Иначе ключ вроде __proto__ попадёт в объект ответов. */
+const FORBIDDEN_IDS = ['__proto__', 'constructor', 'prototype'];
+function safeId(value, fallback) {
+  const v = String(value === undefined || value === null ? '' : value);
+  if (FORBIDDEN_IDS.indexOf(v) >= 0) return fallback;
+  return /^[A-Za-z0-9_-]{1,32}$/.test(v) ? v : fallback;
+}
+
 function limitsFor(session, ctx) {
   const free = ctx.freePrepsPerDay;
   const paid = session.paid_until && session.paid_until > Date.now();
-  const today = db.preps.countToday(session.id);
+  const today = db.preps.countToday(session.id, ctx.ipHash);
   return { freePerDay: free, usedToday: today, paid, remaining: paid ? null : Math.max(0, free - today) };
 }
 
@@ -52,7 +61,7 @@ async function ensureRequirements(sid, vacancy) {
   const reqs = Array.isArray(result.json.requirements) ? result.json.requirements : [];
   if (!reqs.length) throw new HttpError(422, 'В тексте вакансии не удалось выделить требования.');
   const cleaned = reqs.map(function (r, i) {
-    return { id: r.id || ('req-' + (i + 1)), text: str(r.text, 300, 'requirement', true),
+    return { id: safeId(r.id, 'req-' + (i + 1)), text: str(r.text, 300, 'requirement', true),
       kind: r.kind || 'hard', weight: Number(r.weight) || 1 };
   });
   db.vacancies.setRequirements(sid, vacancy.id, cleaned);
@@ -99,6 +108,14 @@ function register(r) {
       vacancies: db.vacancies.list(sid).map(function (x) { return { id: x.id, title: x.title, company: x.company, rev: x.rev }; }),
       preps: db.preps.list(sid).map(function (p) { return prepView(sid, p); })
     });
+  });
+
+  /* Удалить все свои данные немедленно: резюме, вакансии, подготовки,
+     интервью и саму сессию. Cookie сбрасывается. */
+  r.del('/api/me', function ({ res, ctx }) {
+    const removed = db.sessions.removeOne(ctx.session.id);
+    res.setHeader('set-cookie', require('../lib/session.js').clearCookieHeader(ctx.secure));
+    sendJson(res, 200, Object.assign({ ok: true }, removed));
   });
 
   /* ---- Резюме ---- */
@@ -229,7 +246,7 @@ function register(r) {
     const result = await ai.run(sid, 'questions.generate', { resume, vacancy, prep });
     if (!result.ok) throw new HttpError(502, result.error);
     const questions = (result.json.questions || []).map(function (q, i) {
-      return { id: q.id || ('q' + (i + 1)), topic: str(q.topic, 60, 'topic') || 'Общее',
+      return { id: safeId(q.id, 'q' + (i + 1)), topic: str(q.topic, 60, 'topic') || 'Общее',
         text: str(q.text, 500, 'text', true), why: str(q.why, 500, 'why'), guidance: str(q.guidance, 800, 'guidance') };
     });
     if (!questions.length) throw new HttpError(502, 'Модель не вернула ни одного вопроса.');
@@ -243,10 +260,16 @@ function register(r) {
     if (!prep) throw new HttpError(404, 'Подготовка не найдена');
     const answers = {};
     Object.keys(body.answers || {}).forEach(function (key) {
-      answers[str(key, 32, 'questionId', true)] = str(body.answers[key], 4000, 'answer');
+      const k = safeId(key, null);
+      if (!k) throw new HttpError(400, 'Недопустимый идентификатор вопроса');
+      answers[k] = str(body.answers[key], 4000, 'answer');
     });
     const ready = {};
-    Object.keys(body.ready || {}).forEach(function (key) { ready[str(key, 32, 'questionId', true)] = !!body.ready[key]; });
+    Object.keys(body.ready || {}).forEach(function (key) {
+      const k = safeId(key, null);
+      if (!k) throw new HttpError(400, 'Недопустимый идентификатор вопроса');
+      ready[k] = !!body.ready[key];
+    });
     const updated = db.preps.set(sid, prep.id, { answers, ready });
     sendJson(res, 200, { answers: updated.answers, ready: updated.ready });
   });

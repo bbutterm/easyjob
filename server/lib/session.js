@@ -37,18 +37,28 @@ function cookieHeader(id, secure) {
 
 /* Возвращает существующую сессию или создаёт новую. Заголовок Set-Cookie
    выставляется только при создании. */
-function resolve(cookies, res, secure) {
+function resolve(cookies, res, secure, ipHash) {
   const id = verify(cookies[COOKIE]);
   let session = id ? db.sessions.get(id) : null;
   let created = false;
   if (!session) {
-    session = db.sessions.create();
+    session = db.sessions.create(ipHash);
     created = true;
     res.setHeader('set-cookie', cookieHeader(session.id, secure));
   } else {
     db.sessions.touch(session.id);
+    if (ipHash && !session.ip_hash) { db.sessions.touchIp(session.id, ipHash); session.ip_hash = ipHash; }
   }
   return { session, created };
 }
 
-module.exports = { init, resolve, COOKIE, sign, verify };
+/* Хэш адреса с секретом: сам адрес в базе не хранится. */
+function hashAddress(address) {
+  return crypto.createHmac('sha256', secret).update('ip:' + String(address || '')).digest('base64url').slice(0, 24);
+}
+
+function clearCookieHeader(secure) {
+  return COOKIE + '=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0' + (secure ? '; Secure' : '');
+}
+
+module.exports = { init, resolve, hashAddress, clearCookieHeader, COOKIE, sign, verify };

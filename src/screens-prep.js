@@ -709,7 +709,9 @@ var ScreensPrep = (function () {
       + '  <div class="btn-row">'
       + '    <button type="button" class="btn" data-act="data:clear-answers">Удалить ответы на вопросы</button>'
       + '    <button type="button" class="btn" data-act="data:clear-history">Очистить историю</button>'
-      + '    <button type="button" class="btn btn--danger" data-act="data:reset">Сбросить демо полностью</button>'
+      + (Api.live.enabled
+          ? '<button type="button" class="btn btn--danger" data-act="data:delete-server">Удалить все мои данные с сервера</button>'
+          : '<button type="button" class="btn btn--danger" data-act="data:reset">Сбросить демо полностью</button>')
       + '  </div>'
       + '</div>'
       + '<div class="card stack">'

@@ -202,6 +202,98 @@ const VACANCY_TEXT = 'Ищем повара в ресторан.\n\nТребов
     [r1.status, r2.status, r3.status].join('/') + ' ' + (r3.data && r3.data.error));
   strict2.server.close();
 
+  /* ---- Регрессии по проверке безопасности ---- */
+  const net = require('node:net');
+  const sec = createApp({ dbFile: ':memory:', freePrepsPerDay: 1, secure: true, retention: false,
+    rateLimit: { perMinute: 1000, expensivePerMinute: 1, sessionsPerHour: 3 } });
+  await new Promise(function (r) { sec.server.listen(0, '127.0.0.1', r); });
+  const secPort = sec.server.address().port;
+  const secBase = 'http://127.0.0.1:' + secPort;
+
+  /* C1: сырой запрос с /../ в пути — fetch такое нормализует сам, поэтому через сокет. */
+  function rawRequest(pathRaw, headers, body) {
+    return new Promise(function (resolve, reject) {
+      const sock = net.connect(secPort, '127.0.0.1', function () {
+        const payload = body || '';
+        const head = ['POST ' + pathRaw + ' HTTP/1.1', 'Host: 127.0.0.1:' + secPort, 'Origin: ' + secBase,
+          'Content-Type: application/json', 'Content-Length: ' + Buffer.byteLength(payload)]
+          .concat(headers || []).join('\r\n');
+        sock.write(head + '\r\n\r\n' + payload);
+      });
+      let data = '';
+      sock.on('data', function (chunk) { data += chunk.toString(); });
+      sock.on('end', function () { resolve(Number((/HTTP\/1\.1 (\d+)/.exec(data) || [])[1])); });
+      sock.on('error', reject);
+      sock.setTimeout(3000, function () { sock.destroy(); resolve(Number((/HTTP\/1\.1 (\d+)/.exec(data) || [])[1])); });
+    });
+  }
+  const vacBody = JSON.stringify({ title: 'Повар', rawText: VACANCY_TEXT });
+  const sc = client(secBase);
+  await sc.call('GET', '/api/health');
+  const cookieLine = 'Cookie: ' + sc.cookie;
+  const first = await rawRequest('/api/vacancies', [cookieLine, 'Connection: close'], vacBody);
+  const traversal = await rawRequest('/api/x/../vacancies', [cookieLine, 'Connection: close'], vacBody);
+  ok('C1: обход лимита через /../ в пути закрыт', first === 201 && traversal === 429, first + '/' + traversal);
+
+  /* C3: за прокси берётся адрес от nginx, а не левый элемент X-Forwarded-For. */
+  const spoofA = await rawRequest('/api/vacancies', [cookieLine, 'Connection: close',
+    'X-Forwarded-For: 1.1.1.1, 10.0.0.1'], vacBody);
+  const spoofB = await rawRequest('/api/vacancies', [cookieLine, 'Connection: close',
+    'X-Forwarded-For: 2.2.2.2, 10.0.0.1'], vacBody);
+  ok('C3: подделка левого X-Forwarded-For не даёт новый лимит', spoofA === 429 && spoofB === 429);
+
+  /* C2: сброс cookie не обнуляет дневной лимит подготовок — считается и по адресу. */
+  const s1 = client(secBase);
+  const res1 = await s1.call('POST', '/api/resumes', { title: 'Р', data: RESUME });
+  const vac1 = await s1.call('POST', '/api/vacancies', { title: 'Повар', rawText: VACANCY_TEXT });
+  ok('C2: первая подготовка с адреса проходит', res1.status === 201 && vac1.status === 201);
+  sec.cfg.rateLimit.expensivePerMinute = 1000;
+  const secLoose = createApp({ dbFile: ':memory:', freePrepsPerDay: 1, secure: false, retention: false,
+    rateLimit: { perMinute: 1000, expensivePerMinute: 1000, sessionsPerHour: 3 } });
+  await new Promise(function (r) { secLoose.server.listen(0, '127.0.0.1', r); });
+  const lb = 'http://127.0.0.1:' + secLoose.server.address().port;
+  const u1 = client(lb);
+  const ur = await u1.call('POST', '/api/resumes', { title: 'Р', data: RESUME });
+  const uv = await u1.call('POST', '/api/vacancies', { title: 'Повар', rawText: VACANCY_TEXT });
+  const up1 = await u1.call('POST', '/api/preps', { resumeId: ur.data.id, vacancyId: uv.data.id });
+  const u2 = client(lb);
+  const ur2 = await u2.call('POST', '/api/resumes', { title: 'Р', data: RESUME });
+  const uv2 = await u2.call('POST', '/api/vacancies', { title: 'Повар', rawText: VACANCY_TEXT });
+  const up2 = await u2.call('POST', '/api/preps', { resumeId: ur2.data.id, vacancyId: uv2.data.id });
+  ok('C2: новая сессия с того же адреса не обходит дневной лимит',
+    up1.status === 201 && up2.status === 429, up1.status + '/' + up2.status);
+  const u3 = client(lb); await u3.call('GET', '/api/health');
+  const u4 = client(lb);
+  const tooMany = await u4.call('GET', '/api/health');
+  ok('C2: поток новых сессий с одного адреса ограничен', tooMany.status === 429, String(tooMany.status));
+
+  /* I1: идентификаторы ответов проверяются. */
+  /* Литерал { '__proto__': 'x' } задаёт прототип, а не свойство, поэтому
+     тело собирается из строки: так ключ действительно уходит на сервер. */
+  const badKey = await u1.call('PUT', '/api/preps/' + up1.data.id + '/answers',
+    JSON.parse('{"answers":{"__proto__":"x"}}'));
+  const badKey2 = await u1.call('PUT', '/api/preps/' + up1.data.id + '/answers', { answers: { 'a.b': 'x' } });
+  ok('I1: недопустимый идентификатор вопроса отклоняется', badKey.status === 400 && badKey2.status === 400,
+    badKey.status + ' ' + JSON.stringify(badKey.data).slice(0, 80) + ' / ' + badKey2.status);
+
+  /* I2: пользователь может удалить все свои данные немедленно. */
+  const u1me = await u1.call('GET', '/api/me');
+  const wipe = await u1.call('DELETE', '/api/me');
+  ok('I2: удаление своих данных работает и сбрасывает cookie',
+    wipe.status === 200 && wipe.data.resumes >= 1 && /Max-Age=0/.test(wipe.res.headers.get('set-cookie') || ''));
+  const dbNow = require('../server/lib/db.js');
+  ok('I2: после удаления данных в базе нет',
+    dbNow.resumes.get(u1me.data.session.id, ur.data.id) === null && dbNow.sessions.get(u1me.data.session.id) === null);
+
+  /* I3: заголовки безопасности на странице; страница не создаёт сессию. */
+  const html = await fetch(lb + '/');
+  ok('Страница отдаётся без создания сессии', !html.headers.get('set-cookie'));
+  ok('I3: страница отдаётся с CSP и запретом встраивания',
+    /frame-ancestors 'none'/.test(html.headers.get('content-security-policy') || '')
+    && html.headers.get('x-frame-options') === 'DENY');
+
+  sec.server.close(); secLoose.server.close();
+
   /* ---- Обмен ключа GigaChat на токен ---- */
   const GigaChatAuth = require('../server/lib/gigachat-auth.js');
   GigaChatAuth.reset();
