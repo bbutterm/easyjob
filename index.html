@@ -1472,6 +1472,9 @@ var Professions = (function () {
   };
 })();
 
+/* Экспорт для сервера: в браузере переменная остаётся глобальной. */
+if (typeof module === 'object' && module.exports) module.exports = Professions;
+
 </script>
 <script>
 /* ==== data.js ==== */
@@ -1940,6 +1943,18 @@ var Store = (function () {
     applyScenario(state.scenario);
   }
 
+  /* Режим сервера: демо-данные заменяются данными базы. Настройки
+     в localStorage не трогаются — они относятся к демо-режиму. */
+  function replaceData(data) {
+    var fresh = baseState('empty');
+    Object.keys(fresh).forEach(function (key) { state[key] = fresh[key]; });
+    state.resumes = data.resumes || [];
+    state.vacancies = data.vacancies || [];
+    state.preps = data.preps || [];
+    state.activePrepId = state.preps.length ? state.preps[0].id : null;
+    state.history = data.history || [];
+  }
+
   /* Смена профессии пересобирает весь демонстрационный комплект:
      резюме, вакансию, требования, вопросы, сценарии интервью и подсказки. */
   function setProfession(idOrName) {
@@ -2070,6 +2085,7 @@ var Store = (function () {
     setPref: setPref,
     applyScenario: applyScenario,
     setProfession: setProfession,
+    replaceData: replaceData,
     resetDemo: resetDemo,
     emptyBuilder: emptyBuilder,
     planById: planById,
@@ -2335,6 +2351,185 @@ var UI = (function () {
     skeletonBlock: skeletonBlock,
     errorBlock: errorBlock,
     limitBlock: limitBlock
+  };
+})();
+
+</script>
+<script>
+/* ==== api.js ==== */
+/* ============================================================
+   Клиент API и режим сервера.
+
+   Макет умеет работать двумя способами:
+     — демо: файл открыт напрямую, данные в памяти, ответы модели
+       имитируются (как было);
+     — сервер: страница отдана сервером, кнопки ходят в /api/*,
+       данные хранятся в базе, ответы приходят от настоящего провайдера
+       или от серверной заглушки.
+
+   Режим определяется один раз при загрузке по ответу /api/health.
+   ============================================================ */
+
+var Api = (function () {
+  'use strict';
+
+  var live = { enabled: false, ai: null, limits: null, professions: null };
+
+  function isHttp() {
+    return /^https?:$/.test(window.location.protocol);
+  }
+
+  function ApiError(status, message, extra) {
+    this.status = status;
+    this.message = message;
+    this.extra = extra || null;
+  }
+
+  async function request(method, path, body) {
+    var options = {
+      method: method,
+      credentials: 'same-origin',
+      headers: { accept: 'application/json' }
+    };
+    if (body !== undefined || method === 'POST' || method === 'PUT') {
+      options.headers['content-type'] = 'application/json';
+      options.body = JSON.stringify(body === undefined ? {} : body);
+    }
+    var res;
+    try {
+      res = await fetch(path, options);
+    } catch (e) {
+      throw new ApiError(0, 'Сервер недоступен: ' + e.message);
+    }
+    var data = null;
+    try { data = await res.json(); } catch (e) { data = null; }
+    if (!res.ok) {
+      throw new ApiError(res.status, (data && data.error) || ('Ошибка сервера, код ' + res.status), data);
+    }
+    return data;
+  }
+
+  /* Потоковый ответ (Server-Sent Events) через fetch. */
+  async function stream(path, body, onDelta) {
+    var res;
+    try {
+      res = await fetch(path, {
+        method: 'POST', credentials: 'same-origin',
+        headers: { 'content-type': 'application/json', accept: 'text/event-stream' },
+        body: JSON.stringify(body)
+      });
+    } catch (e) {
+      throw new ApiError(0, 'Сервер недоступен: ' + e.message);
+    }
+    if (!res.ok) {
+      var err = null;
+      try { err = await res.json(); } catch (e) { err = null; }
+      throw new ApiError(res.status, (err && err.error) || ('Ошибка сервера, код ' + res.status), err);
+    }
+    var reader = res.body.getReader();
+    var decoder = new TextDecoder();
+    var buffer = '';
+    var done = null;
+    var eventName = '';
+    while (true) {
+      var chunk = await reader.read();
+      if (chunk.done) break;
+      buffer += decoder.decode(chunk.value, { stream: true });
+      var lines = buffer.split('\n');
+      buffer = lines.pop();
+      for (var i = 0; i < lines.length; i++) {
+        var line = lines[i];
+        if (line.indexOf('event:') === 0) { eventName = line.slice(6).trim(); continue; }
+        if (line.indexOf('data:') !== 0) continue;
+        var payload;
+        try { payload = JSON.parse(line.slice(5).trim()); } catch (e) { continue; }
+        if (eventName === 'delta' && onDelta) onDelta(payload.text || '');
+        if (eventName === 'done') done = payload;
+        if (eventName === 'error') throw new ApiError(502, payload.error || 'Ошибка в потоке ответа');
+      }
+    }
+    if (!done) throw new ApiError(502, 'Поток ответа оборвался');
+    return done;
+  }
+
+  async function detect() {
+    if (!isHttp()) return false;
+    try {
+      var health = await request('GET', '/api/health');
+      live.enabled = true;
+      live.ai = health.ai;
+      return true;
+    } catch (e) {
+      live.enabled = false;
+      return false;
+    }
+  }
+
+  /* ---- Преобразование форматов сервера в формат экранов ---- */
+
+  function label(ts) {
+    var d = new Date(ts || Date.now());
+    function pad(n) { return (n < 10 ? '0' : '') + n; }
+    return pad(d.getDate()) + '.' + pad(d.getMonth() + 1) + ' ' + pad(d.getHours()) + ':' + pad(d.getMinutes());
+  }
+
+  function resumeFromServer(r) {
+    var data = r.data || {};
+    return {
+      id: r.id, serverId: r.id, title: r.title, rev: r.rev, updatedAt: label(r.updatedAt),
+      source: data.rawText ? 'uploaded' : 'created', demo: false,
+      profession: data.profession || '', wishes: data.wishes || '', summary: data.summary || '',
+      experience: data.experience || [], skills: data.skills || [],
+      achievements: data.achievements || [], education: data.education || [],
+      rawText: data.rawText || '', review: r.review || null
+    };
+  }
+
+  function resumeToServer(resume) {
+    return {
+      title: resume.title,
+      data: {
+        profession: resume.profession || '', wishes: resume.wishes || '', summary: resume.summary || '',
+        experience: resume.experience || [], skills: resume.skills || [],
+        achievements: resume.achievements || [], education: resume.education || [],
+        rawText: resume.rawText || undefined
+      }
+    };
+  }
+
+  function vacancyFromServer(v) {
+    return {
+      id: v.id, serverId: v.id, demo: false, rev: v.rev, title: v.title, company: v.company || '',
+      location: '', text: v.rawText || '', requirements: v.requirements || []
+    };
+  }
+
+  /* Подготовка с сервера: сопоставление хранится в prep.match и
+     подставляется на место требований вакансии для экрана. */
+  function prepFromServer(p) {
+    return {
+      id: p.id, serverId: p.id, resumeId: p.resumeId, vacancyId: p.vacancyId,
+      resumeRev: p.resumeRev, vacancyRev: p.vacancyRev, createdAt: label(p.createdAt),
+      stale: !!p.stale, staleReason: p.staleReason || '',
+      answers: p.answers || {}, ready: p.ready || {},
+      match: p.match || null, questions: p.questions || null, card: p.card || null,
+      interviewId: p.interview ? p.interview.id : null,
+      chat: null, voice: null, live: true
+    };
+  }
+
+  return {
+    live: live,
+    isHttp: isHttp,
+    detect: detect,
+    request: request,
+    stream: stream,
+    ApiError: ApiError,
+    resumeFromServer: resumeFromServer,
+    resumeToServer: resumeToServer,
+    vacancyFromServer: vacancyFromServer,
+    prepFromServer: prepFromServer,
+    label: label
   };
 })();
 
@@ -2783,8 +2978,21 @@ var ScreensCore = (function () {
       + '  <input type="file" id="file-input" class="visually-hidden" accept=".pdf,.docx,.doc,.rtf,.txt" '
       + '    aria-label="Выбрать файл резюме">'
       + fileRow
+      + '  <hr class="divide">'
+      + UI.field({ id: 'upload-text', label: 'Или вставьте текст резюме', type: 'textarea', rows: 8,
+          model: 'upload.text', value: up.text || '',
+          placeholder: 'Скопируйте текст из своего резюме',
+          hint: Api.live.enabled
+            ? 'Текст уйдёт на сервер и будет разобран моделью. Файлы пока не читаются — только вставленный текст.'
+            : 'В демо-режиме текст остаётся в браузере и не анализируется.' })
       + '  <div class="btn-row" style="margin-top:16px">'
-      + '    <button type="button" class="btn btn--primary" data-act="upload:show-analysis">Показать пример анализа</button>'
+      + (Api.live.enabled
+          ? '<button type="button" class="btn btn--primary" data-act="upload:review"'
+            + (state.pending ? ' disabled' : '') + '>'
+            + (state.pending ? 'Разбираю…' : 'Разобрать резюме') + '</button>'
+          : '')
+      + '    <button type="button" class="btn' + (Api.live.enabled ? '' : ' btn--primary')
+      + '" data-act="upload:show-analysis">Показать пример анализа</button>'
       + '    <a class="btn" href="#/resumes">К списку резюме</a>'
       + '  </div>'
       + '</div>'
@@ -2798,9 +3006,10 @@ var ScreensCore = (function () {
     return ''
       + '<div class="q-item">'
       + '  <div class="q-item__top"><span class="tag tag--info">Предложение</span>' + status + '</div>'
-      + '  <div class="q-item__text">' + esc(item.title) + '</div>'
+      + '  <div class="q-item__text">' + esc(item.title || 'Предложение') + '</div>'
       + '  <p class="muted" style="font-size:13.5px">' + esc(item.why) + '</p>'
-      + '  <div class="diff-old"><b style="font-size:12px">Было</b><div>' + esc(item.before) + '</div></div>'
+      + (item.before && item.before !== '—'
+          ? '<div class="diff-old"><b style="font-size:12px">Было</b><div>' + esc(item.before) + '</div></div>' : '')
       + '  <div class="diff-new"><b style="font-size:12px">Стало</b><div>' + esc(item.after) + '</div></div>'
       + '  <div class="btn-row" style="margin-top:12px">'
       + '    <button type="button" class="btn btn--sm btn--primary" data-act="sug:accept" data-id="' + esc(item.id) + '">Принять</button>'
@@ -2811,7 +3020,8 @@ var ScreensCore = (function () {
 
   function analysisReport() {
     var state = Store.get();
-    var report = DEMO_DATA.analysisReport;
+    var report = state.upload.report || DEMO_DATA.analysisReport;
+    var real = !!state.upload.report;
     var decisions = state.upload.decisions;
     var accepted = report.vague.concat(report.missing).filter(function (s) {
       return decisions[s.id] === 'accepted';
@@ -2819,16 +3029,22 @@ var ScreensCore = (function () {
 
     return ''
       + '<div class="card stack">'
-      + '  <div class="card__head"><div class="card__title"><h2>Демонстрационный разбор резюме</h2>'
-      + '  <small>Образец отчёта на подготовленном примере</small></div>' + UI.demoBadge('Образец') + '</div>'
-      + note('demo', '<div>Это разбор демонстрационного резюме из комплекта макета. Ваш файл не читался. '
-        + 'Ложные работодатели, навыки и достижения не добавляются.</div>')
+      + (real
+          ? '<div class="card__head"><div class="card__title"><h2>Разбор вашего резюме</h2>'
+            + '<small>' + (Api.live.ai && Api.live.ai.live ? 'Выполнен моделью по вставленному тексту' : 'Сервер на заглушке: структура настоящая, содержание фиксированное') + '</small></div>'
+            + (Api.live.ai && Api.live.ai.live ? '' : UI.demoBadge('Заглушка')) + '</div>'
+            + note('info', '<div>Модель предлагает формулировки, но не имеет права добавлять факты. '
+              + 'Принимайте только то, что соответствует действительности.</div>')
+          : '<div class="card__head"><div class="card__title"><h2>Демонстрационный разбор резюме</h2>'
+            + '<small>Образец отчёта на подготовленном примере</small></div>' + UI.demoBadge('Образец') + '</div>'
+            + note('demo', '<div>Это разбор демонстрационного резюме из комплекта макета. Ваш файл не читался. '
+              + 'Ложные работодатели, навыки и достижения не добавляются.</div>'))
       + '  <h3>Сильные стороны</h3>'
-      + '  <ul>' + report.strengths.map(function (s) { return '<li>' + esc(s) + '</li>'; }).join('') + '</ul>'
+      + '  <ul>' + (report.strengths || []).map(function (s) { return '<li>' + esc(s) + '</li>'; }).join('') + '</ul>'
       + '  <h3>Неясные формулировки</h3>'
-      + report.vague.map(function (s) { return suggestionBlock(s, decisions[s.id]); }).join('')
+      + (report.vague || []).map(function (s, i) { s.id = s.id || ('sug-v' + i); return suggestionBlock(s, decisions[s.id]); }).join('')
       + '  <h3>Недостающая информация</h3>'
-      + report.missing.map(function (s) { return suggestionBlock(s, decisions[s.id]); }).join('')
+      + (report.missing || []).map(function (s, i) { s.id = s.id || ('sug-m' + i); return suggestionBlock(s, decisions[s.id]); }).join('')
       + '</div>'
       + '<div class="card stack">'
       + '  <div class="card__head"><div class="card__title"><h2>Демонстрационная версия резюме</h2>'
@@ -3044,6 +3260,15 @@ var ScreensPrep = (function () {
     missing: { text: 'Не указано в резюме', cls: 'tag--alert' }
   };
 
+  /* Вопросы подготовки: с сервера, если есть, иначе демонстрационные. */
+  function questionsFor(prep) {
+    return (prep && Array.isArray(prep.questions) && prep.questions.length) ? prep.questions : DEMO_DATA.questions;
+  }
+
+  function isLivePrep(prep) {
+    return !!(prep && prep.live && Api.live.enabled);
+  }
+
   function needPrep(prep, action) {
     return pageHead(action)
       + UI.emptyState('Подготовка не выбрана',
@@ -3071,7 +3296,9 @@ var ScreensPrep = (function () {
     if (state.scenario === 'error') return pageHead('Сопоставление') + UI.errorBlock();
 
     var vacancy = Store.vacancyById(prep.vacancyId);
-    var requirements = (vacancy && vacancy.requirements) || DEMO_DATA.vacancy.requirements;
+    var requirements = (prep.match && prep.match.length) ? prep.match
+      : ((vacancy && vacancy.requirements) || DEMO_DATA.vacancy.requirements);
+    var liveMatch = isLivePrep(prep) && prep.match && prep.match.length > 0;
 
     var counts = { confirmed: 0, unclear: 0, missing: 0 };
     requirements.forEach(function (r) { counts[r.status] += 1; });
@@ -3102,8 +3329,14 @@ var ScreensPrep = (function () {
           'Требования вакансии и то, что подтверждается демонстрационным резюме.')
       + sourcesBar(prep)
       + staleBanner(prep)
-      + note('demo', '<div><strong>Это образец отчёта.</strong> Разбор построен на подготовленном комплекте данных '
-        + 'и не является анализом введённого вами текста.</div>')
+      + (liveMatch
+          ? (Api.live.ai && Api.live.ai.live
+              ? note('info', '<div><strong>Сопоставление выполнено моделью</strong> по вашему резюме и тексту вакансии. '
+                + 'Проверяйте выводы: модель может ошибаться.</div>')
+              : note('demo', '<div><strong>Сервер работает на заглушке модели.</strong> Требования взяты из вашего '
+                + 'текста вакансии, но статусы и объяснения — фиксированные, пока не подключён провайдер.</div>'))
+          : note('demo', '<div><strong>Это образец отчёта.</strong> Разбор построен на подготовленном комплекте данных '
+            + 'и не является анализом введённого вами текста.</div>'))
       + '<div class="card stack">'
       + '  <div class="summary-counts">'
       + '    <div class="count-box"><b>' + counts.confirmed + '</b><span>подтверждено резюме</span></div>'
@@ -3136,19 +3369,36 @@ var ScreensPrep = (function () {
     var filterReady = state.qFilterReady || 'all';
     var openHints = state.qOpenHints || {};
 
+    /* В режиме сервера вопросы генерируются по запросу: без них показываем кнопку. */
+    if (isLivePrep(prep) && !(prep.questions && prep.questions.length)) {
+      return ''
+        + pageHead('Вероятные вопросы для подготовки', 'Вопросы подбираются по требованиям вакансии и вашему резюме.')
+        + sourcesBar(prep)
+        + staleBanner(prep)
+        + '<div class="card stack">'
+        + '  <p class="muted">Вопросы ещё не собраны для этой подготовки.</p>'
+        + '  <div class="btn-row">'
+        + '    <button type="button" class="btn btn--primary" data-act="questions:generate" data-id="' + esc(prep.id) + '"'
+        + (state.pending ? ' disabled' : '') + '>'
+        + (state.pending ? 'Собираю…' : 'Собрать вопросы') + '</button>'
+        + '  </div>'
+        + '</div>';
+    }
+
+    var allQuestions = questionsFor(prep);
     var topics = ['all'];
-    DEMO_DATA.questions.forEach(function (q) {
+    allQuestions.forEach(function (q) {
       if (topics.indexOf(q.topic) < 0) topics.push(q.topic);
     });
 
-    var visible = DEMO_DATA.questions.filter(function (q) {
+    var visible = allQuestions.filter(function (q) {
       if (filterTopic !== 'all' && q.topic !== filterTopic) return false;
       if (filterReady === 'ready' && !prep.ready[q.id]) return false;
       if (filterReady === 'todo' && prep.ready[q.id]) return false;
       return true;
     });
 
-    var readyCount = DEMO_DATA.questions.filter(function (q) { return prep.ready[q.id]; }).length;
+    var readyCount = allQuestions.filter(function (q) { return prep.ready[q.id]; }).length;
 
     var items = visible.map(function (q) {
       var isReady = !!prep.ready[q.id];
@@ -3164,7 +3414,8 @@ var ScreensPrep = (function () {
         + UI.field({ id: 'ans-' + q.id, label: 'Ваш ответ', type: 'textarea',
             model: 'preps.' + prepIndex(prep) + '.answers.' + q.id,
             value: prep.answers[q.id] || '',
-            hint: 'Сохраняется только в памяти страницы на время сеанса макета.' })
+            hint: isLivePrep(prep) ? 'Сохраняется на сервере автоматически.'
+              : 'Сохраняется только в памяти страницы на время сеанса макета.' })
         + '  <div class="btn-row">'
         + '    <button type="button" class="btn btn--sm" data-act="q:hint" data-id="' + esc(q.id) + '" '
         + '      aria-expanded="' + (hintOpen ? 'true' : 'false') + '">'
@@ -3181,7 +3432,9 @@ var ScreensPrep = (function () {
 
     return ''
       + pageHead('Вероятные вопросы для подготовки',
-          'Список подготовлен для демонстрации. Никаких обещаний, что спросят именно это.')
+          isLivePrep(prep)
+            ? 'Подобраны по требованиям вакансии и вашему резюме. Никаких обещаний, что спросят именно это.'
+            : 'Список подготовлен для демонстрации. Никаких обещаний, что спросят именно это.')
       + sourcesBar(prep)
       + staleBanner(prep)
       + '<div class="toolbar">'
@@ -3198,7 +3451,7 @@ var ScreensPrep = (function () {
       + '    <option value="ready"' + (filterReady === 'ready' ? ' selected' : '') + '>Подготовленные</option>'
       + '    <option value="todo"' + (filterReady === 'todo' ? ' selected' : '') + '>Осталось разобрать</option>'
       + '  </select>'
-      + '  <span class="muted">Подготовлено ' + readyCount + ' из ' + DEMO_DATA.questions.length + '</span>'
+      + '  <span class="muted">Подготовлено ' + readyCount + ' из ' + allQuestions.length + '</span>'
       + '</div>'
       + (items || UI.emptyState('Под фильтр ничего не попало', 'Измените тему или готовность.', 'Сбросить фильтры', 'q:filter-reset'))
       + '<div class="card"><div class="btn-row">'
@@ -3288,8 +3541,11 @@ var ScreensPrep = (function () {
         + sourcesBar(prep)
         + '  <h2>Формат</h2>'
         + '  <p class="muted">Пять вопросов из подготовленного сценария: опыт, процессы, SQL, постановки и кейс.</p>'
-        + note('demo', '<div><strong>Реплики интервьюера — фиксированный сценарий.</strong> Ваши ответы видны в '
-          + 'переписке, но не анализируются: настоящей оценки ответа нет.</div>')
+        + (isLivePrep(prep) && Api.live.ai && Api.live.ai.live
+            ? note('info', '<div>Интервьюер — модель. Она задаёт вопросы по вашей подготовке и не оценивает ответы вслух: '
+              + 'разбор будет в итоге.</div>')
+            : note('demo', '<div><strong>Реплики интервьюера — фиксированный сценарий.</strong> Ваши ответы видны в '
+              + 'переписке, но не анализируются: настоящей оценки ответа нет.</div>'))
         + '  <div class="btn-row"><button type="button" class="btn btn--primary" data-act="chat:start">Начать интервью</button>'
         + '  <button type="button" class="btn" data-act="go:#/prep/' + esc(prep.id) + '/questions">Сначала разобрать вопросы</button></div>'
         + '</div>';
@@ -3299,14 +3555,16 @@ var ScreensPrep = (function () {
 
     var messages = chat.messages.map(function (m) {
       var cls = m.who === 'user' ? 'msg msg--user' : (m.who === 'system' ? 'msg msg--sys' : 'msg');
-      var who = m.who === 'user' ? 'Вы' : (m.who === 'system' ? 'Макет' : 'Интервьюер (демо-сценарий)');
+      var who = m.who === 'user' ? 'Вы' : (m.who === 'system' ? 'Макет'
+        : (isLivePrep(prep) ? 'Интервьюер' : 'Интервьюер (демо-сценарий)'));
       return '<div class="' + cls + '"><span class="msg__who">' + esc(who) + '</span>'
         + '<div class="msg__body">' + escLines(m.text) + '</div></div>';
     }).join('');
 
     var pending = chat.pending
-      ? '<div class="msg"><span class="msg__who">Интервьюер (демо-сценарий)</span>'
-        + '<div class="msg__body"><span class="dots" aria-label="Готовится следующая реплика">'
+      ? '<div class="msg"><span class="msg__who">' + (isLivePrep(prep) ? 'Интервьюер' : 'Интервьюер (демо-сценарий)') + '</span>'
+        + '<div class="msg__body">' + (chat.partial ? escLines(chat.partial) : '')
+        + '<span class="dots" aria-label="Готовится следующая реплика">'
         + '<span></span><span></span><span></span></span></div></div>'
       : '';
 
@@ -3316,8 +3574,10 @@ var ScreensPrep = (function () {
       : '';
 
     return ''
-      + pageHead('Текстовое пробное интервью', 'Вопрос ' + Math.min(chat.index + 1, DEMO_DATA.interviewScript.length)
-          + ' из ' + DEMO_DATA.interviewScript.length)
+      + pageHead('Текстовое пробное интервью', isLivePrep(prep)
+          ? 'Вопрос ' + (chat.index + 1)
+          : 'Вопрос ' + Math.min(chat.index + 1, DEMO_DATA.interviewScript.length)
+            + ' из ' + DEMO_DATA.interviewScript.length)
       + sourcesBar(prep)
       + '<div class="card stack">'
       + '  <div class="chat" id="chat-log" role="log" aria-live="polite">' + messages + pending + '</div>'
@@ -3337,19 +3597,24 @@ var ScreensPrep = (function () {
   }
 
   function interviewSummary(prep) {
-    var s = DEMO_DATA.interviewSummary;
+    var s = (prep.chat && prep.chat.summary) || DEMO_DATA.interviewSummary;
+    var real = !!(prep.chat && prep.chat.summary) && Api.live.ai && Api.live.ai.live;
     var answers = prep.chat.messages.filter(function (m) { return m.who === 'user'; });
     return ''
-      + pageHead('Итог пробного интервью', 'Демонстрационный отчёт по завершённой тренировке.')
-      + note('demo', '<div><strong>Отчёт заранее подготовлен.</strong> Он не составлен по вашим ответам: настоящей '
-        + 'оценки в макете нет. Ваши ' + answers.length + ' ответ(ов) остались только в переписке этого сеанса.</div>')
+      + pageHead('Итог пробного интервью', real ? 'Разбор по репликам этой тренировки.'
+          : 'Демонстрационный отчёт по завершённой тренировке.')
+      + (real
+          ? note('info', '<div>Итог составлен моделью по вашим ' + answers.length + ' ответам. Это мнение, а не оценка: '
+            + 'проверяйте выводы и сверяйте с требованиями вакансии.</div>')
+          : note('demo', '<div><strong>Отчёт заранее подготовлен.</strong> Он не составлен по вашим ответам: настоящей '
+            + 'оценки в макете нет. Ваши ' + answers.length + ' ответ(ов) остались только в переписке этого сеанса.</div>'))
       + '<div class="card stack">'
       + '  <h2>Примеры сильных ответов</h2>'
-      + '  <ul>' + s.strong.map(function (t) { return '<li>' + esc(t) + '</li>'; }).join('') + '</ul>'
+      + '  <ul>' + (s.strong || []).map(function (t) { return '<li>' + esc(t) + '</li>'; }).join('') + '</ul>'
       + '  <h2>Темы для повторения</h2>'
-      + '  <ul>' + s.repeat.map(function (t) { return '<li>' + esc(t) + '</li>'; }).join('') + '</ul>'
+      + '  <ul>' + (s.repeat || []).map(function (t) { return '<li>' + esc(t) + '</li>'; }).join('') + '</ul>'
       + '  <h2>Рекомендации</h2>'
-      + '  <ul>' + s.advice.map(function (t) { return '<li>' + esc(t) + '</li>'; }).join('') + '</ul>'
+      + '  <ul>' + (s.advice || []).map(function (t) { return '<li>' + esc(t) + '</li>'; }).join('') + '</ul>'
       + '</div>'
       + '<div class="card"><div class="btn-row">'
       + '  <button type="button" class="btn btn--primary" data-act="chat:restart">Повторить тренировку</button>'
@@ -3709,13 +3974,14 @@ var ScreensPrep = (function () {
 
     var vacancy = Store.vacancyById(prep.vacancyId);
     var resume = Store.resumeById(prep.resumeId);
-    var requirements = (vacancy && vacancy.requirements) || [];
+    var requirements = (prep.match && prep.match.length) ? prep.match : ((vacancy && vacancy.requirements) || []);
 
-    var answered = DEMO_DATA.questions.filter(function (q) {
+    var cardQuestions = questionsFor(prep);
+    var answered = cardQuestions.filter(function (q) {
       return String(prep.answers[q.id] || '').trim().length > 0;
     });
-    var ready = DEMO_DATA.questions.filter(function (q) { return prep.ready[q.id]; });
-    var gaps = DEMO_DATA.questions.filter(function (q) {
+    var ready = cardQuestions.filter(function (q) { return prep.ready[q.id]; });
+    var gaps = cardQuestions.filter(function (q) {
       return !String(prep.answers[q.id] || '').trim() && !prep.ready[q.id];
     });
     var risky = requirements.filter(function (r) { return r.status !== 'confirmed'; });
@@ -3781,7 +4047,7 @@ var ScreensPrep = (function () {
       + note('info', '<div>Карточка собрана из ваших собственных ответов и результата '
         + 'сопоставления. Она ничего не читает с экрана, не слушает звук и не требует '
         + 'установки программ. Подготовлено ответов: ' + answered.length + ' из '
-        + DEMO_DATA.questions.length + ', отмечено готовыми: ' + ready.length + '.</div>')
+        + cardQuestions.length + ', отмечено готовыми: ' + ready.length + '.</div>')
       + body
       + '<div class="card no-print"><div class="btn-row">'
       + '  <button type="button" class="btn btn--primary" data-act="card:print">Распечатать или сохранить в PDF</button>'
@@ -3938,10 +4204,14 @@ var ScreensPrep = (function () {
       + '<div class="topbar">'
       + '  <button type="button" class="btn btn--sm menu-btn" data-act="nav:toggle" aria-label="Открыть меню">☰</button>'
       + '  <div class="topbar__ctx">' + ctx + '</div>'
-      + '  <span class="tag tag--demo">'
-      + '    <span class="badge-full">Демо — ИИ и платежи не подключены</span>'
-      + '    <span class="badge-short">Демо</span>'
-      + '  </span>'
+      + (Api.live.enabled
+          ? (Api.live.ai && Api.live.ai.live
+              ? '<span class="tag tag--ok"><span class="badge-full">Сервер · ' + esc(Api.live.ai.title) + '</span><span class="badge-short">Сервер</span></span>'
+              : '<span class="tag tag--demo"><span class="badge-full">Сервер · заглушка модели</span><span class="badge-short">Заглушка</span></span>')
+          : '<span class="tag tag--demo">'
+            + '<span class="badge-full">Демо — ИИ и платежи не подключены</span>'
+            + '<span class="badge-short">Демо</span>'
+            + '</span>')
       + '  <button type="button" class="btn btn--sm" data-act="theme:toggle" aria-label="Переключить тему">'
       + (state.theme === 'dark' ? '☀' : '☾') + '</button>'
       + '</div>';
@@ -3950,6 +4220,27 @@ var ScreensPrep = (function () {
   function demoPanel() {
     var state = Store.get();
     var open = state.demoPanelOpen;
+    if (Api.live.enabled) {
+      var ai = Api.live.ai || {};
+      return ''
+        + '<aside class="demo-panel' + (open ? '' : ' demo-panel--collapsed') + '" aria-label="Режим сервера">'
+        + '  <button type="button" class="demo-panel__head" data-act="demopanel:toggle" aria-expanded="'
+        + (open ? 'true' : 'false') + '"><span>Режим сервера</span><span aria-hidden="true">' + (open ? '▾' : '▴') + '</span></button>'
+        + '  <div class="demo-panel__body">'
+        + '    <p><b>' + esc(ai.title || ai.provider || '') + '</b>' + (ai.model ? ' · ' + esc(ai.model) : '')
+        + (ai.live ? '' : ' — заглушка, ключ не задан') + '</p>'
+        + '    <p>Данные хранятся на сервере' + (ai.dataRegion === 'ru' ? ' и обрабатываются в РФ' : '') + '.</p>'
+        + (Api.live.limits ? '<p>Подготовок сегодня: ' + esc(Api.live.limits.usedToday) + ' из '
+            + esc(Api.live.limits.freePerDay) + '.</p>' : '')
+        + '    <label class="field" for="demo-plan"><span class="field__label">Демо-тариф</span>'
+        + '      <select id="demo-plan" data-change-act="demo:plan">'
+        + DEMO_DATA.plans.map(function (p) {
+            return '<option value="' + esc(p.id) + '"' + (p.id === state.plan ? ' selected' : '') + '>' + esc(p.name) + '</option>';
+          }).join('')
+        + '      </select></label>'
+        + '  </div>'
+        + '</aside>';
+    }
     var options = [
       { value: 'empty', label: 'Пусто' },
       { value: 'filled', label: 'Заполнено' },
@@ -4023,7 +4314,10 @@ var ScreensPrep = (function () {
         + '<div class="shell">'
         + sidebar(section)
         + '  <div class="main">' + topbar()
-        + '    <main class="content" id="main" tabindex="-1">' + content + '</main>'
+        + '    <main class="content" id="main" tabindex="-1">'
+        + (state.pending ? '<div class="note note--info" role="status" aria-live="polite" style="margin-bottom:16px"><div>'
+            + '<span class="dots" aria-hidden="true"><span></span><span></span><span></span></span> ' + esc(state.pending) + '</div></div>' : '')
+        + content + '</main>'
         + '  </div>'
         + '</div>'
         + (document.body.getAttribute('data-nav') === 'open'
@@ -4098,6 +4392,221 @@ var ScreensPrep = (function () {
     else window.location.hash = hash;
   }
 
+
+  /* ============================================================
+     Режим сервера: действия, которые ходят в API.
+     В демо-режиме (файл открыт напрямую) не вызываются.
+     ============================================================ */
+
+  function setPending(text) {
+    Store.get().pending = text || null;
+    Store.notify();
+  }
+
+  function liveFail(e) {
+    setPending(null);
+    if (e && e.status === 429) {
+      var limits = e.extra && e.extra.limits;
+      UI.openModal({
+        title: 'Лимит на сегодня исчерпан',
+        body: '<p>' + esc(e.message) + '</p>'
+          + (limits ? '<p class="muted">Бесплатно: ' + esc(limits.freePerDay) + ' в день. Использовано: '
+            + esc(limits.usedToday) + '.</p>' : '')
+          + '<p>Оплата пока не подключена. Возвращайтесь завтра или откройте существующую подготовку.</p>'
+      });
+      return;
+    }
+    UI.toast(e && e.message ? e.message : 'Ошибка сервера');
+  }
+
+  function findPrepBySid(sid) {
+    var list = Store.get().preps;
+    for (var i = 0; i < list.length; i++) if (list[i].id === sid || list[i].serverId === sid) return list[i];
+    return null;
+  }
+
+  async function liveHydrate() {
+    var me = await Api.request('GET', '/api/me');
+    Api.live.limits = me.limits;
+    Api.live.professions = me.professions;
+    var resumes = [];
+    for (var i = 0; i < me.resumes.length; i++) {
+      var full = await Api.request('GET', '/api/resumes/' + me.resumes[i].id);
+      resumes.push(Api.resumeFromServer(full));
+    }
+    var vacancies = [];
+    var seen = {};
+    me.preps.forEach(function (p) {
+      if (p.vacancy && !seen[p.vacancy.id]) {
+        seen[p.vacancy.id] = true;
+        vacancies.push({ id: p.vacancy.id, serverId: p.vacancy.id, demo: false, rev: p.vacancy.rev,
+          title: p.vacancy.title, company: p.vacancy.company || '', location: '', text: '',
+          requirements: p.vacancy.requirements || [] });
+      }
+    });
+    Store.replaceData({ resumes: resumes, vacancies: vacancies, preps: me.preps.map(Api.prepFromServer) });
+  }
+
+  async function liveEnsureResume(resume) {
+    if (resume.serverId) return resume.serverId;
+    var created = await Api.request('POST', '/api/resumes', Api.resumeToServer(resume));
+    resume.serverId = created.id;
+    resume.rev = created.rev;
+    resume.demo = false;
+    return created.id;
+  }
+
+  async function liveCreatePrep(draft) {
+    var resume = Store.resumeById(draft.resumeId);
+    if (!resume) { UI.toast('Выберите резюме.'); return; }
+    try {
+      setPending('Отправляю резюме и вакансию на сервер…');
+      var resumeSid = await liveEnsureResume(resume);
+      var vacancy = Api.vacancyFromServer(await Api.request('POST', '/api/vacancies', {
+        title: draft.title, company: draft.company || '', rawText: draft.text
+      }));
+      setPending('Сопоставляю резюме с требованиями…');
+      var prep = Api.prepFromServer(await Api.request('POST', '/api/preps', {
+        resumeId: resumeSid, vacancyId: vacancy.id, profession: resume.profession || draft.title
+      }));
+      prep.resumeId = resume.id;
+      Store.update(function (s) {
+        s.vacancies.unshift(vacancy);
+        s.preps.unshift(prep);
+        s.activePrepId = prep.id;
+        s.vacancyDraft = { title: '', company: '', text: '', resumeId: '', url: '' };
+        s.pending = null;
+        Store.addHistory('Создана подготовка по вакансии', '#/prep/' + prep.id + '/match', prep.id);
+      });
+      go('#/prep/' + prep.id + '/match');
+    } catch (e) { liveFail(e); }
+  }
+
+  async function liveRebuild(prep) {
+    try {
+      setPending('Пересобираю сопоставление…');
+      var fresh = Api.prepFromServer(await Api.request('POST', '/api/preps/' + prep.serverId + '/rebuild'));
+      Store.update(function () {
+        prep.match = fresh.match; prep.questions = null; prep.card = null;
+        prep.stale = false; prep.staleReason = ''; prep.resumeRev = fresh.resumeRev; prep.vacancyRev = fresh.vacancyRev;
+        Store.get().pending = null;
+      });
+      UI.toast('Сопоставление пересобрано для текущих версий.');
+    } catch (e) { liveFail(e); }
+  }
+
+  async function liveGenerateQuestions(prep) {
+    try {
+      setPending('Подбираю вопросы…');
+      var data = await Api.request('POST', '/api/preps/' + prep.serverId + '/questions');
+      Store.update(function () { prep.questions = data.questions; Store.get().pending = null; });
+    } catch (e) { liveFail(e); }
+  }
+
+  var answersTimer = null;
+  function liveScheduleAnswers(prep, immediate) {
+    if (!prep || !prep.serverId) return;
+    if (answersTimer) clearTimeout(answersTimer);
+    var save = function () {
+      answersTimer = null;
+      Api.request('PUT', '/api/preps/' + prep.serverId + '/answers', { answers: prep.answers, ready: prep.ready })
+        .catch(function (e) { UI.toast('Ответы не сохранились: ' + e.message); });
+    };
+    if (immediate) save(); else answersTimer = setTimeout(save, 900);
+  }
+
+  async function liveStartChat(prep) {
+    try {
+      setPending('Интервьюер готовит первый вопрос…');
+      var first = await Api.request('POST', '/api/preps/' + prep.serverId + '/interviews');
+      Store.update(function () {
+        var chat = ScreensPrep.ensureChat(prep);
+        chat.started = true; chat.index = 0; chat.finished = false; chat.failed = false;
+        chat.interviewId = first.interviewId; chat.summary = null; chat.partial = '';
+        chat.messages = [
+          { who: 'system', text: Api.live.ai && Api.live.ai.live
+            ? 'Интервьюер — модель. Ответы сохраняются на сервере.'
+            : 'Сервер работает на заглушке: реплики фиксированные, ответы сохраняются.' },
+          { who: 'bot', text: first.turn.text }
+        ];
+        Store.get().pending = null;
+      });
+    } catch (e) { liveFail(e); }
+  }
+
+  async function liveSendChat(prep) {
+    var chat = prep.chat;
+    var text = String(chat.draft || '').trim();
+    if (!text) { UI.toast('Введите ответ, чтобы отправить его.'); return; }
+    Store.update(function () {
+      chat.messages.push({ who: 'user', text: text });
+      chat.draft = ''; chat.failed = false; chat.pending = true; chat.partial = '';
+    });
+    try {
+      var done = await Api.stream('/api/interviews/' + chat.interviewId + '/turns', { text: text }, function (delta) {
+        chat.partial += delta;
+        Store.notify();
+      });
+      Store.update(function () {
+        chat.pending = false; chat.partial = ''; chat.index += 1;
+        chat.messages.push({ who: 'bot', text: done.turn.text });
+      });
+    } catch (e) {
+      Store.update(function () { chat.pending = false; chat.partial = ''; chat.failed = true; chat.failError = e.message; });
+    }
+  }
+
+  async function liveRetryChat(prep) {
+    var chat = prep.chat;
+    Store.update(function () { chat.failed = false; chat.pending = true; });
+    try {
+      var done = await Api.request('POST', '/api/interviews/' + chat.interviewId + '/continue');
+      Store.update(function () { chat.pending = false; chat.index += 1; chat.messages.push({ who: 'bot', text: done.turn.text }); });
+    } catch (e) {
+      Store.update(function () { chat.pending = false; chat.failed = true; chat.failError = e.message; });
+    }
+  }
+
+  async function liveFinishChat(prep) {
+    var chat = prep.chat;
+    try {
+      setPending('Готовлю итог интервью…');
+      var data = await Api.request('POST', '/api/interviews/' + chat.interviewId + '/finish');
+      Store.update(function () {
+        chat.summary = data.summary; chat.finished = true;
+        Store.get().pending = null;
+        Store.addHistory('Текстовое пробное интервью', '#/prep/' + prep.id + '/interview', prep.id);
+      });
+    } catch (e) { liveFail(e); }
+  }
+
+  async function liveReview() {
+    var up = Store.get().upload;
+    var text = String(up.text || '').trim();
+    if (text.length < 40) { UI.toast('Вставьте текст резюме — хотя бы несколько строк.'); return; }
+    try {
+      setPending('Отправляю резюме…');
+      var created = await Api.request('POST', '/api/resumes', {
+        title: 'Резюме из текста ' + Api.label(), data: { rawText: text }
+      });
+      setPending('Разбираю резюме…');
+      var data = await Api.request('POST', '/api/resumes/' + created.id + '/review');
+      Store.update(function (s) {
+        s.upload.report = data.review; s.upload.decisions = {}; s.upload.analysisShown = true;
+        s.upload.serverResume = Api.resumeFromServer(Object.assign({}, created, { review: data.review }));
+        s.pending = null;
+      });
+    } catch (e) { liveFail(e); }
+  }
+
+  async function liveSaveResume(resume) {
+    try {
+      setPending('Сохраняю резюме…');
+      await liveEnsureResume(resume);
+      Store.update(function (s) { s.pending = null; });
+    } catch (e) { liveFail(e); }
+  }
+
   function dispatch(act, data, element) {
     var state = Store.get();
 
@@ -4145,6 +4654,7 @@ var ScreensPrep = (function () {
 
       /* -------- Демо-режим -------- */
       case 'demo:example':
+        if (Api.live.enabled) { go('#/overview'); return; }
         Store.applyScenario('filled');
         go('#/overview');
         UI.toast('Открыт пример заполненного демо.');
@@ -4270,13 +4780,17 @@ var ScreensPrep = (function () {
         var matched = Professions.find(wanted);
         /* Демо-комплект пересобирается под введённую профессию: для профессии из
            библиотеки берётся готовый набор, для любой другой — общий шаблон. */
-        if (wanted) Store.setProfession(matched ? matched.id : wanted);
+        if (wanted && !Api.live.enabled) Store.setProfession(matched ? matched.id : wanted);
         Store.update(function (s) {
           s.resumes.unshift(resume);
           s.builder = Store.emptyBuilder();
           s.vacancyDraft.resumeId = resume.id;
           Store.addHistory('Резюме собрано в мастере', '#/resume/' + resume.id, null);
         });
+        if (Api.live.enabled) {
+          liveSaveResume(resume).then(function () { go('#/vacancy/new'); });
+          return;
+        }
         UI.toast(matched || !wanted
           ? 'Резюме сохранено. Демо-набор подобран для профессии «' + DEMO_DATA.professionName + '».'
           : 'Резюме сохранено. Для профессии «' + wanted + '» собран общий демонстрационный комплект.');
@@ -4294,11 +4808,25 @@ var ScreensPrep = (function () {
         Store.update(function (s) { s.upload.fileName = ''; });
         UI.toast('Выбор файла удалён.');
         return;
+      case 'upload:review':
+        if (!state.pending) liveReview();
+        return;
       case 'upload:show-analysis':
-        Store.update(function (s) { s.upload.analysisShown = true; });
+        Store.update(function (s) { s.upload.analysisShown = true; s.upload.report = null; s.upload.decisions = {}; });
         UI.toast('Открыт демонстрационный отчёт на подготовленном примере.');
         return;
       case 'upload:save': {
+        if (Api.live.enabled && state.upload.serverResume) {
+          var saved = state.upload.serverResume;
+          Store.update(function (s) {
+            if (!Store.resumeById(saved.id)) s.resumes.unshift(saved);
+            s.vacancyDraft.resumeId = saved.id;
+            Store.addHistory('Резюме разобрано и сохранено', '#/resume/' + saved.id, null);
+          });
+          UI.toast('Резюме сохранено на сервере.');
+          go('#/vacancy/new');
+          return;
+        }
         var accepted = Object.keys(state.upload.decisions).filter(function (k) {
           return state.upload.decisions[k] === 'accepted';
         });
@@ -4337,7 +4865,13 @@ var ScreensPrep = (function () {
       case 'resume:rename-confirm':
         Store.update(function (s) {
           var target = Store.resumeById(s.renameId);
-          if (target && String(s.renameDraft).trim()) target.title = String(s.renameDraft).trim();
+          if (target && String(s.renameDraft).trim()) {
+            target.title = String(s.renameDraft).trim();
+            if (Api.live.enabled && target.serverId) {
+              Api.request('PUT', '/api/resumes/' + target.serverId, { title: target.title })
+                .catch(function (e) { UI.toast(e.message); });
+            }
+          }
         });
         UI.toast('Название обновлено.');
         return;
@@ -4352,7 +4886,12 @@ var ScreensPrep = (function () {
         });
         return;
       }
-      case 'resume:delete-confirm':
+      case 'resume:delete-confirm': {
+        var gone = Store.resumeById(data.id);
+        if (gone && Api.live.enabled && gone.serverId) {
+          Api.request('DELETE', '/api/resumes/' + gone.serverId).catch(function (e) { UI.toast(e.message); });
+        }
+      }
         Store.update(function (s) {
           s.resumes = s.resumes.filter(function (item) { return item.id !== data.id; });
           s.preps.forEach(function (p) {
@@ -4368,9 +4907,14 @@ var ScreensPrep = (function () {
         var target2 = Store.resumeById(data.id);
         if (!target2) return;
         Store.update(function () {
-          target2.summary = (target2.summary || '') + ' Уточнение внесено в макете ' + Store.nowLabel() + '.';
-          Store.bumpResume(target2, 'Резюме изменено после демонстрационного анализа.');
+          target2.summary = (target2.summary || '') + ' Уточнение внесено ' + Store.nowLabel() + '.';
+          Store.bumpResume(target2, 'Резюме изменено после анализа.');
         });
+        if (Api.live.enabled && target2.serverId) {
+          Api.request('PUT', '/api/resumes/' + target2.serverId, Api.resumeToServer(target2))
+            .then(function (r) { Store.update(function () { target2.rev = r.rev; }); })
+            .catch(function (e) { UI.toast(e.message); });
+        }
         UI.toast('Версия резюме повышена. Связанные подготовки отмечены как устаревшие.');
         return;
       }
@@ -4395,6 +4939,7 @@ var ScreensPrep = (function () {
           UI.toast('Заполните должность, текст вакансии и выберите резюме.');
           return;
         }
+        if (Api.live.enabled) { if (!state.pending) liveCreatePrep(draft); return; }
         var vacancy = {
           id: Store.uid('vac'),
           demo: true,
@@ -4426,6 +4971,7 @@ var ScreensPrep = (function () {
       case 'prep:rebuild': {
         var prep2 = Store.prepById(data.id);
         if (!prep2) return;
+        if (prep2.live) { if (!state.pending) liveRebuild(prep2); return; }
         Store.update(function () { Store.rebuildPrep(prep2); });
         UI.toast('Демонстрационный отчёт пересобран для текущих исходников.');
         return;
@@ -4437,7 +4983,12 @@ var ScreensPrep = (function () {
           act: 'prep:delete-confirm', data: { id: data.id }, confirmLabel: 'Удалить', danger: true
         });
         return;
-      case 'prep:delete-confirm':
+      case 'prep:delete-confirm': {
+        var doomed = Store.prepById(data.id);
+        if (doomed && doomed.live) {
+          Api.request('DELETE', '/api/preps/' + doomed.serverId).catch(function (e) { UI.toast(e.message); });
+        }
+      }
         Store.update(function (s) {
           s.preps = s.preps.filter(function (p) { return p.id !== data.id; });
           if (s.activePrepId === data.id) s.activePrepId = s.preps.length ? s.preps[0].id : null;
@@ -4496,6 +5047,12 @@ var ScreensPrep = (function () {
         var prep6 = Store.activePrep();
         if (!prep6) return;
         Store.update(function () { prep6.ready[data.id] = !prep6.ready[data.id]; });
+        if (prep6.live) liveScheduleAnswers(prep6, true);
+        return;
+      }
+      case 'questions:generate': {
+        var prepQ = Store.prepById(data.id) || Store.activePrep();
+        if (prepQ && prepQ.live && !state.pending) liveGenerateQuestions(prepQ);
         return;
       }
       case 'q:filter-topic':
@@ -4512,6 +5069,7 @@ var ScreensPrep = (function () {
       case 'chat:start': {
         var prep7 = Store.activePrep();
         if (!prep7) return;
+        if (prep7.live) { if (!state.pending) liveStartChat(prep7); return; }
         Store.update(function () {
           var chat = ScreensPrep.ensureChat(prep7);
           chat.started = true;
@@ -4535,6 +5093,7 @@ var ScreensPrep = (function () {
       case 'chat:retry': {
         var prep9 = Store.activePrep();
         if (!prep9 || !prep9.chat) return;
+        if (prep9.live) { liveRetryChat(prep9); return; }
         Store.update(function () { prep9.chat.failed = false; });
         UI.toast('Демонстрационная отправка повторена.');
         return;
@@ -4542,6 +5101,7 @@ var ScreensPrep = (function () {
       case 'chat:send': {
         var prep10 = Store.activePrep();
         if (!prep10 || !prep10.chat) return;
+        if (prep10.live) { if (!prep10.chat.pending) liveSendChat(prep10); return; }
         var chat = prep10.chat;
         if (!String(chat.draft || '').trim()) {
           UI.toast('Введите ответ, чтобы отправить его в переписку.');
@@ -4579,6 +5139,7 @@ var ScreensPrep = (function () {
       case 'chat:finish': {
         var prep11 = Store.activePrep();
         if (!prep11 || !prep11.chat) return;
+        if (prep11.live) { if (!state.pending) liveFinishChat(prep11); return; }
         Store.update(function () {
           prep11.chat.finished = true;
           Store.addHistory('Текстовое пробное интервью', '#/prep/' + prep11.id + '/interview', prep11.id);
@@ -4813,6 +5374,10 @@ var ScreensPrep = (function () {
       return;
     }
     setPath(model, element.value);
+    if (/^preps\.\d+\.answers\./.test(model)) {
+      var owner = Store.activePrep();
+      if (owner && owner.live) liveScheduleAnswers(owner, false);
+    }
   });
 
   document.addEventListener('change', function (event) {
@@ -4848,10 +5413,19 @@ var ScreensPrep = (function () {
   /* ---------------- Запуск ---------------- */
 
   if (!window.location.hash) window.location.hash = '#/start';
-  render();
-  window.setTimeout(function () {
-    UI.toast('Демо-макет: введённые данные хранятся только в этой вкладке и сбрасываются после перезагрузки.');
-  }, 600);
+
+  (async function boot() {
+    var isLive = await Api.detect();
+    if (isLive) {
+      try { await liveHydrate(); } catch (e) { UI.toast('Не удалось загрузить данные с сервера: ' + e.message); }
+    }
+    render();
+    window.setTimeout(function () {
+      UI.toast(isLive
+        ? 'Режим сервера: данные хранятся в базе' + (Api.live.ai && Api.live.ai.live ? ', ответы — от модели.' : ', модель пока на заглушке.')
+        : 'Демо-макет: введённые данные хранятся только в этой вкладке и сбрасываются после перезагрузки.');
+    }, 600);
+  })();
 })();
 
 </script>

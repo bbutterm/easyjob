@@ -440,8 +440,21 @@ var ScreensCore = (function () {
       + '  <input type="file" id="file-input" class="visually-hidden" accept=".pdf,.docx,.doc,.rtf,.txt" '
       + '    aria-label="Выбрать файл резюме">'
       + fileRow
+      + '  <hr class="divide">'
+      + UI.field({ id: 'upload-text', label: 'Или вставьте текст резюме', type: 'textarea', rows: 8,
+          model: 'upload.text', value: up.text || '',
+          placeholder: 'Скопируйте текст из своего резюме',
+          hint: Api.live.enabled
+            ? 'Текст уйдёт на сервер и будет разобран моделью. Файлы пока не читаются — только вставленный текст.'
+            : 'В демо-режиме текст остаётся в браузере и не анализируется.' })
       + '  <div class="btn-row" style="margin-top:16px">'
-      + '    <button type="button" class="btn btn--primary" data-act="upload:show-analysis">Показать пример анализа</button>'
+      + (Api.live.enabled
+          ? '<button type="button" class="btn btn--primary" data-act="upload:review"'
+            + (state.pending ? ' disabled' : '') + '>'
+            + (state.pending ? 'Разбираю…' : 'Разобрать резюме') + '</button>'
+          : '')
+      + '    <button type="button" class="btn' + (Api.live.enabled ? '' : ' btn--primary')
+      + '" data-act="upload:show-analysis">Показать пример анализа</button>'
       + '    <a class="btn" href="#/resumes">К списку резюме</a>'
       + '  </div>'
       + '</div>'
@@ -455,9 +468,10 @@ var ScreensCore = (function () {
     return ''
       + '<div class="q-item">'
       + '  <div class="q-item__top"><span class="tag tag--info">Предложение</span>' + status + '</div>'
-      + '  <div class="q-item__text">' + esc(item.title) + '</div>'
+      + '  <div class="q-item__text">' + esc(item.title || 'Предложение') + '</div>'
       + '  <p class="muted" style="font-size:13.5px">' + esc(item.why) + '</p>'
-      + '  <div class="diff-old"><b style="font-size:12px">Было</b><div>' + esc(item.before) + '</div></div>'
+      + (item.before && item.before !== '—'
+          ? '<div class="diff-old"><b style="font-size:12px">Было</b><div>' + esc(item.before) + '</div></div>' : '')
       + '  <div class="diff-new"><b style="font-size:12px">Стало</b><div>' + esc(item.after) + '</div></div>'
       + '  <div class="btn-row" style="margin-top:12px">'
       + '    <button type="button" class="btn btn--sm btn--primary" data-act="sug:accept" data-id="' + esc(item.id) + '">Принять</button>'
@@ -468,7 +482,8 @@ var ScreensCore = (function () {
 
   function analysisReport() {
     var state = Store.get();
-    var report = DEMO_DATA.analysisReport;
+    var report = state.upload.report || DEMO_DATA.analysisReport;
+    var real = !!state.upload.report;
     var decisions = state.upload.decisions;
     var accepted = report.vague.concat(report.missing).filter(function (s) {
       return decisions[s.id] === 'accepted';
@@ -476,16 +491,22 @@ var ScreensCore = (function () {
 
     return ''
       + '<div class="card stack">'
-      + '  <div class="card__head"><div class="card__title"><h2>Демонстрационный разбор резюме</h2>'
-      + '  <small>Образец отчёта на подготовленном примере</small></div>' + UI.demoBadge('Образец') + '</div>'
-      + note('demo', '<div>Это разбор демонстрационного резюме из комплекта макета. Ваш файл не читался. '
-        + 'Ложные работодатели, навыки и достижения не добавляются.</div>')
+      + (real
+          ? '<div class="card__head"><div class="card__title"><h2>Разбор вашего резюме</h2>'
+            + '<small>' + (Api.live.ai && Api.live.ai.live ? 'Выполнен моделью по вставленному тексту' : 'Сервер на заглушке: структура настоящая, содержание фиксированное') + '</small></div>'
+            + (Api.live.ai && Api.live.ai.live ? '' : UI.demoBadge('Заглушка')) + '</div>'
+            + note('info', '<div>Модель предлагает формулировки, но не имеет права добавлять факты. '
+              + 'Принимайте только то, что соответствует действительности.</div>')
+          : '<div class="card__head"><div class="card__title"><h2>Демонстрационный разбор резюме</h2>'
+            + '<small>Образец отчёта на подготовленном примере</small></div>' + UI.demoBadge('Образец') + '</div>'
+            + note('demo', '<div>Это разбор демонстрационного резюме из комплекта макета. Ваш файл не читался. '
+              + 'Ложные работодатели, навыки и достижения не добавляются.</div>'))
       + '  <h3>Сильные стороны</h3>'
-      + '  <ul>' + report.strengths.map(function (s) { return '<li>' + esc(s) + '</li>'; }).join('') + '</ul>'
+      + '  <ul>' + (report.strengths || []).map(function (s) { return '<li>' + esc(s) + '</li>'; }).join('') + '</ul>'
       + '  <h3>Неясные формулировки</h3>'
-      + report.vague.map(function (s) { return suggestionBlock(s, decisions[s.id]); }).join('')
+      + (report.vague || []).map(function (s, i) { s.id = s.id || ('sug-v' + i); return suggestionBlock(s, decisions[s.id]); }).join('')
       + '  <h3>Недостающая информация</h3>'
-      + report.missing.map(function (s) { return suggestionBlock(s, decisions[s.id]); }).join('')
+      + (report.missing || []).map(function (s, i) { s.id = s.id || ('sug-m' + i); return suggestionBlock(s, decisions[s.id]); }).join('')
       + '</div>'
       + '<div class="card stack">'
       + '  <div class="card__head"><div class="card__title"><h2>Демонстрационная версия резюме</h2>'

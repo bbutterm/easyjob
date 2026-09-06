@@ -124,10 +124,14 @@
       + '<div class="topbar">'
       + '  <button type="button" class="btn btn--sm menu-btn" data-act="nav:toggle" aria-label="Открыть меню">☰</button>'
       + '  <div class="topbar__ctx">' + ctx + '</div>'
-      + '  <span class="tag tag--demo">'
-      + '    <span class="badge-full">Демо — ИИ и платежи не подключены</span>'
-      + '    <span class="badge-short">Демо</span>'
-      + '  </span>'
+      + (Api.live.enabled
+          ? (Api.live.ai && Api.live.ai.live
+              ? '<span class="tag tag--ok"><span class="badge-full">Сервер · ' + esc(Api.live.ai.title) + '</span><span class="badge-short">Сервер</span></span>'
+              : '<span class="tag tag--demo"><span class="badge-full">Сервер · заглушка модели</span><span class="badge-short">Заглушка</span></span>')
+          : '<span class="tag tag--demo">'
+            + '<span class="badge-full">Демо — ИИ и платежи не подключены</span>'
+            + '<span class="badge-short">Демо</span>'
+            + '</span>')
       + '  <button type="button" class="btn btn--sm" data-act="theme:toggle" aria-label="Переключить тему">'
       + (state.theme === 'dark' ? '☀' : '☾') + '</button>'
       + '</div>';
@@ -136,6 +140,27 @@
   function demoPanel() {
     var state = Store.get();
     var open = state.demoPanelOpen;
+    if (Api.live.enabled) {
+      var ai = Api.live.ai || {};
+      return ''
+        + '<aside class="demo-panel' + (open ? '' : ' demo-panel--collapsed') + '" aria-label="Режим сервера">'
+        + '  <button type="button" class="demo-panel__head" data-act="demopanel:toggle" aria-expanded="'
+        + (open ? 'true' : 'false') + '"><span>Режим сервера</span><span aria-hidden="true">' + (open ? '▾' : '▴') + '</span></button>'
+        + '  <div class="demo-panel__body">'
+        + '    <p><b>' + esc(ai.title || ai.provider || '') + '</b>' + (ai.model ? ' · ' + esc(ai.model) : '')
+        + (ai.live ? '' : ' — заглушка, ключ не задан') + '</p>'
+        + '    <p>Данные хранятся на сервере' + (ai.dataRegion === 'ru' ? ' и обрабатываются в РФ' : '') + '.</p>'
+        + (Api.live.limits ? '<p>Подготовок сегодня: ' + esc(Api.live.limits.usedToday) + ' из '
+            + esc(Api.live.limits.freePerDay) + '.</p>' : '')
+        + '    <label class="field" for="demo-plan"><span class="field__label">Демо-тариф</span>'
+        + '      <select id="demo-plan" data-change-act="demo:plan">'
+        + DEMO_DATA.plans.map(function (p) {
+            return '<option value="' + esc(p.id) + '"' + (p.id === state.plan ? ' selected' : '') + '>' + esc(p.name) + '</option>';
+          }).join('')
+        + '      </select></label>'
+        + '  </div>'
+        + '</aside>';
+    }
     var options = [
       { value: 'empty', label: 'Пусто' },
       { value: 'filled', label: 'Заполнено' },
@@ -209,7 +234,10 @@
         + '<div class="shell">'
         + sidebar(section)
         + '  <div class="main">' + topbar()
-        + '    <main class="content" id="main" tabindex="-1">' + content + '</main>'
+        + '    <main class="content" id="main" tabindex="-1">'
+        + (state.pending ? '<div class="note note--info" role="status" aria-live="polite" style="margin-bottom:16px"><div>'
+            + '<span class="dots" aria-hidden="true"><span></span><span></span><span></span></span> ' + esc(state.pending) + '</div></div>' : '')
+        + content + '</main>'
         + '  </div>'
         + '</div>'
         + (document.body.getAttribute('data-nav') === 'open'
@@ -284,6 +312,221 @@
     else window.location.hash = hash;
   }
 
+
+  /* ============================================================
+     Режим сервера: действия, которые ходят в API.
+     В демо-режиме (файл открыт напрямую) не вызываются.
+     ============================================================ */
+
+  function setPending(text) {
+    Store.get().pending = text || null;
+    Store.notify();
+  }
+
+  function liveFail(e) {
+    setPending(null);
+    if (e && e.status === 429) {
+      var limits = e.extra && e.extra.limits;
+      UI.openModal({
+        title: 'Лимит на сегодня исчерпан',
+        body: '<p>' + esc(e.message) + '</p>'
+          + (limits ? '<p class="muted">Бесплатно: ' + esc(limits.freePerDay) + ' в день. Использовано: '
+            + esc(limits.usedToday) + '.</p>' : '')
+          + '<p>Оплата пока не подключена. Возвращайтесь завтра или откройте существующую подготовку.</p>'
+      });
+      return;
+    }
+    UI.toast(e && e.message ? e.message : 'Ошибка сервера');
+  }
+
+  function findPrepBySid(sid) {
+    var list = Store.get().preps;
+    for (var i = 0; i < list.length; i++) if (list[i].id === sid || list[i].serverId === sid) return list[i];
+    return null;
+  }
+
+  async function liveHydrate() {
+    var me = await Api.request('GET', '/api/me');
+    Api.live.limits = me.limits;
+    Api.live.professions = me.professions;
+    var resumes = [];
+    for (var i = 0; i < me.resumes.length; i++) {
+      var full = await Api.request('GET', '/api/resumes/' + me.resumes[i].id);
+      resumes.push(Api.resumeFromServer(full));
+    }
+    var vacancies = [];
+    var seen = {};
+    me.preps.forEach(function (p) {
+      if (p.vacancy && !seen[p.vacancy.id]) {
+        seen[p.vacancy.id] = true;
+        vacancies.push({ id: p.vacancy.id, serverId: p.vacancy.id, demo: false, rev: p.vacancy.rev,
+          title: p.vacancy.title, company: p.vacancy.company || '', location: '', text: '',
+          requirements: p.vacancy.requirements || [] });
+      }
+    });
+    Store.replaceData({ resumes: resumes, vacancies: vacancies, preps: me.preps.map(Api.prepFromServer) });
+  }
+
+  async function liveEnsureResume(resume) {
+    if (resume.serverId) return resume.serverId;
+    var created = await Api.request('POST', '/api/resumes', Api.resumeToServer(resume));
+    resume.serverId = created.id;
+    resume.rev = created.rev;
+    resume.demo = false;
+    return created.id;
+  }
+
+  async function liveCreatePrep(draft) {
+    var resume = Store.resumeById(draft.resumeId);
+    if (!resume) { UI.toast('Выберите резюме.'); return; }
+    try {
+      setPending('Отправляю резюме и вакансию на сервер…');
+      var resumeSid = await liveEnsureResume(resume);
+      var vacancy = Api.vacancyFromServer(await Api.request('POST', '/api/vacancies', {
+        title: draft.title, company: draft.company || '', rawText: draft.text
+      }));
+      setPending('Сопоставляю резюме с требованиями…');
+      var prep = Api.prepFromServer(await Api.request('POST', '/api/preps', {
+        resumeId: resumeSid, vacancyId: vacancy.id, profession: resume.profession || draft.title
+      }));
+      prep.resumeId = resume.id;
+      Store.update(function (s) {
+        s.vacancies.unshift(vacancy);
+        s.preps.unshift(prep);
+        s.activePrepId = prep.id;
+        s.vacancyDraft = { title: '', company: '', text: '', resumeId: '', url: '' };
+        s.pending = null;
+        Store.addHistory('Создана подготовка по вакансии', '#/prep/' + prep.id + '/match', prep.id);
+      });
+      go('#/prep/' + prep.id + '/match');
+    } catch (e) { liveFail(e); }
+  }
+
+  async function liveRebuild(prep) {
+    try {
+      setPending('Пересобираю сопоставление…');
+      var fresh = Api.prepFromServer(await Api.request('POST', '/api/preps/' + prep.serverId + '/rebuild'));
+      Store.update(function () {
+        prep.match = fresh.match; prep.questions = null; prep.card = null;
+        prep.stale = false; prep.staleReason = ''; prep.resumeRev = fresh.resumeRev; prep.vacancyRev = fresh.vacancyRev;
+        Store.get().pending = null;
+      });
+      UI.toast('Сопоставление пересобрано для текущих версий.');
+    } catch (e) { liveFail(e); }
+  }
+
+  async function liveGenerateQuestions(prep) {
+    try {
+      setPending('Подбираю вопросы…');
+      var data = await Api.request('POST', '/api/preps/' + prep.serverId + '/questions');
+      Store.update(function () { prep.questions = data.questions; Store.get().pending = null; });
+    } catch (e) { liveFail(e); }
+  }
+
+  var answersTimer = null;
+  function liveScheduleAnswers(prep, immediate) {
+    if (!prep || !prep.serverId) return;
+    if (answersTimer) clearTimeout(answersTimer);
+    var save = function () {
+      answersTimer = null;
+      Api.request('PUT', '/api/preps/' + prep.serverId + '/answers', { answers: prep.answers, ready: prep.ready })
+        .catch(function (e) { UI.toast('Ответы не сохранились: ' + e.message); });
+    };
+    if (immediate) save(); else answersTimer = setTimeout(save, 900);
+  }
+
+  async function liveStartChat(prep) {
+    try {
+      setPending('Интервьюер готовит первый вопрос…');
+      var first = await Api.request('POST', '/api/preps/' + prep.serverId + '/interviews');
+      Store.update(function () {
+        var chat = ScreensPrep.ensureChat(prep);
+        chat.started = true; chat.index = 0; chat.finished = false; chat.failed = false;
+        chat.interviewId = first.interviewId; chat.summary = null; chat.partial = '';
+        chat.messages = [
+          { who: 'system', text: Api.live.ai && Api.live.ai.live
+            ? 'Интервьюер — модель. Ответы сохраняются на сервере.'
+            : 'Сервер работает на заглушке: реплики фиксированные, ответы сохраняются.' },
+          { who: 'bot', text: first.turn.text }
+        ];
+        Store.get().pending = null;
+      });
+    } catch (e) { liveFail(e); }
+  }
+
+  async function liveSendChat(prep) {
+    var chat = prep.chat;
+    var text = String(chat.draft || '').trim();
+    if (!text) { UI.toast('Введите ответ, чтобы отправить его.'); return; }
+    Store.update(function () {
+      chat.messages.push({ who: 'user', text: text });
+      chat.draft = ''; chat.failed = false; chat.pending = true; chat.partial = '';
+    });
+    try {
+      var done = await Api.stream('/api/interviews/' + chat.interviewId + '/turns', { text: text }, function (delta) {
+        chat.partial += delta;
+        Store.notify();
+      });
+      Store.update(function () {
+        chat.pending = false; chat.partial = ''; chat.index += 1;
+        chat.messages.push({ who: 'bot', text: done.turn.text });
+      });
+    } catch (e) {
+      Store.update(function () { chat.pending = false; chat.partial = ''; chat.failed = true; chat.failError = e.message; });
+    }
+  }
+
+  async function liveRetryChat(prep) {
+    var chat = prep.chat;
+    Store.update(function () { chat.failed = false; chat.pending = true; });
+    try {
+      var done = await Api.request('POST', '/api/interviews/' + chat.interviewId + '/continue');
+      Store.update(function () { chat.pending = false; chat.index += 1; chat.messages.push({ who: 'bot', text: done.turn.text }); });
+    } catch (e) {
+      Store.update(function () { chat.pending = false; chat.failed = true; chat.failError = e.message; });
+    }
+  }
+
+  async function liveFinishChat(prep) {
+    var chat = prep.chat;
+    try {
+      setPending('Готовлю итог интервью…');
+      var data = await Api.request('POST', '/api/interviews/' + chat.interviewId + '/finish');
+      Store.update(function () {
+        chat.summary = data.summary; chat.finished = true;
+        Store.get().pending = null;
+        Store.addHistory('Текстовое пробное интервью', '#/prep/' + prep.id + '/interview', prep.id);
+      });
+    } catch (e) { liveFail(e); }
+  }
+
+  async function liveReview() {
+    var up = Store.get().upload;
+    var text = String(up.text || '').trim();
+    if (text.length < 40) { UI.toast('Вставьте текст резюме — хотя бы несколько строк.'); return; }
+    try {
+      setPending('Отправляю резюме…');
+      var created = await Api.request('POST', '/api/resumes', {
+        title: 'Резюме из текста ' + Api.label(), data: { rawText: text }
+      });
+      setPending('Разбираю резюме…');
+      var data = await Api.request('POST', '/api/resumes/' + created.id + '/review');
+      Store.update(function (s) {
+        s.upload.report = data.review; s.upload.decisions = {}; s.upload.analysisShown = true;
+        s.upload.serverResume = Api.resumeFromServer(Object.assign({}, created, { review: data.review }));
+        s.pending = null;
+      });
+    } catch (e) { liveFail(e); }
+  }
+
+  async function liveSaveResume(resume) {
+    try {
+      setPending('Сохраняю резюме…');
+      await liveEnsureResume(resume);
+      Store.update(function (s) { s.pending = null; });
+    } catch (e) { liveFail(e); }
+  }
+
   function dispatch(act, data, element) {
     var state = Store.get();
 
@@ -331,6 +574,7 @@
 
       /* -------- Демо-режим -------- */
       case 'demo:example':
+        if (Api.live.enabled) { go('#/overview'); return; }
         Store.applyScenario('filled');
         go('#/overview');
         UI.toast('Открыт пример заполненного демо.');
@@ -456,13 +700,17 @@
         var matched = Professions.find(wanted);
         /* Демо-комплект пересобирается под введённую профессию: для профессии из
            библиотеки берётся готовый набор, для любой другой — общий шаблон. */
-        if (wanted) Store.setProfession(matched ? matched.id : wanted);
+        if (wanted && !Api.live.enabled) Store.setProfession(matched ? matched.id : wanted);
         Store.update(function (s) {
           s.resumes.unshift(resume);
           s.builder = Store.emptyBuilder();
           s.vacancyDraft.resumeId = resume.id;
           Store.addHistory('Резюме собрано в мастере', '#/resume/' + resume.id, null);
         });
+        if (Api.live.enabled) {
+          liveSaveResume(resume).then(function () { go('#/vacancy/new'); });
+          return;
+        }
         UI.toast(matched || !wanted
           ? 'Резюме сохранено. Демо-набор подобран для профессии «' + DEMO_DATA.professionName + '».'
           : 'Резюме сохранено. Для профессии «' + wanted + '» собран общий демонстрационный комплект.');
@@ -480,11 +728,25 @@
         Store.update(function (s) { s.upload.fileName = ''; });
         UI.toast('Выбор файла удалён.');
         return;
+      case 'upload:review':
+        if (!state.pending) liveReview();
+        return;
       case 'upload:show-analysis':
-        Store.update(function (s) { s.upload.analysisShown = true; });
+        Store.update(function (s) { s.upload.analysisShown = true; s.upload.report = null; s.upload.decisions = {}; });
         UI.toast('Открыт демонстрационный отчёт на подготовленном примере.');
         return;
       case 'upload:save': {
+        if (Api.live.enabled && state.upload.serverResume) {
+          var saved = state.upload.serverResume;
+          Store.update(function (s) {
+            if (!Store.resumeById(saved.id)) s.resumes.unshift(saved);
+            s.vacancyDraft.resumeId = saved.id;
+            Store.addHistory('Резюме разобрано и сохранено', '#/resume/' + saved.id, null);
+          });
+          UI.toast('Резюме сохранено на сервере.');
+          go('#/vacancy/new');
+          return;
+        }
         var accepted = Object.keys(state.upload.decisions).filter(function (k) {
           return state.upload.decisions[k] === 'accepted';
         });
@@ -523,7 +785,13 @@
       case 'resume:rename-confirm':
         Store.update(function (s) {
           var target = Store.resumeById(s.renameId);
-          if (target && String(s.renameDraft).trim()) target.title = String(s.renameDraft).trim();
+          if (target && String(s.renameDraft).trim()) {
+            target.title = String(s.renameDraft).trim();
+            if (Api.live.enabled && target.serverId) {
+              Api.request('PUT', '/api/resumes/' + target.serverId, { title: target.title })
+                .catch(function (e) { UI.toast(e.message); });
+            }
+          }
         });
         UI.toast('Название обновлено.');
         return;
@@ -538,7 +806,12 @@
         });
         return;
       }
-      case 'resume:delete-confirm':
+      case 'resume:delete-confirm': {
+        var gone = Store.resumeById(data.id);
+        if (gone && Api.live.enabled && gone.serverId) {
+          Api.request('DELETE', '/api/resumes/' + gone.serverId).catch(function (e) { UI.toast(e.message); });
+        }
+      }
         Store.update(function (s) {
           s.resumes = s.resumes.filter(function (item) { return item.id !== data.id; });
           s.preps.forEach(function (p) {
@@ -554,9 +827,14 @@
         var target2 = Store.resumeById(data.id);
         if (!target2) return;
         Store.update(function () {
-          target2.summary = (target2.summary || '') + ' Уточнение внесено в макете ' + Store.nowLabel() + '.';
-          Store.bumpResume(target2, 'Резюме изменено после демонстрационного анализа.');
+          target2.summary = (target2.summary || '') + ' Уточнение внесено ' + Store.nowLabel() + '.';
+          Store.bumpResume(target2, 'Резюме изменено после анализа.');
         });
+        if (Api.live.enabled && target2.serverId) {
+          Api.request('PUT', '/api/resumes/' + target2.serverId, Api.resumeToServer(target2))
+            .then(function (r) { Store.update(function () { target2.rev = r.rev; }); })
+            .catch(function (e) { UI.toast(e.message); });
+        }
         UI.toast('Версия резюме повышена. Связанные подготовки отмечены как устаревшие.');
         return;
       }
@@ -581,6 +859,7 @@
           UI.toast('Заполните должность, текст вакансии и выберите резюме.');
           return;
         }
+        if (Api.live.enabled) { if (!state.pending) liveCreatePrep(draft); return; }
         var vacancy = {
           id: Store.uid('vac'),
           demo: true,
@@ -612,6 +891,7 @@
       case 'prep:rebuild': {
         var prep2 = Store.prepById(data.id);
         if (!prep2) return;
+        if (prep2.live) { if (!state.pending) liveRebuild(prep2); return; }
         Store.update(function () { Store.rebuildPrep(prep2); });
         UI.toast('Демонстрационный отчёт пересобран для текущих исходников.');
         return;
@@ -623,7 +903,12 @@
           act: 'prep:delete-confirm', data: { id: data.id }, confirmLabel: 'Удалить', danger: true
         });
         return;
-      case 'prep:delete-confirm':
+      case 'prep:delete-confirm': {
+        var doomed = Store.prepById(data.id);
+        if (doomed && doomed.live) {
+          Api.request('DELETE', '/api/preps/' + doomed.serverId).catch(function (e) { UI.toast(e.message); });
+        }
+      }
         Store.update(function (s) {
           s.preps = s.preps.filter(function (p) { return p.id !== data.id; });
           if (s.activePrepId === data.id) s.activePrepId = s.preps.length ? s.preps[0].id : null;
@@ -682,6 +967,12 @@
         var prep6 = Store.activePrep();
         if (!prep6) return;
         Store.update(function () { prep6.ready[data.id] = !prep6.ready[data.id]; });
+        if (prep6.live) liveScheduleAnswers(prep6, true);
+        return;
+      }
+      case 'questions:generate': {
+        var prepQ = Store.prepById(data.id) || Store.activePrep();
+        if (prepQ && prepQ.live && !state.pending) liveGenerateQuestions(prepQ);
         return;
       }
       case 'q:filter-topic':
@@ -698,6 +989,7 @@
       case 'chat:start': {
         var prep7 = Store.activePrep();
         if (!prep7) return;
+        if (prep7.live) { if (!state.pending) liveStartChat(prep7); return; }
         Store.update(function () {
           var chat = ScreensPrep.ensureChat(prep7);
           chat.started = true;
@@ -721,6 +1013,7 @@
       case 'chat:retry': {
         var prep9 = Store.activePrep();
         if (!prep9 || !prep9.chat) return;
+        if (prep9.live) { liveRetryChat(prep9); return; }
         Store.update(function () { prep9.chat.failed = false; });
         UI.toast('Демонстрационная отправка повторена.');
         return;
@@ -728,6 +1021,7 @@
       case 'chat:send': {
         var prep10 = Store.activePrep();
         if (!prep10 || !prep10.chat) return;
+        if (prep10.live) { if (!prep10.chat.pending) liveSendChat(prep10); return; }
         var chat = prep10.chat;
         if (!String(chat.draft || '').trim()) {
           UI.toast('Введите ответ, чтобы отправить его в переписку.');
@@ -765,6 +1059,7 @@
       case 'chat:finish': {
         var prep11 = Store.activePrep();
         if (!prep11 || !prep11.chat) return;
+        if (prep11.live) { if (!state.pending) liveFinishChat(prep11); return; }
         Store.update(function () {
           prep11.chat.finished = true;
           Store.addHistory('Текстовое пробное интервью', '#/prep/' + prep11.id + '/interview', prep11.id);
@@ -999,6 +1294,10 @@
       return;
     }
     setPath(model, element.value);
+    if (/^preps\.\d+\.answers\./.test(model)) {
+      var owner = Store.activePrep();
+      if (owner && owner.live) liveScheduleAnswers(owner, false);
+    }
   });
 
   document.addEventListener('change', function (event) {
@@ -1034,8 +1333,17 @@
   /* ---------------- Запуск ---------------- */
 
   if (!window.location.hash) window.location.hash = '#/start';
-  render();
-  window.setTimeout(function () {
-    UI.toast('Демо-макет: введённые данные хранятся только в этой вкладке и сбрасываются после перезагрузки.');
-  }, 600);
+
+  (async function boot() {
+    var isLive = await Api.detect();
+    if (isLive) {
+      try { await liveHydrate(); } catch (e) { UI.toast('Не удалось загрузить данные с сервера: ' + e.message); }
+    }
+    render();
+    window.setTimeout(function () {
+      UI.toast(isLive
+        ? 'Режим сервера: данные хранятся в базе' + (Api.live.ai && Api.live.ai.live ? ', ответы — от модели.' : ', модель пока на заглушке.')
+        : 'Демо-макет: введённые данные хранятся только в этой вкладке и сбрасываются после перезагрузки.');
+    }, 600);
+  })();
 })();

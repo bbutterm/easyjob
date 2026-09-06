@@ -18,6 +18,15 @@ var ScreensPrep = (function () {
     missing: { text: 'Не указано в резюме', cls: 'tag--alert' }
   };
 
+  /* Вопросы подготовки: с сервера, если есть, иначе демонстрационные. */
+  function questionsFor(prep) {
+    return (prep && Array.isArray(prep.questions) && prep.questions.length) ? prep.questions : DEMO_DATA.questions;
+  }
+
+  function isLivePrep(prep) {
+    return !!(prep && prep.live && Api.live.enabled);
+  }
+
   function needPrep(prep, action) {
     return pageHead(action)
       + UI.emptyState('Подготовка не выбрана',
@@ -45,7 +54,9 @@ var ScreensPrep = (function () {
     if (state.scenario === 'error') return pageHead('Сопоставление') + UI.errorBlock();
 
     var vacancy = Store.vacancyById(prep.vacancyId);
-    var requirements = (vacancy && vacancy.requirements) || DEMO_DATA.vacancy.requirements;
+    var requirements = (prep.match && prep.match.length) ? prep.match
+      : ((vacancy && vacancy.requirements) || DEMO_DATA.vacancy.requirements);
+    var liveMatch = isLivePrep(prep) && prep.match && prep.match.length > 0;
 
     var counts = { confirmed: 0, unclear: 0, missing: 0 };
     requirements.forEach(function (r) { counts[r.status] += 1; });
@@ -76,8 +87,14 @@ var ScreensPrep = (function () {
           'Требования вакансии и то, что подтверждается демонстрационным резюме.')
       + sourcesBar(prep)
       + staleBanner(prep)
-      + note('demo', '<div><strong>Это образец отчёта.</strong> Разбор построен на подготовленном комплекте данных '
-        + 'и не является анализом введённого вами текста.</div>')
+      + (liveMatch
+          ? (Api.live.ai && Api.live.ai.live
+              ? note('info', '<div><strong>Сопоставление выполнено моделью</strong> по вашему резюме и тексту вакансии. '
+                + 'Проверяйте выводы: модель может ошибаться.</div>')
+              : note('demo', '<div><strong>Сервер работает на заглушке модели.</strong> Требования взяты из вашего '
+                + 'текста вакансии, но статусы и объяснения — фиксированные, пока не подключён провайдер.</div>'))
+          : note('demo', '<div><strong>Это образец отчёта.</strong> Разбор построен на подготовленном комплекте данных '
+            + 'и не является анализом введённого вами текста.</div>'))
       + '<div class="card stack">'
       + '  <div class="summary-counts">'
       + '    <div class="count-box"><b>' + counts.confirmed + '</b><span>подтверждено резюме</span></div>'
@@ -110,19 +127,36 @@ var ScreensPrep = (function () {
     var filterReady = state.qFilterReady || 'all';
     var openHints = state.qOpenHints || {};
 
+    /* В режиме сервера вопросы генерируются по запросу: без них показываем кнопку. */
+    if (isLivePrep(prep) && !(prep.questions && prep.questions.length)) {
+      return ''
+        + pageHead('Вероятные вопросы для подготовки', 'Вопросы подбираются по требованиям вакансии и вашему резюме.')
+        + sourcesBar(prep)
+        + staleBanner(prep)
+        + '<div class="card stack">'
+        + '  <p class="muted">Вопросы ещё не собраны для этой подготовки.</p>'
+        + '  <div class="btn-row">'
+        + '    <button type="button" class="btn btn--primary" data-act="questions:generate" data-id="' + esc(prep.id) + '"'
+        + (state.pending ? ' disabled' : '') + '>'
+        + (state.pending ? 'Собираю…' : 'Собрать вопросы') + '</button>'
+        + '  </div>'
+        + '</div>';
+    }
+
+    var allQuestions = questionsFor(prep);
     var topics = ['all'];
-    DEMO_DATA.questions.forEach(function (q) {
+    allQuestions.forEach(function (q) {
       if (topics.indexOf(q.topic) < 0) topics.push(q.topic);
     });
 
-    var visible = DEMO_DATA.questions.filter(function (q) {
+    var visible = allQuestions.filter(function (q) {
       if (filterTopic !== 'all' && q.topic !== filterTopic) return false;
       if (filterReady === 'ready' && !prep.ready[q.id]) return false;
       if (filterReady === 'todo' && prep.ready[q.id]) return false;
       return true;
     });
 
-    var readyCount = DEMO_DATA.questions.filter(function (q) { return prep.ready[q.id]; }).length;
+    var readyCount = allQuestions.filter(function (q) { return prep.ready[q.id]; }).length;
 
     var items = visible.map(function (q) {
       var isReady = !!prep.ready[q.id];
@@ -138,7 +172,8 @@ var ScreensPrep = (function () {
         + UI.field({ id: 'ans-' + q.id, label: 'Ваш ответ', type: 'textarea',
             model: 'preps.' + prepIndex(prep) + '.answers.' + q.id,
             value: prep.answers[q.id] || '',
-            hint: 'Сохраняется только в памяти страницы на время сеанса макета.' })
+            hint: isLivePrep(prep) ? 'Сохраняется на сервере автоматически.'
+              : 'Сохраняется только в памяти страницы на время сеанса макета.' })
         + '  <div class="btn-row">'
         + '    <button type="button" class="btn btn--sm" data-act="q:hint" data-id="' + esc(q.id) + '" '
         + '      aria-expanded="' + (hintOpen ? 'true' : 'false') + '">'
@@ -155,7 +190,9 @@ var ScreensPrep = (function () {
 
     return ''
       + pageHead('Вероятные вопросы для подготовки',
-          'Список подготовлен для демонстрации. Никаких обещаний, что спросят именно это.')
+          isLivePrep(prep)
+            ? 'Подобраны по требованиям вакансии и вашему резюме. Никаких обещаний, что спросят именно это.'
+            : 'Список подготовлен для демонстрации. Никаких обещаний, что спросят именно это.')
       + sourcesBar(prep)
       + staleBanner(prep)
       + '<div class="toolbar">'
@@ -172,7 +209,7 @@ var ScreensPrep = (function () {
       + '    <option value="ready"' + (filterReady === 'ready' ? ' selected' : '') + '>Подготовленные</option>'
       + '    <option value="todo"' + (filterReady === 'todo' ? ' selected' : '') + '>Осталось разобрать</option>'
       + '  </select>'
-      + '  <span class="muted">Подготовлено ' + readyCount + ' из ' + DEMO_DATA.questions.length + '</span>'
+      + '  <span class="muted">Подготовлено ' + readyCount + ' из ' + allQuestions.length + '</span>'
       + '</div>'
       + (items || UI.emptyState('Под фильтр ничего не попало', 'Измените тему или готовность.', 'Сбросить фильтры', 'q:filter-reset'))
       + '<div class="card"><div class="btn-row">'
@@ -262,8 +299,11 @@ var ScreensPrep = (function () {
         + sourcesBar(prep)
         + '  <h2>Формат</h2>'
         + '  <p class="muted">Пять вопросов из подготовленного сценария: опыт, процессы, SQL, постановки и кейс.</p>'
-        + note('demo', '<div><strong>Реплики интервьюера — фиксированный сценарий.</strong> Ваши ответы видны в '
-          + 'переписке, но не анализируются: настоящей оценки ответа нет.</div>')
+        + (isLivePrep(prep) && Api.live.ai && Api.live.ai.live
+            ? note('info', '<div>Интервьюер — модель. Она задаёт вопросы по вашей подготовке и не оценивает ответы вслух: '
+              + 'разбор будет в итоге.</div>')
+            : note('demo', '<div><strong>Реплики интервьюера — фиксированный сценарий.</strong> Ваши ответы видны в '
+              + 'переписке, но не анализируются: настоящей оценки ответа нет.</div>'))
         + '  <div class="btn-row"><button type="button" class="btn btn--primary" data-act="chat:start">Начать интервью</button>'
         + '  <button type="button" class="btn" data-act="go:#/prep/' + esc(prep.id) + '/questions">Сначала разобрать вопросы</button></div>'
         + '</div>';
@@ -273,14 +313,16 @@ var ScreensPrep = (function () {
 
     var messages = chat.messages.map(function (m) {
       var cls = m.who === 'user' ? 'msg msg--user' : (m.who === 'system' ? 'msg msg--sys' : 'msg');
-      var who = m.who === 'user' ? 'Вы' : (m.who === 'system' ? 'Макет' : 'Интервьюер (демо-сценарий)');
+      var who = m.who === 'user' ? 'Вы' : (m.who === 'system' ? 'Макет'
+        : (isLivePrep(prep) ? 'Интервьюер' : 'Интервьюер (демо-сценарий)'));
       return '<div class="' + cls + '"><span class="msg__who">' + esc(who) + '</span>'
         + '<div class="msg__body">' + escLines(m.text) + '</div></div>';
     }).join('');
 
     var pending = chat.pending
-      ? '<div class="msg"><span class="msg__who">Интервьюер (демо-сценарий)</span>'
-        + '<div class="msg__body"><span class="dots" aria-label="Готовится следующая реплика">'
+      ? '<div class="msg"><span class="msg__who">' + (isLivePrep(prep) ? 'Интервьюер' : 'Интервьюер (демо-сценарий)') + '</span>'
+        + '<div class="msg__body">' + (chat.partial ? escLines(chat.partial) : '')
+        + '<span class="dots" aria-label="Готовится следующая реплика">'
         + '<span></span><span></span><span></span></span></div></div>'
       : '';
 
@@ -290,8 +332,10 @@ var ScreensPrep = (function () {
       : '';
 
     return ''
-      + pageHead('Текстовое пробное интервью', 'Вопрос ' + Math.min(chat.index + 1, DEMO_DATA.interviewScript.length)
-          + ' из ' + DEMO_DATA.interviewScript.length)
+      + pageHead('Текстовое пробное интервью', isLivePrep(prep)
+          ? 'Вопрос ' + (chat.index + 1)
+          : 'Вопрос ' + Math.min(chat.index + 1, DEMO_DATA.interviewScript.length)
+            + ' из ' + DEMO_DATA.interviewScript.length)
       + sourcesBar(prep)
       + '<div class="card stack">'
       + '  <div class="chat" id="chat-log" role="log" aria-live="polite">' + messages + pending + '</div>'
@@ -311,19 +355,24 @@ var ScreensPrep = (function () {
   }
 
   function interviewSummary(prep) {
-    var s = DEMO_DATA.interviewSummary;
+    var s = (prep.chat && prep.chat.summary) || DEMO_DATA.interviewSummary;
+    var real = !!(prep.chat && prep.chat.summary) && Api.live.ai && Api.live.ai.live;
     var answers = prep.chat.messages.filter(function (m) { return m.who === 'user'; });
     return ''
-      + pageHead('Итог пробного интервью', 'Демонстрационный отчёт по завершённой тренировке.')
-      + note('demo', '<div><strong>Отчёт заранее подготовлен.</strong> Он не составлен по вашим ответам: настоящей '
-        + 'оценки в макете нет. Ваши ' + answers.length + ' ответ(ов) остались только в переписке этого сеанса.</div>')
+      + pageHead('Итог пробного интервью', real ? 'Разбор по репликам этой тренировки.'
+          : 'Демонстрационный отчёт по завершённой тренировке.')
+      + (real
+          ? note('info', '<div>Итог составлен моделью по вашим ' + answers.length + ' ответам. Это мнение, а не оценка: '
+            + 'проверяйте выводы и сверяйте с требованиями вакансии.</div>')
+          : note('demo', '<div><strong>Отчёт заранее подготовлен.</strong> Он не составлен по вашим ответам: настоящей '
+            + 'оценки в макете нет. Ваши ' + answers.length + ' ответ(ов) остались только в переписке этого сеанса.</div>'))
       + '<div class="card stack">'
       + '  <h2>Примеры сильных ответов</h2>'
-      + '  <ul>' + s.strong.map(function (t) { return '<li>' + esc(t) + '</li>'; }).join('') + '</ul>'
+      + '  <ul>' + (s.strong || []).map(function (t) { return '<li>' + esc(t) + '</li>'; }).join('') + '</ul>'
       + '  <h2>Темы для повторения</h2>'
-      + '  <ul>' + s.repeat.map(function (t) { return '<li>' + esc(t) + '</li>'; }).join('') + '</ul>'
+      + '  <ul>' + (s.repeat || []).map(function (t) { return '<li>' + esc(t) + '</li>'; }).join('') + '</ul>'
       + '  <h2>Рекомендации</h2>'
-      + '  <ul>' + s.advice.map(function (t) { return '<li>' + esc(t) + '</li>'; }).join('') + '</ul>'
+      + '  <ul>' + (s.advice || []).map(function (t) { return '<li>' + esc(t) + '</li>'; }).join('') + '</ul>'
       + '</div>'
       + '<div class="card"><div class="btn-row">'
       + '  <button type="button" class="btn btn--primary" data-act="chat:restart">Повторить тренировку</button>'
@@ -683,13 +732,14 @@ var ScreensPrep = (function () {
 
     var vacancy = Store.vacancyById(prep.vacancyId);
     var resume = Store.resumeById(prep.resumeId);
-    var requirements = (vacancy && vacancy.requirements) || [];
+    var requirements = (prep.match && prep.match.length) ? prep.match : ((vacancy && vacancy.requirements) || []);
 
-    var answered = DEMO_DATA.questions.filter(function (q) {
+    var cardQuestions = questionsFor(prep);
+    var answered = cardQuestions.filter(function (q) {
       return String(prep.answers[q.id] || '').trim().length > 0;
     });
-    var ready = DEMO_DATA.questions.filter(function (q) { return prep.ready[q.id]; });
-    var gaps = DEMO_DATA.questions.filter(function (q) {
+    var ready = cardQuestions.filter(function (q) { return prep.ready[q.id]; });
+    var gaps = cardQuestions.filter(function (q) {
       return !String(prep.answers[q.id] || '').trim() && !prep.ready[q.id];
     });
     var risky = requirements.filter(function (r) { return r.status !== 'confirmed'; });
@@ -755,7 +805,7 @@ var ScreensPrep = (function () {
       + note('info', '<div>Карточка собрана из ваших собственных ответов и результата '
         + 'сопоставления. Она ничего не читает с экрана, не слушает звук и не требует '
         + 'установки программ. Подготовлено ответов: ' + answered.length + ' из '
-        + DEMO_DATA.questions.length + ', отмечено готовыми: ' + ready.length + '.</div>')
+        + cardQuestions.length + ', отмечено готовыми: ' + ready.length + '.</div>')
       + body
       + '<div class="card no-print"><div class="btn-row">'
       + '  <button type="button" class="btn btn--primary" data-act="card:print">Распечатать или сохранить в PDF</button>'

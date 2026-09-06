@@ -162,6 +162,12 @@ const resumes = {
       .run(title, JSON.stringify(data), now(), rid, sid);
     return resumes.get(sid, rid);
   },
+  /* Переименование не меняет содержимое — версию не повышает. */
+  rename(sid, rid, title) {
+    db.prepare('UPDATE resumes SET title = ?, updated_at = ? WHERE id = ? AND session_id = ?')
+      .run(title, now(), rid, sid);
+    return resumes.get(sid, rid);
+  },
   setReview(sid, rid, review) {
     db.prepare('UPDATE resumes SET review = ? WHERE id = ? AND session_id = ?')
       .run(JSON.stringify(review), rid, sid);

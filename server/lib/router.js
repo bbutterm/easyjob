@@ -71,11 +71,15 @@ function create() {
       let body = null;
       if (req.method === 'POST' || req.method === 'PUT' || req.method === 'PATCH') {
         const type = String(req.headers['content-type'] || '');
-        if (type.indexOf('application/json') < 0) {
-          throw new HttpError(415, 'Ожидается application/json');
+        const length = Number(req.headers['content-length'] || 0);
+        if (!type && !length) {
+          /* Запрос без тела — допустимо для действий вроде «собрать вопросы». */
+          body = {};
+        } else {
+          if (type.indexOf('application/json') < 0) throw new HttpError(415, 'Ожидается application/json');
+          const raw = await readBody(req);
+          try { body = raw ? JSON.parse(raw) : {}; } catch (e) { throw new HttpError(400, 'Тело запроса — не JSON'); }
         }
-        const raw = await readBody(req);
-        try { body = raw ? JSON.parse(raw) : {}; } catch (e) { throw new HttpError(400, 'Тело запроса — не JSON'); }
       }
       return route.handler({
         req, res, params, body, query: url.searchParams,

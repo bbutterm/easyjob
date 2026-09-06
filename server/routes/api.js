@@ -129,8 +129,11 @@ function register(r) {
     const existing = db.resumes.get(sid, params.id);
     if (!existing) throw new HttpError(404, 'Резюме не найдено');
     const title = str(body.title !== undefined ? body.title : existing.title, 200, 'title', true);
-    const data = body.data && typeof body.data === 'object' ? body.data : existing.data;
-    sendJson(res, 200, db.resumes.update(sid, params.id, title, data));
+    if (!body.data || typeof body.data !== 'object') {
+      sendJson(res, 200, db.resumes.rename(sid, params.id, title));
+      return;
+    }
+    sendJson(res, 200, db.resumes.update(sid, params.id, title, body.data));
   });
 
   r.del('/api/resumes/:id', function ({ res, params, ctx }) {
@@ -303,6 +306,17 @@ function register(r) {
       send('error', { error: e.message });
     }
     res.end();
+  });
+
+  /* Повторить реплику интервьюера без новой реплики кандидата:
+     нужно, когда ответ модели не пришёл, а ответ кандидата уже сохранён. */
+  r.post('/api/interviews/:id/continue', async function ({ res, params, ctx }) {
+    const sid = ctx.session.id;
+    const interview = db.interviews.get(sid, params.id);
+    if (!interview) throw new HttpError(404, 'Интервью не найдено');
+    if (interview.finished) throw new HttpError(409, 'Интервью завершено');
+    const prep = db.preps.get(sid, interview.prepId);
+    sendJson(res, 200, await interviewerTurn(sid, prep, interview, null));
   });
 
   r.post('/api/interviews/:id/finish', async function ({ res, params, ctx }) {

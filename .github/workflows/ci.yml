@@ -40,8 +40,11 @@ jobs:
       - name: Сервер
         run: npm run test:server
 
-      - name: Веб-макет
+      - name: Веб-макет (демо-режим)
         run: npm run test:web
+
+      - name: Веб-макет против сервера (режим сервера)
+        run: npm run test:live
 
   desktop:
     runs-on: ubuntu-latest

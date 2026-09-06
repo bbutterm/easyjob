@@ -169,6 +169,18 @@ var Store = (function () {
     applyScenario(state.scenario);
   }
 
+  /* Режим сервера: демо-данные заменяются данными базы. Настройки
+     в localStorage не трогаются — они относятся к демо-режиму. */
+  function replaceData(data) {
+    var fresh = baseState('empty');
+    Object.keys(fresh).forEach(function (key) { state[key] = fresh[key]; });
+    state.resumes = data.resumes || [];
+    state.vacancies = data.vacancies || [];
+    state.preps = data.preps || [];
+    state.activePrepId = state.preps.length ? state.preps[0].id : null;
+    state.history = data.history || [];
+  }
+
   /* Смена профессии пересобирает весь демонстрационный комплект:
      резюме, вакансию, требования, вопросы, сценарии интервью и подсказки. */
   function setProfession(idOrName) {
@@ -299,6 +311,7 @@ var Store = (function () {
     setPref: setPref,
     applyScenario: applyScenario,
     setProfession: setProfession,
+    replaceData: replaceData,
     resetDemo: resetDemo,
     emptyBuilder: emptyBuilder,
     planById: planById,

@@ -1,0 +1,30 @@
+# Служба systemd. Установка:
+#   sudo cp deploy/career-assistant.service /etc/systemd/system/
+#   sudo systemctl daemon-reload && sudo systemctl enable --now career-assistant
+# Путь /opt/career-assistant и пользователь career — замените на свои.
+
+[Unit]
+Description=Карьерный помощник
+After=network.target
+
+[Service]
+Type=simple
+User=career
+Group=career
+WorkingDirectory=/opt/career-assistant
+EnvironmentFile=/opt/career-assistant/.env
+ExecStart=/usr/bin/node server/index.js
+Restart=on-failure
+RestartSec=3
+# Журнал — в journald: journalctl -u career-assistant -f
+StandardOutput=journal
+StandardError=journal
+# Минимум прав: только каталог с базой доступен на запись.
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/opt/career-assistant/data
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target
