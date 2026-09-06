@@ -1,0 +1,14 @@
+{
+  "name": "career-assistant-desktop",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Прототип помощника на собеседовании: прозрачное окно поверх экрана, чтение экрана по согласию и запросы к модели через общий слой",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "check": "node ../tests/desktop.test.js"
+  },
+  "devDependencies": {
+    "electron": "^44.0.0"
+  }
+}

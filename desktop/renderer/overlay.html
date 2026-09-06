@@ -1,0 +1,148 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<title>Подсказка</title>
+<style>
+  :root {
+    font-family: -apple-system, "Segoe UI", Roboto, Arial, sans-serif;
+    color-scheme: dark;
+  }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; }
+  body {
+    margin: 0;
+    padding: 10px;
+    /* Фон окна прозрачный: видно только карточку с текстом. */
+    background: transparent;
+    color: #eef2ef;
+    font-size: 13.5px;
+    line-height: 1.45;
+    user-select: none;
+  }
+  .panel {
+    height: 100%;
+    display: flex;
+    flex-direction: column;
+    background: rgba(22, 28, 25, 0.82);
+    border: 1px solid rgba(160, 200, 178, 0.35);
+    border-radius: 10px;
+    backdrop-filter: blur(8px);
+    overflow: hidden;
+  }
+  .bar {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 7px 10px;
+    background: rgba(53, 112, 79, 0.35);
+    border-bottom: 1px solid rgba(160, 200, 178, 0.25);
+    font-size: 12px;
+    font-weight: 600;
+    /* Перетаскивание окна за заголовок. */
+    -webkit-app-region: drag;
+  }
+  .bar button, .bar select { -webkit-app-region: no-drag; }
+  .dot {
+    width: 8px; height: 8px; border-radius: 50%;
+    background: #8fce9f; flex: none;
+  }
+  .dot--idle { background: #b9c2bd; }
+  .dot--err { background: #dd8e86; }
+  .dot--live { animation: blink 1.6s infinite; }
+  @keyframes blink { 0%, 100% { opacity: 1; } 50% { opacity: 0.35; } }
+  .bar .spacer { flex: 1; }
+  .bar button {
+    border: 1px solid rgba(200, 220, 210, 0.3);
+    background: transparent;
+    color: inherit;
+    border-radius: 5px;
+    font: inherit;
+    font-size: 11.5px;
+    padding: 2px 8px;
+    cursor: pointer;
+  }
+  .bar button:hover { background: rgba(255, 255, 255, 0.12); }
+  .body { padding: 10px 12px; overflow-y: auto; flex: 1; }
+  .q {
+    font-size: 12px;
+    color: #b6c6bd;
+    margin-bottom: 8px;
+    padding-bottom: 8px;
+    border-bottom: 1px dashed rgba(200, 220, 210, 0.25);
+  }
+  .direction { font-size: 14.5px; margin-bottom: 8px; }
+  .remind, .avoid { font-size: 12px; color: #c3cec8; margin-top: 6px; }
+  .avoid { color: #e6b3ac; }
+  .status { padding: 6px 12px; font-size: 11.5px; color: #a9b5af;
+    border-top: 1px solid rgba(200, 220, 210, 0.18); }
+  .visible-note {
+    font-size: 11px; color: #d7c79a; padding: 0 12px 8px;
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .dot--live { animation: none; }
+  }
+</style>
+</head>
+<body>
+<div class="panel">
+  <div class="bar">
+    <span class="dot dot--idle" id="dot"></span>
+    <span id="state">Ожидание</span>
+    <span class="spacer"></span>
+    <button id="ask" title="Запросить подсказку немедленно">Спросить</button>
+    <button id="dim" title="Сделать окно прозрачнее">Прозрачность</button>
+    <button id="close" title="Закрыть окно подсказки">✕</button>
+  </div>
+  <div class="body">
+    <div class="q" id="question">Вопрос собеседующего появится здесь.</div>
+    <div class="direction" id="direction">Сессия не запущена.</div>
+    <div class="remind" id="remind"></div>
+    <div class="avoid" id="avoid"></div>
+  </div>
+  <div class="visible-note">Это окно видно при демонстрации экрана.</div>
+  <div class="status" id="status">Источник не выбран</div>
+</div>
+
+<script>
+  var el = function (id) { return document.getElementById(id); };
+  var opacity = 0.95;
+
+  var STATE_TEXT = {
+    running: 'Сессия идёт',
+    capturing: 'Читаю экран',
+    thinking: 'Готовлю подсказку',
+    idle: 'Жду вопроса',
+    stopped: 'Остановлено',
+    error: 'Ошибка'
+  };
+
+  window.assistant.on('session:status', function (s) {
+    el('state').textContent = STATE_TEXT[s.state] || s.state;
+    var dot = el('dot');
+    dot.className = 'dot'
+      + (s.state === 'error' ? ' dot--err' : '')
+      + (s.state === 'capturing' || s.state === 'thinking' ? ' dot--live' : '')
+      + (s.state === 'stopped' || s.state === 'idle' ? ' dot--idle' : '');
+    el('status').textContent = (s.sourceName ? 'Источник: ' + s.sourceName + ' · ' : '')
+      + 'режим: ' + s.readMode + ' · сервис: ' + s.provider
+      + ' · подсказок: ' + s.stats.hints;
+    if (s.state === 'error') el('direction').textContent = s.text;
+  });
+
+  window.assistant.on('session:hint', function (h) {
+    el('question').textContent = h.question || '—';
+    el('direction').textContent = (h.demo ? '[заглушка] ' : '') + (h.direction || '');
+    el('remind').textContent = h.remind ? 'Помнить: ' + h.remind : '';
+    el('avoid').textContent = h.avoid ? 'Не стоит: ' + h.avoid : '';
+  });
+
+  el('ask').addEventListener('click', function () { window.assistant.session.askNow(); });
+  el('close').addEventListener('click', function () { window.assistant.overlay.close(); });
+  el('dim').addEventListener('click', function () {
+    opacity = opacity <= 0.45 ? 0.95 : opacity - 0.25;
+    window.assistant.overlay.setOpacity(opacity);
+  });
+</script>
+</body>
+</html>

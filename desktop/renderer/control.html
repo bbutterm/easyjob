@@ -1,0 +1,252 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<title>Помощник на собеседовании</title>
+<link rel="stylesheet" href="app.css">
+</head>
+<body>
+<h1>Помощник на собеседовании <span class="tag tag--warn">Прототип</span></h1>
+<p class="muted">Чтение экрана идёт только во время запущенной сессии и видно в этом окне.</p>
+
+<div class="card">
+  <h2>Сервис модели</h2>
+  <div class="grid-2">
+    <label class="field">
+      <span>Провайдер</span>
+      <select id="provider">
+        <option value="mock">Заглушка без сети (по умолчанию)</option>
+        <option value="anthropic">Anthropic Claude</option>
+        <option value="openai">OpenAI и совместимые</option>
+        <option value="gemini">Google Gemini</option>
+        <option value="openai_compatible">Локальная модель с совместимым интерфейсом</option>
+      </select>
+    </label>
+    <label class="field">
+      <span>Модель</span>
+      <input type="text" id="model" placeholder="claude-opus-5">
+    </label>
+  </div>
+  <div class="grid-2">
+    <label class="field">
+      <span>Адрес сервиса (для локальной модели)</span>
+      <input type="text" id="endpoint" placeholder="http://localhost:11434/v1/chat/completions">
+    </label>
+    <label class="field">
+      <span>Ключ доступа</span>
+      <input type="password" id="apikey" placeholder="Хранится только в памяти программы">
+    </label>
+  </div>
+  <p class="small muted">Ключ не записывается на диск: он живёт до закрытия программы.
+    Можно передать его через переменную окружения <code>ASSISTANT_API_KEY</code>.</p>
+
+  <div class="grid-2">
+    <label class="field">
+      <span>Как читать экран</span>
+      <select id="readMode">
+        <option value="mock">Заглушка — фиксированные ответы, без сети</option>
+        <option value="vision">Кадр читает мультимодальная модель</option>
+        <option value="text">Сначала распознать текст (в прототипе не подключено)</option>
+      </select>
+    </label>
+    <label class="field">
+      <span>Интервал между кадрами, секунд</span>
+      <input type="number" id="interval" min="5" max="120" value="12">
+    </label>
+  </div>
+  <div class="btn-row">
+    <button class="btn" id="save">Сохранить настройки</button>
+    <span class="tag" id="keyState">Ключ не задан</span>
+  </div>
+</div>
+
+<div class="card">
+  <h2>Подготовка</h2>
+  <p class="small muted">Резюме, вакансия и слабые места, под которые подбирается подсказка.
+    В готовом продукте это приходит из веб-сервиса; в прототипе — вставляется вручную.</p>
+  <label class="field">
+    <span>Данные подготовки (JSON)</span>
+    <textarea id="prep"></textarea>
+  </label>
+  <div class="btn-row">
+    <button class="btn" id="samplePrep">Подставить пример</button>
+  </div>
+</div>
+
+<div class="card">
+  <h2>Что читать</h2>
+  <p class="small muted">Выберите экран или окно. До выбора и запуска ничего не снимается.</p>
+  <div class="btn-row" style="margin-bottom:12px">
+    <button class="btn" id="refresh">Показать список окон</button>
+    <span class="tag" id="sourceState">Источник не выбран</span>
+  </div>
+  <div class="sources" id="sources"></div>
+</div>
+
+<div class="card">
+  <h2>Сессия</h2>
+  <div class="btn-row">
+    <button class="btn btn--primary" id="start" disabled>Начать сессию</button>
+    <button class="btn" id="ask" disabled>Спросить сейчас</button>
+    <button class="btn btn--danger" id="stop" disabled>Остановить</button>
+  </div>
+  <p class="small muted" style="margin-top:12px">Пока сессия идёт, прозрачное окно с подсказкой
+    видно поверх других окон — и вам, и всем, кому вы демонстрируете экран.</p>
+  <h2 style="margin-top:16px">Журнал</h2>
+  <div class="log" id="log"></div>
+</div>
+
+<script>
+  var el = function (id) { return document.getElementById(id); };
+  var selectedSource = null;
+  var running = false;
+
+  var SAMPLE_PREP = {
+    professionName: 'Повар',
+    professionKnown: true,
+    experience: [{ role: 'Повар', company: 'Демо-Ресторан', period: '2022 — сейчас',
+      details: 'Горячий цех, работа по технологическим картам.' }],
+    skills: ['Горячий цех', 'Технологические карты', 'Санитарные нормы'],
+    achievements: [],
+    vacancy: { title: 'Повар', company: 'Демо-Ресторан' },
+    requirements: [{ text: 'Опыт работы на горячем цехе' }, { text: 'Медицинская книжка' }],
+    weakSpots: ['Медицинская книжка в резюме не указана', 'Опыт с авторским меню не подтверждён']
+  };
+
+  function log(text, kind) {
+    var line = document.createElement('div');
+    var time = new Date().toLocaleTimeString('ru-RU');
+    line.innerHTML = '<span class="muted">' + time + '</span> '
+      + (kind ? '<span class="tag tag--' + kind + '">' + kind + '</span> ' : '')
+      + String(text).replace(/</g, '&lt;');
+    el('log').prepend(line);
+  }
+
+  function refreshButtons() {
+    el('start').disabled = running || !selectedSource;
+    el('ask').disabled = !running;
+    el('stop').disabled = !running;
+  }
+
+  window.assistant.settings.get().then(function (s) {
+    el('provider').value = s.provider;
+    el('model').value = s.model || '';
+    el('endpoint').value = s.endpoint || '';
+    el('readMode').value = s.readMode;
+    el('interval').value = s.intervalSec;
+    el('keyState').textContent = s.hasApiKey ? 'Ключ задан (в памяти)' : 'Ключ не задан';
+    el('keyState').className = 'tag ' + (s.hasApiKey ? 'tag--ok' : '');
+    log('Настройки загружены. Ключ на диск не пишется.');
+  });
+
+  el('save').addEventListener('click', function () {
+    window.assistant.settings.set({
+      provider: el('provider').value,
+      model: el('model').value.trim(),
+      endpoint: el('endpoint').value.trim(),
+      readMode: el('readMode').value,
+      intervalSec: Number(el('interval').value) || 12
+    }).then(function () { log('Настройки сохранены.'); });
+
+    var key = el('apikey').value;
+    if (key) {
+      window.assistant.settings.setApiKey(key).then(function (r) {
+        el('keyState').textContent = r.hasKey ? 'Ключ задан (в памяти)' : 'Ключ не задан';
+        el('keyState').className = 'tag ' + (r.hasKey ? 'tag--ok' : '');
+        el('apikey').value = '';
+        log('Ключ принят и сохранён только в памяти программы.');
+      });
+    }
+  });
+
+  el('samplePrep').addEventListener('click', function () {
+    el('prep').value = JSON.stringify(SAMPLE_PREP, null, 2);
+    log('Подставлен пример подготовки для профессии «Повар».');
+  });
+
+  el('refresh').addEventListener('click', function () {
+    window.assistant.sources.list().then(function (list) {
+      var box = el('sources');
+      box.innerHTML = '';
+      if (!list.length) {
+        box.innerHTML = '<div class="note">Система не вернула ни одного экрана или окна. '
+          + 'Обычно это значит, что программе не выдано разрешение на запись экрана: '
+          + 'проверьте настройки безопасности операционной системы и откройте окно, '
+          + 'которое нужно читать.</div>';
+        log('Список источников пуст: разрешение на запись экрана не выдано.', 'err');
+        return;
+      }
+      list.forEach(function (source) {
+        var button = document.createElement('button');
+        button.className = 'source';
+        button.setAttribute('aria-pressed', 'false');
+        button.innerHTML = '<img alt="" src="' + source.preview + '"><span>'
+          + String(source.name).replace(/</g, '&lt;')
+          + (source.fake ? ' <span class="tag tag--warn">тестовый</span>' : '') + '</span>';
+        button.addEventListener('click', function () {
+          selectedSource = source;
+          Array.prototype.forEach.call(box.children, function (child) {
+            child.setAttribute('aria-pressed', 'false');
+          });
+          button.setAttribute('aria-pressed', 'true');
+          el('sourceState').textContent = 'Источник: ' + source.name;
+          el('sourceState').className = 'tag tag--ok';
+          refreshButtons();
+        });
+        box.appendChild(button);
+      });
+      log('Показан список из ' + list.length + ' источников. Снимки не сохраняются.');
+    }).catch(function (e) {
+      log('Не удалось получить список источников: ' + e.message, 'err');
+    });
+  });
+
+  el('start').addEventListener('click', function () {
+    var prep = null;
+    if (el('prep').value.trim()) {
+      try {
+        prep = JSON.parse(el('prep').value);
+      } catch (e) {
+        log('Данные подготовки не разобраны: ' + e.message, 'err');
+        return;
+      }
+    }
+    window.assistant.session.start({
+      sourceId: selectedSource.id,
+      sourceName: selectedSource.name,
+      prep: prep
+    }).then(function (r) {
+      if (!r.ok) { log(r.error, 'err'); return; }
+      running = true;
+      refreshButtons();
+      log('Сессия запущена. Источник: ' + selectedSource.name, 'ok');
+    });
+  });
+
+  el('ask').addEventListener('click', function () {
+    window.assistant.session.askNow();
+    log('Запрошена подсказка вне очереди.');
+  });
+
+  el('stop').addEventListener('click', function () {
+    window.assistant.session.stop().then(function () {
+      running = false;
+      refreshButtons();
+      log('Сессия остановлена, данные удалены из памяти.', 'ok');
+    });
+  });
+
+  window.assistant.on('session:status', function (s) {
+    log('[' + s.state + '] ' + s.text + ' — кадров: ' + s.stats.frames
+      + ', запросов: ' + s.stats.requests + ', подсказок: ' + s.stats.hints,
+      s.state === 'error' ? 'err' : null);
+  });
+
+  window.assistant.on('session:hint', function (h) {
+    log('Подсказка' + (h.demo ? ' (заглушка)' : '') + ': ' + h.direction, 'ok');
+  });
+
+  refreshButtons();
+</script>
+</body>
+</html>

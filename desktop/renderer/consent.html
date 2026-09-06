@@ -1,0 +1,80 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<title>Условия использования</title>
+<link rel="stylesheet" href="app.css">
+</head>
+<body>
+<h1>Помощник на собеседовании</h1>
+<p class="muted">Прототип. Прочитайте условия до первого запуска.</p>
+
+<div class="note note--danger">
+  <strong>Использование на настоящем собеседовании нужно согласовать с работодателем.</strong>
+  Многие компании запрещают посторонние подсказки во время интервью. Нарушение может привести
+  к отказу и к отзыву уже сделанного предложения о работе.
+</div>
+
+<div class="card">
+  <h2>Что программа делает</h2>
+  <ul>
+    <li>Показывает прозрачное окно с текстом поверх других окон.</li>
+    <li>Снимает кадр экрана или окна, которое вы сами выбрали, — только после нажатия «Начать сессию».</li>
+    <li>Отправляет кадр или распознанный текст выбранному вами сервису модели и показывает короткое
+      направление ответа.</li>
+  </ul>
+
+  <h2>Чего программа не делает</h2>
+  <ul>
+    <li>Не скрывает своё окно от демонстрации экрана. Собеседник увидит его, если вы делитесь экраном.</li>
+    <li>Не записывает звук и не слушает микрофон.</li>
+    <li>Не сохраняет кадры, распознанный текст и подсказки на диск.</li>
+    <li>Не прячет свой процесс и не обходит правила площадок для видеозвонков.</li>
+    <li>Не читает экран в фоне: чтение идёт только во время запущенной вами сессии.</li>
+  </ul>
+
+  <h2>О чужих данных на экране</h2>
+  <p class="muted">На кадре могут оказаться персональные данные других людей: имя собеседующего,
+  его изображение, содержимое чата. Отправляя кадр в сервис модели, вы передаёте эти данные
+  третьей стороне. Убедитесь, что участники разговора об этом знают.</p>
+</div>
+
+<div class="card">
+  <h2>Подтверждение</h2>
+  <div class="check">
+    <input type="checkbox" id="c1">
+    <label for="c1">Я понимаю, что использование помощника на собеседовании нужно согласовать
+      с работодателем, и беру ответственность за это на себя.</label>
+  </div>
+  <div class="check">
+    <input type="checkbox" id="c2">
+    <label for="c2">Я понимаю, что кадр экрана может содержать данные других людей и будет передан
+      выбранному мной сервису модели.</label>
+  </div>
+  <div class="check">
+    <input type="checkbox" id="c3">
+    <label for="c3">Я понимаю, что это прототип: подсказки могут быть неточными, а окно помощника
+      видно при демонстрации экрана.</label>
+  </div>
+
+  <div class="btn-row" style="margin-top:16px">
+    <button class="btn btn--primary" id="accept" disabled>Согласен, продолжить</button>
+    <button class="btn btn--danger" id="decline">Выйти</button>
+  </div>
+</div>
+
+<script>
+  var boxes = ['c1', 'c2', 'c3'].map(function (id) { return document.getElementById(id); });
+  var accept = document.getElementById('accept');
+  boxes.forEach(function (box) {
+    box.addEventListener('change', function () {
+      accept.disabled = !boxes.every(function (b) { return b.checked; });
+    });
+  });
+  accept.addEventListener('click', function () { window.assistant.consent.accept(); });
+  document.getElementById('decline').addEventListener('click', function () {
+    window.assistant.consent.decline();
+  });
+</script>
+</body>
+</html>

@@ -1,0 +1,197 @@
+/* Сквозная проверка программы для компьютера.
+
+   Запуск (нужны electron в desktop/node_modules и playwright):
+     xvfb-run -a node tests/desktop.test.js
+
+   Проверяется реальный запуск приложения: экран согласия, панель
+   управления, список источников, цикл сессии на провайдере-заглушке,
+   прозрачное окно подсказки и отсутствие записи данных на диск.
+   Сеть не используется. */
+
+'use strict';
+
+const { _electron: electron } = require('playwright');
+const path = require('path');
+const fs = require('fs');
+const os = require('os');
+
+const ROOT = path.resolve(__dirname, '..');
+const SHOTS = path.join(ROOT, 'docs', 'screenshots');
+const DESKTOP = path.join(ROOT, 'desktop');
+
+const results = [];
+function ok(name, cond, extra) {
+  results.push({ name, pass: !!cond, extra: extra || '' });
+  console.log((cond ? 'PASS  ' : 'FAIL  ') + name + (extra ? '  — ' + extra : ''));
+}
+
+function listFiles(dir) {
+  const out = [];
+  (function walk(current) {
+    let entries = [];
+    try { entries = fs.readdirSync(current, { withFileTypes: true }); } catch (e) { return; }
+    entries.forEach(function (entry) {
+      const full = path.join(current, entry.name);
+      if (entry.isDirectory()) walk(full);
+      else out.push(full);
+    });
+  })(dir);
+  return out;
+}
+
+(async () => {
+  const userData = fs.mkdtempSync(path.join(os.tmpdir(), 'assistant-test-'));
+
+  /* Playwright ищет electron в своих зависимостях, поэтому путь
+     указывается явно из desktop/node_modules. */
+  const executablePath = require(path.join(DESKTOP, 'node_modules', 'electron'));
+
+  const app = await electron.launch({
+    executablePath: executablePath,
+    args: [DESKTOP, '--no-sandbox', '--user-data-dir=' + userData],
+    cwd: DESKTOP,
+    /* Настоящий захват экрана в сборочной среде без графической оболочки
+       недоступен, поэтому цикл сессии проверяется на тестовом источнике.
+       В обычном запуске этот режим выключен. */
+    env: Object.assign({}, process.env, { ASSISTANT_TEST_MODE: '', ASSISTANT_FAKE_CAPTURE: '1' })
+  });
+
+  /* ---- Экран согласия ---- */
+  const consent = await app.firstWindow();
+  await consent.waitForSelector('#accept');
+  ok('При первом запуске показан экран согласия',
+    (await consent.title()).indexOf('Условия') >= 0, await consent.title());
+  ok('Кнопка согласия заблокирована до отметок',
+    await consent.locator('#accept').isDisabled());
+  ok('Предупреждение о согласовании с работодателем показано',
+    (await consent.locator('body').innerText()).includes('согласовать с работодателем'));
+  ok('Сказано, что окно видно при демонстрации экрана',
+    (await consent.locator('body').innerText()).includes('Не скрывает своё окно от демонстрации'));
+
+  await consent.screenshot({ path: path.join(SHOTS, '20-desktop-consent.png') });
+  await consent.check('#c1');
+  await consent.check('#c2');
+  ok('Двух отметок из трёх недостаточно', await consent.locator('#accept').isDisabled());
+  await consent.check('#c3');
+  ok('После всех отметок согласие можно дать',
+    await consent.locator('#accept').isEnabled());
+  await consent.click('#accept');
+
+  /* ---- Панель управления ---- */
+  await new Promise(function (r) { setTimeout(r, 1500); });
+  let control = null;
+  for (const win of app.windows()) {
+    const title = await win.title();
+    if (title.indexOf('Помощник на собеседовании') === 0) control = win;
+  }
+  ok('Открылась панель управления', !!control);
+  if (!control) { await app.close(); process.exit(1); }
+
+  await control.waitForSelector('#provider');
+  ok('Провайдер по умолчанию — заглушка без сети',
+    (await control.inputValue('#provider')) === 'mock');
+  ok('Режим чтения по умолчанию — заглушка',
+    (await control.inputValue('#readMode')) === 'mock');
+  ok('Сказано, что ключ не пишется на диск',
+    (await control.locator('body').innerText()).includes('не записывается на диск'));
+
+  /* ---- Ключ доступа не попадает на диск ---- */
+  await control.fill('#apikey', 'секретный-ключ-для-проверки');
+  await control.click('#save');
+  await new Promise(function (r) { setTimeout(r, 800); });
+  const settingsFile = path.join(userData, 'settings.json');
+  const settingsRaw = fs.existsSync(settingsFile) ? fs.readFileSync(settingsFile, 'utf8') : '';
+  ok('Файл настроек создан', settingsRaw.length > 0);
+  ok('Ключ доступа не записан в настройки',
+    settingsRaw.indexOf('секретный-ключ-для-проверки') < 0);
+  ok('Признак согласия сохранён', /"consentAccepted":\s*true/.test(settingsRaw));
+
+  /* ---- Источники захвата ---- */
+  await control.click('#samplePrep');
+  ok('Пример подготовки подставлен',
+    (await control.inputValue('#prep')).includes('Повар'));
+
+  await control.screenshot({ path: path.join(SHOTS, '21-desktop-control.png') });
+  await control.click('#refresh');
+  await control.waitForSelector('.source', { timeout: 15000 });
+  const sourceCount = await control.locator('.source').count();
+  ok('Список источников получен', sourceCount > 0, sourceCount + ' шт. (в этой среде — только тестовый)');
+  ok('Тестовый источник помечен в интерфейсе',
+    (await control.locator('.source').first().innerText()).includes('тестовый'));
+  ok('Кнопка запуска заблокирована до выбора источника',
+    await control.locator('#start').isDisabled());
+
+  await control.locator('.source').first().click();
+  ok('После выбора источника запуск разрешён',
+    await control.locator('#start').isEnabled());
+
+  /* ---- Сессия ---- */
+  /* Окно подсказки создаётся при старте сессии — ждём его появления. */
+  const overlayPromise = app.waitForEvent('window', { timeout: 25000 }).catch(function () { return null; });
+  await control.click('#start');
+  await control.waitForFunction(
+    "document.getElementById('log').innerText.includes('Подсказка')",
+    null, { timeout: 20000 });
+  const logText = await control.locator('#log').innerText();
+  ok('Подсказка получена в цикле сессии', logText.includes('Подсказка'));
+  ok('Подсказка помечена как заглушка', logText.includes('заглушка'),
+    logText.split('\n')[0].slice(0, 90));
+  ok('Кадр экрана снят', /кадров: [1-9]/.test(logText));
+
+  /* ---- Прозрачное окно ---- */
+  await overlayPromise;
+  /* Окно могло появиться раньше, чем загрузилась его страница:
+     ждём, пока адрес станет известен. */
+  let overlay = null;
+  const windowUrls = [];
+  for (let attempt = 0; attempt < 20 && !overlay; attempt++) {
+    windowUrls.length = 0;
+    for (const win of app.windows()) {
+      let url = win.url();
+      if (!url) {
+        try { await win.waitForLoadState('domcontentloaded', { timeout: 1000 }); } catch (e) {}
+        url = win.url();
+      }
+      windowUrls.push(url || '(адрес пуст)');
+      if (url.indexOf('overlay.html') >= 0) overlay = win;
+    }
+    if (!overlay) await new Promise(function (r) { setTimeout(r, 500); });
+  }
+  ok('Окно подсказки открыто', !!overlay, windowUrls.join(' | '));
+  if (overlay) {
+    const overlayText = await overlay.locator('body').innerText();
+    ok('В окне показано направление ответа', overlayText.length > 20);
+    ok('В окне есть напоминание о видимости при демонстрации',
+      overlayText.includes('видно при демонстрации экрана'));
+    await overlay.screenshot({ path: path.join(SHOTS, '22-desktop-overlay.png') });
+    const bg = await overlay.evaluate(function () {
+      return getComputedStyle(document.body).backgroundColor;
+    });
+    ok('Фон окна прозрачный', bg === 'rgba(0, 0, 0, 0)' || bg === 'transparent', bg);
+  }
+
+  /* ---- Остановка и отсутствие следов на диске ---- */
+  await control.click('#stop');
+  await new Promise(function (r) { setTimeout(r, 800); });
+  ok('Сессия остановлена',
+    (await control.locator('#log').innerText()).includes('остановлена'));
+
+  const files = listFiles(userData);
+  const images = files.filter(function (f) { return /\.(png|jpe?g|webp|bmp)$/i.test(f); });
+  ok('Кадры экрана на диск не сохранены', images.length === 0, images.join(', '));
+  const withKey = files.filter(function (f) {
+    try { return fs.readFileSync(f, 'utf8').indexOf('секретный-ключ-для-проверки') >= 0; }
+    catch (e) { return false; }
+  });
+  ok('Ключа нет ни в одном файле профиля', withKey.length === 0, withKey.join(', '));
+
+  await app.close();
+  try { fs.rmSync(userData, { recursive: true, force: true }); } catch (e) {}
+
+  const failed = results.filter(function (r) { return !r.pass; });
+  console.log('\nИтого: ' + (results.length - failed.length) + ' из ' + results.length + ' проверок пройдено.');
+  process.exit(failed.length ? 1 : 0);
+})().catch(function (e) {
+  console.error('ОШИБКА ТЕСТА:', e.message);
+  process.exit(2);
+});

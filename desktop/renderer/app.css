@@ -1,0 +1,127 @@
+:root {
+  --bg: #f4f6f4;
+  --surface: #ffffff;
+  --surface-2: #eef1ef;
+  --border: #d5dbd7;
+  --text: #1e2422;
+  --muted: #59635e;
+  --accent: #35704f;
+  --accent-soft: #e7f0ea;
+  --warn: #7a5c12;
+  --warn-soft: #fbf3df;
+  --warn-border: #e2cf9d;
+  --danger: #9b3b32;
+  --danger-soft: #fbeceb;
+  --radius: 8px;
+  font-family: -apple-system, "Segoe UI", Roboto, Arial, sans-serif;
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  padding: 24px;
+  background: var(--bg);
+  color: var(--text);
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+h1 { font-size: 20px; margin: 0 0 8px; }
+h2 { font-size: 16px; margin: 0 0 8px; }
+p { margin: 0 0 12px; }
+ul, ol { margin: 0 0 12px; padding-left: 20px; }
+li + li { margin-top: 4px; }
+
+.card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 20px;
+  margin-bottom: 16px;
+}
+
+.note {
+  border: 1px solid var(--warn-border);
+  border-left: 3px solid var(--warn);
+  background: var(--warn-soft);
+  border-radius: var(--radius);
+  padding: 12px 14px;
+  margin-bottom: 16px;
+  font-size: 13.5px;
+}
+.note--danger { border-color: #e6c0bc; border-left-color: var(--danger); background: var(--danger-soft); }
+
+.btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 36px;
+  padding: 0 16px;
+  border: 1px solid #b9c2bd;
+  border-radius: var(--radius);
+  background: var(--surface);
+  color: var(--text);
+  font: inherit;
+  font-weight: 550;
+  cursor: pointer;
+}
+.btn:hover { background: var(--surface-2); }
+.btn:disabled { opacity: 0.5; cursor: not-allowed; }
+.btn--primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+.btn--primary:hover { background: #2b5c41; }
+.btn--danger { color: var(--danger); border-color: #e6c0bc; }
+.btn-row { display: flex; flex-wrap: wrap; gap: 8px; }
+
+label.field { display: block; margin-bottom: 14px; }
+label.field > span { display: block; font-size: 13px; font-weight: 560; margin-bottom: 4px; }
+input[type="text"], input[type="password"], input[type="number"], select, textarea {
+  width: 100%;
+  padding: 8px 10px;
+  border: 1px solid #b9c2bd;
+  border-radius: var(--radius);
+  font: inherit;
+  background: var(--surface);
+  color: var(--text);
+}
+textarea { min-height: 90px; resize: vertical; font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 12.5px; }
+
+.check { display: flex; gap: 10px; align-items: flex-start; padding: 10px 0; border-bottom: 1px solid var(--border); }
+.check:last-of-type { border-bottom: 0; }
+.check input { margin-top: 3px; width: 18px; height: 18px; accent-color: var(--accent); flex: none; }
+
+.grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+
+.muted { color: var(--muted); }
+.small { font-size: 12.5px; }
+
+.tag {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: var(--surface-2);
+  font-size: 12px;
+  font-weight: 560;
+}
+.tag--ok { background: var(--accent-soft); border-color: #a9c8b6; color: var(--accent); }
+.tag--warn { background: var(--warn-soft); border-color: var(--warn-border); color: var(--warn); }
+.tag--err { background: var(--danger-soft); border-color: #e6c0bc; color: var(--danger); }
+
+.sources { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 10px; max-height: 320px; overflow-y: auto; }
+.source {
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 8px;
+  background: var(--surface);
+  cursor: pointer;
+  text-align: left;
+  font: inherit;
+}
+.source:hover { border-color: var(--accent); }
+.source[aria-pressed="true"] { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
+.source img { width: 100%; border-radius: 4px; display: block; margin-bottom: 6px; background: #ddd; }
+.source span { font-size: 12px; display: block; word-break: break-word; }
+
+.log { max-height: 220px; overflow-y: auto; font-size: 12.5px; }
+.log div { padding: 4px 0; border-bottom: 1px dashed var(--border); }
