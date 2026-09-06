@@ -12,7 +12,7 @@ function requirementLines(request) {
   if (!m) return [];
   return m[1].split('\n')
     .map(function (line) { return line.replace(/^[\s—\-•*]+/, '').trim(); })
-    .filter(function (line) { return line.length > 6 && line.length < 140 && !/^(задачи|требования|мы ищем|условия)/i.test(line); })
+    .filter(function (line) { return line.length > 6 && line.length < 140 && !/^(задачи|требования|мы ищем|ищем|условия|обязанности)/i.test(line); })
     .slice(0, 8);
 }
 

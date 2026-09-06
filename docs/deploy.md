@@ -44,7 +44,10 @@ sudo certbot --nginx -d ваш-домен.ru
 
 ## Подключение модели
 
-В `.env`:
+Полная инструкция по каждому провайдеру и переключению между ними — `docs/providers.md`.
+Проверка связи до перезапуска: `node tools/check-provider.js`.
+
+Коротко, в `.env`:
 
 ```
 AI_PROVIDER=yandex
