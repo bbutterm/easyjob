@@ -163,6 +163,14 @@
             + esc(p.name) + '</option>';
         }).join('')
       + '      </select></label>'
+      + '    <label class="field" for="demo-profession"><span class="field__label">Профессия демо-набора</span>'
+      + '      <select id="demo-profession" data-change-act="demo:profession">'
+      + Professions.list().map(function (p) {
+          return '<option value="' + esc(p.id) + '"' + (p.id === state.professionId ? ' selected' : '') + '>'
+            + esc(p.name) + '</option>';
+        }).join('')
+      + (state.professionId ? '' : '<option value="" selected>' + esc(state.professionName) + ' (своя)</option>')
+      + '      </select></label>'
       + '    <button type="button" class="btn btn--sm btn--block" data-act="data:reset">Сбросить демо</button>'
       + '    <p style="margin-top:8px">Панель влияет только на демонстрацию и не является частью продукта.</p>'
       + '  </div>'
@@ -443,13 +451,20 @@
           achievements: ScreensCore.splitLines(data2.achievements),
           education: Store.clone(data2.education)
         };
+        var wanted = String(data2.profession || '').trim();
+        var matched = Professions.find(wanted);
+        /* Демо-комплект пересобирается под введённую профессию: для профессии из
+           библиотеки берётся готовый набор, для любой другой — общий шаблон. */
+        if (wanted) Store.setProfession(matched ? matched.id : wanted);
         Store.update(function (s) {
           s.resumes.unshift(resume);
           s.builder = Store.emptyBuilder();
           s.vacancyDraft.resumeId = resume.id;
           Store.addHistory('Резюме собрано в мастере', '#/resume/' + resume.id, null);
         });
-        UI.toast('Резюме сохранено в этом сеансе макета.');
+        UI.toast(matched || !wanted
+          ? 'Резюме сохранено. Демо-набор подобран для профессии «' + DEMO_DATA.professionName + '».'
+          : 'Резюме сохранено. Для профессии «' + wanted + '» собран общий демонстрационный комплект.');
         go('#/vacancy/new');
         return;
       }
@@ -888,6 +903,11 @@
       case 'demo:plan':
         Store.setPref('plan', data.value);
         return;
+      case 'demo:profession': {
+        var name = Store.setProfession(data.value);
+        UI.toast('Демо-набор пересобран для профессии «' + name + '».');
+        return;
+      }
       case 'demo:scenario':
         if (data.value === 'loading' || data.value === 'error' || data.value === 'limit') {
           Store.get().scenario = data.value;

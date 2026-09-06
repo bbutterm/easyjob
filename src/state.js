@@ -13,7 +13,8 @@ var Store = (function () {
   var listeners = [];
 
   function loadPrefs() {
-    var fallback = { theme: 'light', scenario: 'filled', plan: 'training', demoPanelOpen: false };
+    var fallback = { theme: 'light', scenario: 'filled', plan: 'training', demoPanelOpen: false,
+      professionId: 'analyst' };
     try {
       var raw = window.localStorage.getItem(LS_KEY);
       if (!raw) return fallback;
@@ -23,7 +24,11 @@ var Store = (function () {
         scenario: ['empty', 'filled', 'loading', 'error', 'limit'].indexOf(parsed.scenario) >= 0
           ? parsed.scenario : 'filled',
         plan: ['basic', 'training', 'assistant'].indexOf(parsed.plan) >= 0 ? parsed.plan : 'training',
-        demoPanelOpen: parsed.demoPanelOpen === true
+        demoPanelOpen: parsed.demoPanelOpen === true,
+        /* Сохраняем только идентификатор профессии из библиотеки примеров.
+           Профессия, введённая пользователем вручную, не сохраняется:
+           это его данные, а не выбор демо-сценария. */
+        professionId: Professions.find(parsed.professionId) ? parsed.professionId : 'analyst'
       };
     } catch (e) {
       return fallback;
@@ -36,7 +41,8 @@ var Store = (function () {
         theme: state.theme,
         scenario: state.scenario,
         plan: state.plan,
-        demoPanelOpen: state.demoPanelOpen
+        demoPanelOpen: state.demoPanelOpen,
+        professionId: Professions.find(state.professionId) ? state.professionId : 'analyst'
       }));
     } catch (e) {
       /* приватный режим браузера — просто работаем без сохранения настроек */
@@ -115,8 +121,12 @@ var Store = (function () {
 
   var prefs = loadPrefs();
 
+  applyProfession(prefs.professionId);
+
   var state = {
     theme: prefs.theme,
+    professionId: prefs.professionId,
+    professionName: DEMO_DATA.professionName,
     scenario: prefs.scenario,
     plan: prefs.plan,
     demoPanelOpen: prefs.demoPanelOpen,
@@ -157,6 +167,20 @@ var Store = (function () {
 
   function resetDemo() {
     applyScenario(state.scenario);
+  }
+
+  /* Смена профессии пересобирает весь демонстрационный комплект:
+     резюме, вакансию, требования, вопросы, сценарии интервью и подсказки. */
+  function setProfession(idOrName) {
+    var profile = Professions.find(idOrName);
+    state.professionId = profile ? profile.id : '';
+    applyProfession(profile ? profile.id : idOrName);
+    state.professionName = DEMO_DATA.professionName;
+    var fresh = baseState(state.scenario === 'empty' ? 'empty' : 'filled');
+    Object.keys(fresh).forEach(function (key) { state[key] = fresh[key]; });
+    savePrefs();
+    notify();
+    return DEMO_DATA.professionName;
   }
 
   /* -------- Доступ по демо-тарифу -------- */
@@ -274,6 +298,7 @@ var Store = (function () {
     notify: notify,
     setPref: setPref,
     applyScenario: applyScenario,
+    setProfession: setProfession,
     resetDemo: resetDemo,
     emptyBuilder: emptyBuilder,
     planById: planById,

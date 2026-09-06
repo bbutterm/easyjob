@@ -205,7 +205,7 @@ async function noOverflow(page) {
   await page.click('button:has-text("Посмотреть пример подсказок")');
   ok('Панель подсказок открыта', await page.locator('text=Направление ответа').isVisible());
   await page.click('button:has-text("Следующий пример")');
-  ok('Пример переключается', (await page.locator('text=Пример 2 из 4').isVisible()));
+  ok('Пример переключается', (await page.locator('text=/Пример 2 из \\d+/').isVisible()));
   await page.screenshot({ path: SHOTS + '/07-assistant-desktop.png', fullPage: true });
   await page.click('button:has-text("Свернуть")');
   ok('Панель подсказок сворачивается', !(await page.locator('text=Направление ответа').isVisible()));
@@ -287,6 +287,56 @@ async function noOverflow(page) {
   await page.waitForTimeout(200);
   await closeDemoPanel(page);
   ok('Сброс демо вернул исходные данные', (await page.locator('.row-item').count()) === 2);
+
+  /* ---- Профессии: библиотека и произвольный ввод ---- */
+  await setScenario(page, 'filled');
+  await openDemoPanel(page);
+  const professionOptions = await page.locator('#demo-profession option').count();
+  ok('В библиотеке несколько профессий', professionOptions >= 6, professionOptions + ' шт.');
+  await page.selectOption('#demo-profession', 'chef');
+  await page.waitForTimeout(200);
+  await closeDemoPanel(page);
+  await page.goto(FILE + '#/vacancies');
+  await page.waitForSelector('.row-item');
+  ok('Вакансия пересобрана под профессию «Повар»',
+    (await page.locator('#main').innerText()).includes('Повар'));
+  const prepLink = await page.locator('.row-item button:has-text("Вопросы")').first();
+  await prepLink.click();
+  await page.waitForSelector('.q-item');
+  const chefText = await page.locator('#main').innerText();
+  ok('Вопросы стали профильными для повара',
+    /цех|карт|смен/i.test(chefText), chefText.slice(0, 80).replace(/\n/g, ' '));
+
+  await page.goto(FILE + '#/resume/new');
+  await page.fill('#b-profession', 'Флорист');
+  ok('Поле профессии — свободный ввод со списком-подсказкой',
+    (await page.getAttribute('#b-profession', 'list')) === 'profession-list');
+  await page.click('button:has-text("Далее")');
+  await page.click('button:has-text("Добавить место работы")');
+  await page.fill('#exp-role-0', 'Флорист');
+  await page.click('button:has-text("Далее")');
+  await page.fill('#b-skills', 'Составление букетов');
+  await page.click('button:has-text("Далее")');
+  await page.click('button:has-text("Далее")');
+  await page.click('button:has-text("Собрать резюме")');
+  await page.waitForSelector('text=Резюме собрано', { timeout: 5000 });
+  await page.click('button:has-text("Сохранить и использовать для подготовки")');
+  await page.waitForSelector('text=Добавление вакансии');
+  await page.click('button:has-text("Открыть пример вакансии")');
+  await page.waitForTimeout(150);
+  ok('Для профессии вне библиотеки собран комплект с её названием',
+    (await page.locator('#main').innerText()).includes('Флорист'));
+  await page.click('button:has-text("Создать подготовку")');
+  await page.waitForSelector('text=Сопоставление резюме с вакансией');
+  ok('Требования собраны и для произвольной профессии',
+    (await page.locator('.req-item').count()) >= 3);
+  await page.goto(FILE + '#/overview');
+  ok('Общий шаблон помечен честно',
+    (await page.locator('#main').innerText()).includes('общий шаблон'));
+  await openDemoPanel(page);
+  await page.selectOption('#demo-profession', 'analyst');
+  await page.waitForTimeout(200);
+  await closeDemoPanel(page);
 
   /* ---- Неизвестный маршрут ---- */
   await page.goto(FILE + '#/unknown-route-xyz');

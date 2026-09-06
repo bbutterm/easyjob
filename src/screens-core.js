@@ -118,7 +118,8 @@ var ScreensCore = (function () {
         + 'не подстраиваются под ваш ввод.</div>')
       + '  <div class="card stack">'
       + '    <h2>Создать резюме</h2>'
-      + '    <p class="muted">Пошаговая форма: профессия, опыт, навыки, образование и предпросмотр.</p>'
+      + '    <p class="muted">Пошаговая форма: профессия, опыт, навыки, образование и предпросмотр. '
+      + '    Профессия вписывается свободно — от повара и водителя до разработчика.</p>'
       + '    <div class="btn-row"><a class="btn btn--primary" href="#/resume/new">Начать с нуля</a></div>'
       + '  </div>'
       + '  <div class="card stack">'
@@ -175,6 +176,10 @@ var ScreensCore = (function () {
 
     return ''
       + pageHead('Обзор', 'Последние подготовки и ближайший шаг.')
+      + note('demo', '<div>Демонстрационный комплект собран для профессии <strong>'
+          + esc(DEMO_DATA.professionName) + '</strong>'
+          + (DEMO_DATA.isGenericProfession ? ' (общий шаблон: этой профессии нет в библиотеке примеров)' : '')
+          + '. Профессию можно сменить в панели «Состояния демо» или создав резюме на другую профессию.</div>')
       + (prep && prep.stale ? staleBanner(prep) : '')
       + '<div class="card stack">'
       + '  <div class="card__head" style="margin-bottom:0">'
@@ -223,11 +228,17 @@ var ScreensCore = (function () {
     if (b.built) return builtPreview(b);
 
     if (b.step === 0) {
+      var known = Professions.list().map(function (p) { return p.name; });
       body = ''
         + UI.field({ id: 'b-profession', label: 'Желаемая профессия', model: 'builder.data.profession',
             value: b.data.profession, required: true, error: b.errors.profession,
-            placeholder: 'Например: бизнес-аналитик',
-            hint: 'Можно указать любую профессию — макет не ограничен одним направлением.' })
+            placeholder: 'Например: флорист, электрик, бизнес-аналитик',
+            list: 'profession-list', listOptions: known,
+            hint: 'Впишите любую профессию. Список — только подсказки, ограничения по нему нет.' })
+        + note('info', '<div>Для ' + known.length + ' профессий из подсказок в макете есть готовый '
+            + 'демонстрационный комплект: вакансия, требования, вопросы и сценарий интервью. '
+            + 'Для любой другой профессии собирается общий комплект с вашим названием — так видно, '
+            + 'что структура подготовки не привязана к одному направлению.</div>')
         + UI.field({ id: 'b-wishes', label: 'Пожелания к работе', model: 'builder.data.wishes', type: 'textarea',
             value: b.data.wishes, placeholder: 'Формат работы, отрасль, город, что важно в команде',
             hint: 'Свободный текст. Он подставляется в предпросмотр как есть.' })

@@ -137,7 +137,8 @@ var UI = (function () {
       + (options.required ? ' required' : '')
       + (options.error ? ' aria-invalid="true"' : '')
       + (describedBy.length ? ' aria-describedby="' + describedBy.join(' ') + '"' : '')
-      + (options.placeholder ? ' placeholder="' + esc(options.placeholder) + '"' : '');
+      + (options.placeholder ? ' placeholder="' + esc(options.placeholder) + '"' : '')
+      + (options.list ? ' list="' + esc(options.list) + '" autocomplete="off"' : '');
     var control;
     if (type === 'textarea') {
       control = '<textarea' + attrs + (options.rows ? ' rows="' + options.rows + '"' : '') + '>'
@@ -145,11 +146,19 @@ var UI = (function () {
     } else {
       control = '<input type="' + type + '"' + attrs + ' value="' + esc(options.value) + '">';
     }
+    var datalist = '';
+    if (options.list && options.listOptions) {
+      datalist = '<datalist id="' + esc(options.list) + '">'
+        + options.listOptions.map(function (o) {
+            return '<option value="' + esc(o) + '"></option>';
+          }).join('')
+        + '</datalist>';
+    }
     return ''
       + '<label class="field" for="' + id + '">'
       + '  <span class="field__label">' + esc(options.label)
       + (options.required ? ' <span class="req" aria-hidden="true">*</span>' : '') + '</span>'
-      + control + hint + error
+      + control + datalist + hint + error
       + '</label>';
   }
 

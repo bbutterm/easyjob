@@ -17,7 +17,7 @@ function read(name) {
 var html = read('index.html');
 var css = read('styles.css');
 
-var scripts = ['data.js', 'state.js', 'ui.js', 'screens-core.js', 'screens-prep.js', 'app.js'];
+var scripts = ['professions.js', 'data.js', 'state.js', 'ui.js', 'screens-core.js', 'screens-prep.js', 'app.js'];
 
 html = html.replace(
   '<link rel="stylesheet" href="styles.css">',
