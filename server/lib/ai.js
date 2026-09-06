@@ -153,9 +153,16 @@ function buildStore(taskId, parts, sid) {
   const policy = ContextPolicy.policyFor(taskId);
   const legacy = policyMode() === 'legacy';
   const windowTurns = legacy ? 12 : Math.max(2, policy.windowTurns || 8);
+  /* Доли слоёв: у задач интервью нет кадра экрана, а память и реплики
+     важнее полного профиля — слой session получает больше. Жёсткий
+     предел на весь запрос действует поверх долей. */
+  const shares = legacy ? undefined
+    : taskId === 'interview.turn' ? { identity: 0.05, preparation: 0.30, session: 0.60, moment: 0.02 }
+    : (taskId === 'context.compact' || taskId === 'interview.summary') ? { identity: 0.05, preparation: 0.15, session: 0.75, moment: 0.02 }
+    : undefined;
   const store = ContextStore.create({
     contextBudget: legacy ? AiRequest.defaultsFor(taskId).contextBudget : policy.inputCap,
-    windowTurns
+    windowTurns, shares
   });
   const prep = parts.prep || {};
   const vacancy = parts.vacancy || null;
@@ -217,9 +224,14 @@ function buildStore(taskId, parts, sid) {
     info.memoryVersion = parts.previousVersion || 0;
     info.memoryStatus = prev ? 'valid' : 'none';
     if (prev) {
+      /* Прежняя память нужна модели как справочник: что уже известно и
+         на какие factId ссылаться в supersedes. Значения укорочены —
+         полные хранятся в базе, а не пересылаются каждый проход. */
       store.patch('session', {
         memory: {
-          facts: ContextMemory.activeFacts(prev).slice(-60),
+          facts: ContextMemory.activeFacts(prev).slice(-40).map(function (f) {
+            return Object.assign({}, f, { value: f.value.length > 100 ? f.value.slice(0, 99) + '…' : f.value });
+          }),
           contradictions: (prev.contradictions || []).slice(-10),
           unresolvedQuestions: (prev.unresolvedQuestions || []).slice(-10),
           coveredThroughSeq: range.from - 1

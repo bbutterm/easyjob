@@ -251,11 +251,18 @@
           copy.turns.shift();
           report.dropped.push('session.turns: вытеснена ранняя реплика');
         }
-        /* Память укорачивается с ранних фактов; сама память не выбрасывается. */
+        /* Память укорачивается с ранних фактов; сама память не выбрасывается.
+           Сначала уходят ранние факты без пометки important (отрицания,
+           числа, исправления, конфликты помечены при проверке), потом —
+           ранние важные. */
         if (copy.memory && Array.isArray(copy.memory.facts) && !protectedKey('memory')) {
           var droppedFacts = 0;
-          while (copy.memory.facts.length > 5 && estimateTokens(copy) > allowed) {
-            copy.memory.facts.shift();
+          var facts = copy.memory.facts;
+          while (facts.length > 5 && estimateTokens(copy) > allowed) {
+            var idx = -1;
+            for (var k = 0; k < facts.length; k++) { if (facts[k].important !== true) { idx = k; break; } }
+            if (idx < 0) idx = 0;
+            facts.splice(idx, 1);
             droppedFacts++;
           }
           if (droppedFacts) report.dropped.push('session.memory: убраны ранние факты (' + droppedFacts + ')');

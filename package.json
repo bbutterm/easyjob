@@ -5,6 +5,7 @@
   "description": "Карьерный помощник: кликабельный макет, общий слой запросов к модели и прототип программы для компьютера",
   "scripts": {
     "build": "node build.js",
+    "replay": "node --no-warnings tools/context-replay.js",
     "docs": "node tools/gen-ai-docs.js",
     "test": "npm run test:shared && npm run test:context && npm run test:server && npm run test:web && npm run test:live",
     "test:shared": "node tests/shared.test.js",

@@ -108,13 +108,31 @@ var CANNED = {
     if (m) { try { turns = JSON.parse(m[1]); } catch (e) { turns = []; } }
     var facts = [];
     var topics = [];
+    /* Первое предложение — факт; предложения с отрицанием, числами или
+       исправлением — отдельные факты. Так заглушка не теряет «но не…»
+       в конце длинного ответа, как теряла бы свёртка по 157 символам. */
     turns.forEach(function (t) {
       if (!t || typeof t.seq !== 'number') return;
       var body = String(t.text || '').trim();
       if (t.role === 'candidate' && body.length >= 8) {
-        var quote = body.slice(0, Math.min(60, body.length));
-        facts.push({ factId: 'm' + t.seq, value: body.slice(0, 160), status: 'user_said',
-          sourceRef: { kind: 'turn', seq: t.seq }, quote: quote });
+        /* Предложения, а внутри них — части после «, но», «, а», «; »:
+           отрицание в хвосте длинной фразы становится отдельным фактом. */
+        var sentences = body.split(/(?<=[.!?])\s+/).map(function (x) { return x.trim(); }).filter(Boolean);
+        var clauses = [];
+        sentences.forEach(function (sn) {
+          sn.split(/,\s*(?=(?:но|а|однако|при этом|зато)\s)|;\s*/).map(function (x) { return x.trim(); })
+            .filter(Boolean).forEach(function (c) { clauses.push(c); });
+        });
+        var picked = [clauses[0]];
+        clauses.slice(1).forEach(function (sn) {
+          if (/(^|\s)(не|нет|ни)\s|\d|^(а|но|зато|однако)\s|точнее|на самом деле|исправлю|поправлю|ошиб|(^|\s)(одн|дв[аеу]|тр[иёе]|четыр|пят|шест|сем|восьм|девят|десят)[а-яё]*\s(лет|год|мес|нед|дн|раз|сезон)/i.test(sn)
+            && picked.indexOf(sn) < 0) picked.push(sn);
+        });
+        picked.slice(0, 4).forEach(function (sn, i) {
+          var quote = sn.slice(0, Math.min(80, sn.length));
+          facts.push({ factId: 'm' + t.seq + (i ? '_' + i : ''), value: sn.slice(0, 200), status: 'user_said',
+            sourceRef: { kind: 'turn', seq: t.seq }, quote: quote });
+        });
       }
       if (t.role === 'interviewer' && body.length >= 8) topics.push(body.slice(0, 50));
     });

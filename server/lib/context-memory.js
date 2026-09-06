@@ -71,7 +71,12 @@ function validate(raw, turns, docFields, knownIds) {
     }
     const supersedes = f.supersedes ? str(f.supersedes, 40) : null;
     seenIds[factId] = true;
-    out.facts.push({ factId, value, status, sourceRef, supersedes });
+    const fact = { factId, value, status, sourceRef, supersedes };
+    /* Отрицания, числа и даты, исправления и конфликты — то, что теряется
+       первым при свёртке и дороже всего при ответе; при нехватке места
+       такие факты уходят из запроса последними. */
+    if (isImportant(fact)) fact.important = true;
+    out.facts.push(fact);
   });
   /* supersedes должен указывать на существующий факт: из этого ответа или из прежней памяти. */
   out.facts.forEach(function (f) {
@@ -92,6 +97,12 @@ function validate(raw, turns, docFields, knownIds) {
     .filter(function (n) { return !!bySeq[n]; }).slice(0, 200);
 
   return { ok: errors.length === 0, memory: out, errors };
+}
+
+function isImportant(fact) {
+  if (fact.supersedes || fact.status === 'conflict') return true;
+  return /(^|[\s,(«"])(не|нет|ни|никогда)(?=[\s,.!?»")]|$)|\d|точнее|поправлю|исправлю|ошиб|(^|\s)(одн|дв[аеу]|тр[иёе]|четыр|пят|шест|сем|восьм|девят|десят)[а-яё]*\s(лет|год|мес|нед|дн|раз|сезон)/i
+    .test(fact.value);
 }
 
 /* Прочитать память, принадлежащую сессии; чужая — null. */
@@ -129,4 +140,4 @@ function activeFacts(memory) {
   return (memory && memory.facts ? memory.facts : []).filter(function (f) { return !f.supersededBy; });
 }
 
-module.exports = { STATUSES, emptyMemory, validate, read, publish, merge, activeFacts };
+module.exports = { STATUSES, emptyMemory, validate, read, publish, merge, activeFacts, isImportant };
