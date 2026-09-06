@@ -740,3 +740,6 @@ var Professions = (function () {
     commonAsks: COMMON_ASKS
   };
 })();
+
+/* Экспорт для сервера: в браузере переменная остаётся глобальной. */
+if (typeof module === 'object' && module.exports) module.exports = Professions;

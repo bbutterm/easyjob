@@ -37,6 +37,9 @@ jobs:
       - name: Общий слой
         run: npm run test:shared
 
+      - name: Сервер
+        run: npm run test:server
+
       - name: Веб-макет
         run: npm run test:web
 

@@ -4,7 +4,84 @@
 
 'use strict';
 
+/* Выделить строки-требования из текста вакансии в запросе: заглушка
+   становится убедительнее, но остаётся заглушкой и помечается как таковая. */
+function requirementLines(request) {
+  var text = String(request.userText || '');
+  var m = /\[ВАКАНСИЯ: ИСХОДНЫЙ ТЕКСТ\]\n([\s\S]*?)(?:\n\[|$)/.exec(text);
+  if (!m) return [];
+  return m[1].split('\n')
+    .map(function (line) { return line.replace(/^[\s—\-•*]+/, '').trim(); })
+    .filter(function (line) { return line.length > 6 && line.length < 140 && !/^(задачи|требования|мы ищем|условия)/i.test(line); })
+    .slice(0, 8);
+}
+
+function requirementsFromContext(request) {
+  var text = String(request.userText || '');
+  var m = /\[ТРЕБОВАНИЯ\]\n([\s\S]*?)(?:\n\[|$)/.exec(text);
+  if (!m) return null;
+  try { return JSON.parse(m[1]); } catch (e) { return null; }
+}
+
+var STATUSES = ['confirmed', 'unclear', 'missing'];
+
 var CANNED = {
+  'vacancy.parse': function (request) {
+    var lines = requirementLines(request);
+    if (!lines.length) lines = ['Опыт работы по профилю от 2 лет', 'Владение основными инструментами профессии',
+      'Готовность к указанному формату работы'];
+    return JSON.stringify({ requirements: lines.map(function (text, i) {
+      return { id: 'req-' + (i + 1), text: text, kind: i === lines.length - 1 ? 'formal' : 'hard', weight: 2 };
+    }) });
+  },
+  'match.requirements': function (request) {
+    var reqs = requirementsFromContext(request) || [];
+    return JSON.stringify({ items: reqs.map(function (r, i) {
+      var status = STATUSES[i % 3];
+      return { requirementId: r.id, status: status,
+        evidence: status === 'confirmed' ? 'Заглушка: в резюме есть похожая формулировка.'
+          : status === 'unclear' ? 'Заглушка: упомянуто без деталей.' : 'Заглушка: в резюме не найдено.',
+        advice: 'Заглушка: подготовьте один конкретный пример по этому требованию.' };
+    }) });
+  },
+  'questions.generate': function () {
+    var topics = ['Опыт', 'Опыт', 'Профессия', 'Кейс', 'Кейс', 'О вакансии', 'О вакансии', 'Работа в команде'];
+    return JSON.stringify({ questions: topics.map(function (topic, i) {
+      return { id: 'q' + (i + 1), topic: topic,
+        text: 'Заглушка, вопрос ' + (i + 1) + ' по теме «' + topic + '».',
+        why: 'Заглушка: тема встречается в требованиях вакансии.',
+        guidance: 'Заглушка: контекст, действие, результат.' };
+    }) });
+  },
+  'resume.review': function () {
+    return JSON.stringify({
+      strengths: ['Заглушка: понятная хронология.', 'Заглушка: есть базовый набор навыков.'],
+      vague: [{ title: 'Заглушка: расплывчатая обязанность', before: 'Выполнение рабочих задач.',
+        after: 'Заглушка: опишите задачу, роль и результат.', why: 'Заглушка: без конкретики.' }],
+      missing: [{ title: 'Заглушка: нет масштаба задач', after: 'Заглушка: впишите настоящие цифры.',
+        why: 'Заглушка: без масштаба не оценить уровень.' }]
+    });
+  },
+  'answer.feedback': function () {
+    return JSON.stringify({ strong: ['Заглушка: есть структура.'], gaps: ['Заглушка: нет результата.'],
+      rewrite: 'Заглушка: тот же ответ, но с результатом в конце.' });
+  },
+  'interview.summary': function () {
+    return JSON.stringify({
+      strong: ['Заглушка: ответы структурные.'],
+      repeat: ['Заглушка: тема из слабых мест сопоставления.'],
+      advice: ['Заглушка: держите ответ в пределах двух минут.']
+    });
+  },
+  'prep.card': function () {
+    return JSON.stringify({
+      opening: 'Заглушка: две фразы о себе из резюме.',
+      strongPoints: ['Заглушка: подтверждённое требование.'],
+      risky: [{ topic: 'Заглушка: слабое место', howToAnswer: 'Заглушка: честно назвать пробел и план.' }],
+      askThem: ['Какие задачи стоят перед ролью в первые три месяца?'],
+      reminders: ['Ответ до двух минут, заканчивать результатом.']
+    });
+  },
   'screen.extract': function () {
     return JSON.stringify({
       question: 'Расскажите про самую сложную задачу в вашей работе.',
@@ -20,8 +97,17 @@ var CANNED = {
       avoid: 'Не приписывайте себе опыт, которого нет в резюме.'
     });
   },
-  'interview.turn': function () {
-    return 'Расскажите, за что именно вы отвечали на последнем месте работы.';
+  'interview.turn': function (request) {
+    var text = String(request.userText || '');
+    var asked = (text.match(/"role":\s*"interviewer"/g) || []).length;
+    var pool = [
+      'Расскажите, за что именно вы отвечали на последнем месте работы.',
+      'Какая задача была самой сложной и как вы её решили?',
+      'Что вы делаете, когда данных для решения не хватает?',
+      'Как вы понимаете, что работа сделана хорошо?',
+      'Какие у вас вопросы к нам?'
+    ];
+    return pool[Math.min(asked, pool.length - 1)];
   }
 };
 
