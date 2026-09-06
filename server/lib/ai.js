@@ -202,6 +202,32 @@ function buildStore(taskId, parts, sid) {
 
   if (!turns || !turns.length) return { store, info };
 
+  /* Сжатие: вход — прежняя память (если есть) и только диапазон новых
+     реплик. Подтверждения не подбираются, порог не проверяется — из
+     собственного сборщика сжатие не запускается. */
+  if (taskId === 'context.compact') {
+    const range = parts.range || { from: 1, to: Infinity };
+    const rangeTurns = turns.filter(function (t) { return t.seq >= range.from && t.seq <= range.to; });
+    const prev = parts.previousMemory || null;
+    info.memoryVersion = parts.previousVersion || 0;
+    info.memoryStatus = prev ? 'valid' : 'none';
+    if (prev) {
+      store.patch('session', {
+        memory: {
+          facts: ContextMemory.activeFacts(prev).slice(-60),
+          contradictions: (prev.contradictions || []).slice(-10),
+          unresolvedQuestions: (prev.unresolvedQuestions || []).slice(-10),
+          coveredThroughSeq: range.from - 1
+        },
+        askedTopics: (prev.askedTopics || []).slice(-30)
+      });
+    }
+    rangeTurns.forEach(function (t) { store.addTurn(t); });
+    info.windowFrom = rangeTurns.length ? rangeTurns[0].seq : 0;
+    info.rangeTo = rangeTurns.length ? rangeTurns[rangeTurns.length - 1].seq : 0;
+    return { store, info };
+  }
+
   /* Память: действительная память заменяет покрытые ею реплики за окном.
      Устаревшая (исходники правились) в запрос не идёт — только сообщается. */
   let memoryRow = null;

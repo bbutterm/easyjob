@@ -348,6 +348,19 @@
         + 'или втором экране и не требует чтения экрана и записи звука.'
     },
     {
+      id: 'context.compact',
+      title: 'Сжать новые реплики интервью в память',
+      uses: ['policy.*', 'session.turns', 'session.memory', 'prep.weakSpots', 'profession.name'],
+      output: 'json',
+      outputShape: '{ facts: [{factId, value, status: user_said|in_document|confirmed|conflict|unknown, '
+        + 'sourceRef: {kind: turn, seq} | {kind: document, field}, quote?, supersedes?}], '
+        + 'askedTopics: string[], contradictions: [{text, seqs: number[]}], unresolvedQuestions: string[], '
+        + 'evidenceRefs: number[] }',
+      note: 'Вход — прежняя память и только новые реплики. Каждый факт ссылается на реплику с дословной '
+        + 'цитатой или на поле документа; исправления идут новым фактом с supersedes, а не правкой. '
+        + 'Уверенный тон не повышает статус. Ответ проверяется по ссылкам и публикуется атомарно.'
+    },
+    {
       id: 'screen.extract',
       title: 'Выделить вопрос из текста экрана',
       uses: ['policy.*', 'screen.captureConsent', 'screen.text', 'screen.textDelta', 'screen.image'],

@@ -31,8 +31,10 @@ function str(v, max) {
 /* Проверка формы и ссылок. turns — реплики интервью (источник истины),
    docFields — допустимые имена полей документов. Возвращает
    { ok, memory, errors }: неверные записи выбрасываются, а не чинятся молча. */
-function validate(raw, turns, docFields) {
+function validate(raw, turns, docFields, knownIds) {
   const errors = [];
+  const known = {};
+  (knownIds || []).forEach(function (k) { known[k] = true; });
   const bySeq = {};
   (turns || []).forEach(function (t) { bySeq[t.seq] = t; });
   const fields = docFields || ['resume.summary', 'resume.experience', 'resume.skills', 'resume.achievements',
@@ -71,9 +73,11 @@ function validate(raw, turns, docFields) {
     seenIds[factId] = true;
     out.facts.push({ factId, value, status, sourceRef, supersedes });
   });
-  /* supersedes должен указывать на существующий факт. */
+  /* supersedes должен указывать на существующий факт: из этого ответа или из прежней памяти. */
   out.facts.forEach(function (f) {
-    if (f.supersedes && !seenIds[f.supersedes]) { errors.push('факт ' + f.factId + ': supersedes на неизвестный факт'); f.supersedes = null; }
+    if (f.supersedes && !seenIds[f.supersedes] && !known[f.supersedes]) {
+      errors.push('факт ' + f.factId + ': supersedes на неизвестный факт'); f.supersedes = null;
+    }
   });
 
   out.askedTopics = (Array.isArray(input.askedTopics) ? input.askedTopics : []).map(function (t) { return str(t, 80); })

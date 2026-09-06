@@ -79,8 +79,13 @@
       inputCap: 8000, outputReserve: 1500, outputReserveThinkingOff: 1500, windowTurns: 0,
       required: ['preparation.answers', 'preparation.questions'], dropFirst: ['preparation.vacancyRawText']
     },
+    /* triggerNewTurns — сколько новых завершённых реплик накопить после
+       прошлого сжатия; triggerShare — доля бюджета памяти и окна задачи
+       интервью, при которой сжимать; maxRangeTurns — сколько реплик
+       брать за один проход (остальное — следующим проходом). */
     'context.compact': {
       inputCap: 10000, outputReserve: 2500, outputReserveThinkingOff: 2500, windowTurns: 40,
+      triggerNewTurns: 8, triggerShare: 0.7, maxRangeTurns: 40,
       required: ['session.turns', 'session.memory'],
       dropFirst: ['preparation.vacancyRawText', 'preparation.rawResumeText',
         'preparation.education', 'preparation.questions', 'preparation.experience', 'preparation.evidence']

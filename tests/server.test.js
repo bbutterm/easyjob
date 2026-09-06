@@ -428,11 +428,11 @@ const VACANCY_TEXT = 'Ищем повара в ресторан.\n\nТребов
   for (let i = 0; i < 5; i++) await dc.call('POST', '/api/interviews/' + diid + '/turns', { text: 'Ответ без деталей номер ' + i + '.' });
   const dt2 = await dc.call('POST', '/api/interviews/' + diid + '/turns', { text: 'Про соусы я уже говорил раньше.' });
   ok('D: реплика вне окна находится как подтверждение, реплики из окна не дублируются',
-    dt2.data.context.evidence.indexOf('turn:2') >= 0 && dt2.data.context.windowFrom === 1
-    && dt2.data.context.evidence.every(function (e) { return !/^turn:1[0-9]$/.test(e) || Number(e.slice(5)) < dt2.data.turn.seq - 6; }),
+    dt2.data.context.evidence.indexOf('turn:2') >= 0
+    && dt2.data.context.evidence.every(function (e) { return !/^turn:/.test(e) || Number(e.slice(5)) < dt2.data.turn.seq - 6; }),
     JSON.stringify(dt2.data.context));
-  ok('D: без памяти окно начинается с первой реплики (свёртка как раньше)', dt2.data.context.windowFrom === 1
-    && dt2.data.context.memoryStatus === 'none');
+  ok('D: до порога сжатия окно начинается с первой реплики (свёртка как раньше)',
+    dt1.data.context.windowFrom === 1 && dt1.data.context.memoryStatus === 'none');
 
   /* Память покрывает первые реплики — они уходят из окна, свёртки по ним нет. */
   const intD = dbD.interviews.get(sidD, diid);
@@ -440,11 +440,12 @@ const VACANCY_TEXT = 'Ищем повара в ресторан.\n\nТребов
   const vD = CMD.validate({ facts: [{ factId: 'f1', value: 'Делал авторские соусы', status: 'user_said',
     sourceRef: { kind: 'turn', seq: 2 }, quote: 'авторские соусы' }], askedTopics: ['соусы'] }, intD.turns);
   const covered = intD.turns.length - 4;
-  const pubD = CMD.publish(sidD, diid, 0, vD.memory, { resumeRev: 1, vacancyRev: 1 }, covered);
+  const rowD = CMD.read(sidD, diid);
+  const pubD = CMD.publish(sidD, diid, rowD ? rowD.memoryVersion : 0, vD.memory, { resumeRev: 1, vacancyRev: 1 }, covered);
   const dt3 = await dc.call('POST', '/api/interviews/' + diid + '/turns', { text: 'Продолжаем.' });
   const expectedFrom = Math.min(covered + 1, intD.turns.length + 1 - 6 + 1);
   ok('D: действительная память вытесняет покрытые реплики из окна',
-    pubD.ok && dt3.data.context.memoryVersion === 1 && dt3.data.context.memoryStatus === 'valid'
+    pubD.ok && dt3.data.context.memoryVersion === pubD.memoryVersion && dt3.data.context.memoryStatus === 'valid'
     && dt3.data.context.windowFrom === expectedFrom, 'windowFrom=' + dt3.data.context.windowFrom + ' ожидалось ' + expectedFrom);
 
   /* Правка резюме: интервью остаётся на снимке, память помечена устаревшей и в запрос не идёт. */
@@ -483,6 +484,131 @@ const VACANCY_TEXT = 'Ищем повара в ресторан.\n\nТребов
   process.env.CONTEXT_MEMORY = prevMem === undefined ? '' : prevMem;
   if (prevMem === undefined) delete process.env.CONTEXT_MEMORY;
   dApp.server.close();
+
+  /* ---- Часть E: сжатие в память через общий pipeline ---- */
+  process.env.CONTEXT_MEMORY = '1';
+  const eApp = createApp({ dbFile: ':memory:', freePrepsPerDay: 100, secure: false, retention: false,
+    rateLimit: { perMinute: 10000, expensivePerMinute: 10000, sessionsPerHour: 1000 } });
+  await new Promise(function (r) { eApp.server.listen(0, '127.0.0.1', r); });
+  const ebase = 'http://127.0.0.1:' + eApp.server.address().port;
+  const ec = client(ebase);
+  const sidE = (await ec.call('GET', '/api/me')).data.session.id;
+  const er = await ec.call('POST', '/api/resumes', { title: 'Р', data: RESUME });
+  const ev = await ec.call('POST', '/api/vacancies', { title: 'Повар', rawText: VACANCY_TEXT });
+  const ep = await ec.call('POST', '/api/preps', { resumeId: er.data.id, vacancyId: ev.data.id });
+  const ei = await ec.call('POST', '/api/preps/' + ep.data.id + '/interviews');
+  const eiid = ei.data.interviewId;
+  const dbE = require('../server/lib/db.js');
+  const CME = require('../server/lib/context-memory.js');
+  const Compact = require('../server/lib/context-compact.js');
+  const answersE = ['Я пять лет работал в горячем цехе ресторана.', 'Медицинской книжки у меня сейчас нет.',
+    'Авторское меню разрабатывал дважды в год.', 'Точнее, не пять лет, а четыре года.', 'Работал по технологическим картам.'];
+  const replies = [];
+  for (let i = 0; i < answersE.length; i++) replies.push(await ec.call('POST', '/api/interviews/' + eiid + '/turns', { text: answersE[i] }));
+  const compacted = replies.map(function (r) { return r.data.context.compaction; }).filter(function (c) { return c && c.ran; });
+  ok('E: сжатие запускается само после накопления новых реплик и проходит через заглушку',
+    compacted.length === 1 && compacted[0].ok === true && compacted[0].memoryVersion === 1 && compacted[0].mock === true
+    && compacted[0].newFacts >= 3 && compacted[0].warnings.length === 0 && /новых реплик/.test(compacted[0].trigger),
+    JSON.stringify(compacted));
+  const beforeE = replies.slice(0, replies.indexOf(replies.find(function (r) { return r.data.context.compaction.ran; })));
+  ok('E: до порога сжатие не запускается и говорит почему', beforeE.length >= 2
+    && beforeE.every(function (r) { return r.data.context.compaction.ran === false && !!r.data.context.compaction.reason; }));
+  const usageE = dbE.usage.byRequest(sidE, compacted[0].requestId);
+  ok('E: расход сжатия учтён отдельной фазой compact', usageE.length === 1 && usageE[0].phase === 'compact'
+    && usageE[0].task === 'context.compact' && usageE[0].usage_status === 'not_applicable');
+  const memE = await ec.call('GET', '/api/interviews/' + eiid + '/memory');
+  const factsE = memE.data.memory.facts;
+  const turnsE = dbE.interviews.get(sidE, eiid).turns;
+  ok('E: факты памяти ссылаются на реплики с дословной цитатой из них',
+    memE.data.status === 'valid' && factsE.length >= 3 && factsE.every(function (f) {
+      const t = turnsE.find(function (x) { return x.seq === f.sourceRef.seq; });
+      return f.status === 'user_said' && t && t.text.indexOf(f.sourceRef.quote) >= 0;
+    }) && memE.data.coveredThroughSeq === compacted[0].coveredThroughSeq);
+  const afterCompaction = replies.filter(function (r) { return r.data.context.memoryStatus === 'valid'; });
+  ok('E: следующая реплика идёт уже на свежей памяти',
+    afterCompaction.length >= 1 && afterCompaction[0].data.context.memoryVersion === 1);
+
+  /* Второй проход берёт только новый диапазон и сливает факты с прежними. */
+  await ec.call('POST', '/api/interviews/' + eiid + '/turns', { text: 'Ещё уточню: ресторан назывался «Север».' });
+  const cmp2 = await ec.call('POST', '/api/interviews/' + eiid + '/compact');
+  const memE2 = await ec.call('GET', '/api/interviews/' + eiid + '/memory');
+  ok('E: повторное сжатие берёт только непокрытый диапазон и наращивает память',
+    cmp2.data.ran && cmp2.data.ok && cmp2.data.from === compacted[0].coveredThroughSeq + 1 && cmp2.data.memoryVersion === 2
+    && memE2.data.memory.facts.length > factsE.length && memE2.data.coveredThroughSeq > memE.data.coveredThroughSeq,
+    JSON.stringify(cmp2.data));
+  const cmp3 = await ec.call('POST', '/api/interviews/' + eiid + '/compact');
+  ok('E: без новых реплик сжатие не запускается', cmp3.data.ran === false && /нет новых/.test(cmp3.data.reason));
+
+  /* Сбой модели и неразборчивый JSON не портят память. */
+  const mockAdapter = require('../shared/ai/providers/mock.js');
+  const realRun = mockAdapter.run;
+  mockAdapter.run = function (request) {
+    if (request.task === 'context.compact') return { ok: true, text: 'это не JSON {', stopReason: 'end_turn', usage: null, mock: true };
+    return realRun(request);
+  };
+  await ec.call('POST', '/api/interviews/' + eiid + '/turns', { text: 'Реплика при сломанной модели.' });
+  const cmpBad = await ec.call('POST', '/api/interviews/' + eiid + '/compact');
+  mockAdapter.run = realRun;
+  const memE3 = await ec.call('GET', '/api/interviews/' + eiid + '/memory');
+  ok('E: неразборчивый ответ модели оставляет прежнюю память нетронутой',
+    cmpBad.data.ran && cmpBad.data.ok === false && /разобрать/.test(cmpBad.data.error)
+    && memE3.data.memoryVersion === 2 && memE3.data.memory.facts.length === memE2.data.memory.facts.length, JSON.stringify(cmpBad.data));
+  /* Ссылки на чужие реплики и цитаты не из реплики отбрасываются, остальное публикуется. */
+  mockAdapter.run = function (request) {
+    if (request.task === 'context.compact') {
+      return { ok: true, mock: true, stopReason: 'end_turn', usage: null, text: JSON.stringify({ facts: [
+        { factId: 'bad1', value: 'x', status: 'user_said', sourceRef: { kind: 'turn', seq: 999 } },
+        { factId: 'bad2', value: 'y', status: 'confirmed', sourceRef: { kind: 'turn', seq: 2 }, quote: 'этого в реплике нет' },
+        { factId: 'good', value: 'Ресторан «Север»', status: 'user_said', sourceRef: { kind: 'turn', seq: 2 } },
+        { factId: 'fix', value: 'Четыре года, не пять', status: 'user_said', sourceRef: { kind: 'turn', seq: 2 }, supersedes: 'm2' }
+      ], askedTopics: [] }) };
+    }
+    return realRun(request);
+  };
+  const cmpMixed = await ec.call('POST', '/api/interviews/' + eiid + '/compact');
+  mockAdapter.run = realRun;
+  const memE4 = await ec.call('GET', '/api/interviews/' + eiid + '/memory');
+  const m2 = memE4.data.memory.facts.find(function (f) { return f.factId === 'm2'; });
+  ok('E: плохие ссылки отбрасываются с предупреждением, годные факты публикуются, supersedes на прежний факт работает',
+    cmpMixed.data.ok && cmpMixed.data.warnings.length === 2 && cmpMixed.data.newFacts === 2
+    && memE4.data.memory.facts.some(function (f) { return f.factId === 'good'; }) && m2 && m2.supersededBy === 'fix'
+    && !memE4.data.memory.facts.some(function (f) { return f.factId === 'bad1' || f.factId === 'bad2'; }), JSON.stringify(cmpMixed.data.warnings));
+
+  /* Замок: одно сжатие на интервью; брошенный замок перехватывается. */
+  ok('E: замок сжатия захватывается один раз', dbE.interviews.tryLockCompaction(sidE, eiid) === true
+    && dbE.interviews.tryLockCompaction(sidE, eiid) === false);
+  const lockedRun = await ec.call('POST', '/api/interviews/' + eiid + '/compact');
+  ok('E: при занятом замке сжатие не запускается', lockedRun.data.ran === false && /уже идёт/.test(lockedRun.data.reason));
+  ok('E: брошенный замок старше предела перехватывается', dbE.interviews.tryLockCompaction(sidE, eiid, 0) === true);
+  dbE.interviews.unlockCompaction(sidE, eiid);
+
+  /* Реплика, пришедшая после начала сжатия, остаётся непокрытой. */
+  const memRow = CME.read(sidE, eiid);
+  await ec.call('POST', '/api/interviews/' + eiid + '/turns', { text: 'Поздняя реплика.' });
+  const chk = Compact.check(sidE, dbE.interviews.get(sidE, eiid));
+  ok('E: реплики после покрытого диапазона считаются новыми', chk.uncovered >= 2 && chk.needed === false
+    && CME.read(sidE, eiid).coveredThroughSeq === memRow.coveredThroughSeq);
+
+  /* Поток: перед сжатием клиент получает короткое состояние. */
+  let guard = 0;
+  while (Compact.check(sidE, dbE.interviews.get(sidE, eiid)).uncovered < 7 && guard++ < 10) {
+    await ec.call('POST', '/api/interviews/' + eiid + '/turns', { text: 'Ответ для потока ' + guard + '.' });
+  }
+  const sse = await fetch(ebase + '/api/interviews/' + eiid + '/turns', { method: 'POST',
+    headers: { 'content-type': 'application/json', accept: 'text/event-stream', cookie: ec.cookie, origin: ebase },
+    body: JSON.stringify({ text: 'Потоковая реплика.' }) });
+  const sseText = await sse.text();
+  ok('E: в потоке приходит состояние «обновляю память» и итог со сжатием',
+    /event: status\ndata: \{"text":"Обновляю память/.test(sseText) && /event: done/.test(sseText)
+    && /"compaction":\{"ran":true,"ok":true/.test(sseText), sseText.slice(0, 200));
+
+  /* Флаг выключен — сжатие не запускается и память не трогается. */
+  process.env.CONTEXT_MEMORY = '0';
+  const cmpOff = await ec.call('POST', '/api/interviews/' + eiid + '/compact');
+  ok('E: без флага сжатие не запускается', cmpOff.data.ran === false && /выключена/.test(cmpOff.data.reason));
+  process.env.CONTEXT_MEMORY = prevMem === undefined ? '' : prevMem;
+  if (prevMem === undefined) delete process.env.CONTEXT_MEMORY;
+  eApp.server.close();
 
   /* ---- Обмен ключа GigaChat на токен ---- */
   const GigaChatAuth = require('../server/lib/gigachat-auth.js');

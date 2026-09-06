@@ -48,6 +48,7 @@
        policy.maxWords, а не этот предел. */
     'interview.turn': { maxOutputTokens: 1200, contextBudget: 24000, outputFormat: 'text', streaming: true },
     'interview.summary': { maxOutputTokens: 2000, contextBudget: 32000, outputFormat: 'json', streaming: false },
+    'context.compact': { maxOutputTokens: 2500, contextBudget: 16000, outputFormat: 'json', streaming: false },
     'prep.card': { maxOutputTokens: 2500, contextBudget: 24000, outputFormat: 'json', streaming: false },
     'screen.extract': { maxOutputTokens: 900, contextBudget: 8000, outputFormat: 'json', streaming: false },
     'assistant.hint': { maxOutputTokens: 1200, contextBudget: 12000, outputFormat: 'json', streaming: true,

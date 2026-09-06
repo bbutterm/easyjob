@@ -427,7 +427,7 @@ function rowToInterview(row) {
   if (!row) return null;
   return {
     id: row.id, prepId: row.prep_id, turns: withSeq(parse(row.turns, [])), summary: parse(row.summary, null),
-    finished: row.finished === 1, version: row.version || 0, compacting: row.compacting === 1,
+    finished: row.finished === 1, version: row.version || 0, compacting: (row.compacting || 0) > 0,
     createdAt: row.created_at, updatedAt: row.updated_at
   };
 }
@@ -482,10 +482,14 @@ const interviews = {
     }
     throw new Error('Не удалось добавить реплику: интервью меняется слишком часто');
   },
-  /* Флаг «идёт сжатие»: один compaction на интервью одновременно. */
-  tryLockCompaction(sid, iid) {
-    return db.prepare('UPDATE interviews SET compacting = 1 WHERE id = ? AND session_id = ? AND compacting = 0')
-      .run(iid, sid).changes === 1;
+  /* Флаг «идёт сжатие»: один compaction на интервью одновременно.
+     Хранится время захвата: замок старше двух минут считается брошенным
+     (процесс упал посреди сжатия) и перехватывается. */
+  tryLockCompaction(sid, iid, staleMs) {
+    const t = now();
+    return db.prepare(`UPDATE interviews SET compacting = ? WHERE id = ? AND session_id = ?
+        AND (compacting = 0 OR compacting <= ?)`)
+      .run(t, iid, sid, t - (typeof staleMs === 'number' ? staleMs : 120000)).changes === 1;
   },
   unlockCompaction(sid, iid) {
     db.prepare('UPDATE interviews SET compacting = 0 WHERE id = ? AND session_id = ?').run(iid, sid);

@@ -97,6 +97,30 @@ var CANNED = {
       avoid: 'Не приписывайте себе опыт, которого нет в резюме.'
     });
   },
+  /* Память: по одному факту на каждую реплику кандидата из раздела
+     «ПОСЛЕДНИЕ РЕПЛИКИ», с дословной цитатой — чтобы проверка ссылок
+     проходила так же, как с настоящей моделью. Статус — только user_said:
+     заглушка ничего не подтверждает. */
+  'context.compact': function (request) {
+    var text = String(request.userText || '');
+    var m = /\[ПОСЛЕДНИЕ РЕПЛИКИ\]\n([\s\S]*?)(?:\n\[|$)/.exec(text);
+    var turns = [];
+    if (m) { try { turns = JSON.parse(m[1]); } catch (e) { turns = []; } }
+    var facts = [];
+    var topics = [];
+    turns.forEach(function (t) {
+      if (!t || typeof t.seq !== 'number') return;
+      var body = String(t.text || '').trim();
+      if (t.role === 'candidate' && body.length >= 8) {
+        var quote = body.slice(0, Math.min(60, body.length));
+        facts.push({ factId: 'm' + t.seq, value: body.slice(0, 160), status: 'user_said',
+          sourceRef: { kind: 'turn', seq: t.seq }, quote: quote });
+      }
+      if (t.role === 'interviewer' && body.length >= 8) topics.push(body.slice(0, 50));
+    });
+    return JSON.stringify({ facts: facts, askedTopics: topics.slice(0, 10), contradictions: [],
+      unresolvedQuestions: [], evidenceRefs: facts.map(function (f) { return f.sourceRef.seq; }) });
+  },
   'interview.turn': function (request) {
     var text = String(request.userText || '');
     var asked = (text.match(/"role":\s*"interviewer"/g) || []).length;

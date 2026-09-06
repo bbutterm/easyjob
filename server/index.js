@@ -20,7 +20,7 @@ const retention = require('./lib/retention.js');
 const { createLimiter, clientAddress } = require('./lib/ratelimit.js');
 
 /* Маршруты, которые вызывают модель: считаются отдельно и строже. */
-const EXPENSIVE = /^\/api\/(preps(\/[^/]+\/(rebuild|questions|card|interviews))?|resumes\/[^/]+\/review|vacancies|interviews\/[^/]+\/(turns|continue|finish))\/?$/;
+const EXPENSIVE = /^\/api\/(preps(\/[^/]+\/(rebuild|questions|card|interviews))?|resumes\/[^/]+\/review|vacancies|interviews\/[^/]+\/(turns|continue|finish|compact))\/?$/;
 
 const ROOT = path.resolve(__dirname, '..');
 

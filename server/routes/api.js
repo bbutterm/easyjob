@@ -5,6 +5,7 @@
 
 const db = require('../lib/db.js');
 const ai = require('../lib/ai.js');
+const Compact = require('../lib/context-compact.js');
 const { HttpError, sendJson } = require('../lib/router.js');
 const Professions = require('../../src/professions.js');
 
@@ -341,7 +342,8 @@ function register(r) {
       connection: 'keep-alive' });
     const send = function (event, data) { res.write('event: ' + event + '\ndata: ' + JSON.stringify(data) + '\n\n'); };
     try {
-      const result = await interviewerTurn(sid, prep, fresh, function (delta) { send('delta', { text: delta }); });
+      const result = await interviewerTurn(sid, prep, fresh, function (delta) { send('delta', { text: delta }); },
+        function (text) { send('status', { text }); });
       send('done', result);
     } catch (e) {
       send('error', { error: e.message });
@@ -370,6 +372,20 @@ function register(r) {
       coveredThroughSeq: 0, sourceRevisions: {} });
   });
 
+  /* Сжать новые реплики в память сейчас, без ожидания порога. Один
+     compaction на интервью: повторный вызов во время работы отвечает
+     ran:false. Прежняя память при любом сбое остаётся. */
+  r.post('/api/interviews/:id/compact', async function ({ res, params, ctx }) {
+    const sid = ctx.session.id;
+    const interview = db.interviews.get(sid, params.id);
+    if (!interview) throw new HttpError(404, 'Интервью не найдено');
+    const prep = db.preps.get(sid, interview.prepId);
+    const resume = db.resumes.get(sid, prep.resumeId);
+    const vacancy = db.vacancies.get(sid, prep.vacancyId);
+    const result = await Compact.run(sid, prep, resume, vacancy, interview, {});
+    sendJson(res, 200, Object.assign({ interviewId: interview.id }, result));
+  });
+
   r.post('/api/interviews/:id/finish', async function ({ res, params, ctx }) {
     const sid = ctx.session.id;
     const interview = db.interviews.get(sid, params.id);
@@ -383,9 +399,14 @@ function register(r) {
     sendJson(res, 200, Object.assign({}, finished, { mock: result.mock, context: result.context }));
   });
 
-  async function interviewerTurn(sid, prep, interview, onDelta) {
+  async function interviewerTurn(sid, prep, interview, onDelta, onStatus) {
     const resume = db.resumes.get(sid, prep.resumeId);
     const vacancy = db.vacancies.get(sid, prep.vacancyId);
+    /* Память обновляется до реплики, когда порог достигнут: реплика
+       интервьюера тогда идёт уже на свежей памяти. Сбой сжатия реплику
+       не блокирует — окно и свёртка работают как прежде. */
+    const compaction = await Compact.maybeRun(sid, prep, resume, vacancy, interview, { onStatus });
+    if (compaction.ran) prep = db.preps.get(sid, prep.id) || prep;
     const result = await ai.run(sid, 'interview.turn', { resume, vacancy, prep, interview },
       { streaming: !!onDelta, onDelta });
     if (!result.ok) throw new HttpError(result.overflow ? 422 : 502, result.error, result.overflow ? { overflow: true, sizing: result.sizing } : null);
@@ -393,7 +414,7 @@ function register(r) {
     const appended = db.interviews.appendTurn(sid, interview.id, { role: 'interviewer', text });
     return { interviewId: interview.id, turn: { role: 'interviewer', text, seq: appended.turn.seq },
       turns: appended.interview.turns.length, mock: result.mock, dropped: result.dropped, sizing: result.sizing,
-      context: result.context };
+      context: Object.assign({}, result.context, { compaction }) };
   }
 }
 
