@@ -1,0 +1,22 @@
+{
+  "name": "career-assistant",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Карьерный помощник: кликабельный макет, общий слой запросов к модели и прототип программы для компьютера",
+  "scripts": {
+    "build": "node build.js",
+    "docs": "node tools/gen-ai-docs.js",
+    "test": "npm run test:shared && npm run test:web",
+    "test:shared": "node tests/shared.test.js",
+    "test:web": "node build.js && node tests/check.js",
+    "test:desktop": "node tests/desktop.test.js",
+    "test:all": "npm run test:shared && npm run test:web && npm run test:desktop",
+    "screenshots": "SCREENSHOTS=1 node tests/check.js && SCREENSHOTS=1 node tests/desktop.test.js"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "devDependencies": {
+    "playwright": "1.56.1"
+  }
+}

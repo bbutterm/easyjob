@@ -1,0 +1,58 @@
+name: Проверки
+
+on:
+  push:
+    branches: ['**']
+  pull_request:
+
+jobs:
+  checks:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+
+      - name: Установить зависимости
+        run: npm ci
+
+      - name: Установить Chromium для Playwright
+        run: npx playwright install --with-deps chromium
+
+      - name: Проверить, что собранный index.html не отстал от исходников
+        run: |
+          node build.js
+          git diff --exit-code index.html \
+            || (echo "index.html не пересобран после правок в src/. Запустите: node build.js" && exit 1)
+
+      - name: Проверить, что docs/ai-variables.md не отстал от кода
+        run: |
+          node tools/gen-ai-docs.js
+          git diff --exit-code docs/ai-variables.md \
+            || (echo "Документация переменных устарела. Запустите: node tools/gen-ai-docs.js" && exit 1)
+
+      - name: Общий слой
+        run: npm run test:shared
+
+      - name: Веб-макет
+        run: npm run test:web
+
+  desktop:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Установить зависимости
+        run: |
+          npm ci
+          npm ci --prefix desktop
+
+      - name: Программа для компьютера
+        run: xvfb-run -a npm run test:desktop

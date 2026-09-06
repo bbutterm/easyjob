@@ -14,6 +14,14 @@ const os = require('os');
 const ROOT = path.resolve(__dirname, '..');
 const FILE = 'file://' + path.join(ROOT, 'index.html');
 const SHOTS = path.join(ROOT, 'docs', 'screenshots');
+/* Скриншоты пишутся в репозиторий, поэтому по умолчанию выключены.
+   Включаются переменной SCREENSHOTS=1 (см. npm run screenshots). */
+const WRITE_SHOTS = process.env.SCREENSHOTS === '1';
+async function shot(page, name, options) {
+  if (!WRITE_SHOTS) return;
+  await page.screenshot(Object.assign({ path: path.join(SHOTS, name) }, options || {}));
+}
+
 const results = [];
 const consoleErrors = [];
 const requests = [];
@@ -70,7 +78,7 @@ async function noOverflow(page) {
 
   /* ---- 1. Путь: резюме → вакансия → вопросы → интервью → итог ---- */
   ok('Начальная страница открылась', await page.locator('text=Карьерный помощник').first().isVisible());
-  await page.screenshot({ path: SHOTS + '/01-start-desktop.png', fullPage: true });
+  await shot(page, '01-start-desktop.png', { fullPage: true });
 
   await page.click('text=Открыть демо');
   await page.waitForSelector('text=С чего начнём?');
@@ -101,7 +109,7 @@ async function noOverflow(page) {
     (await page.locator('.resume-preview').innerText()).includes('Продуктовый аналитик'));
   ok('Введённый навык попал в предпросмотр',
     (await page.locator('.resume-preview').innerText()).includes('BPMN'));
-  await page.screenshot({ path: SHOTS + '/02-wizard-preview-desktop.png', fullPage: true });
+  await shot(page, '02-wizard-preview-desktop.png', { fullPage: true });
 
   await page.click('button:has-text("Собрать резюме")');
   await page.waitForSelector('text=Резюме собрано', { timeout: 5000 });
@@ -127,7 +135,7 @@ async function noOverflow(page) {
     !(await page.locator('#main').innerText()).match(/\d+\s?%/));
   await page.click('.req-item__head >> nth=0');
   ok('Требование раскрывается', await page.locator('.req-item__body').first().isVisible());
-  await page.screenshot({ path: SHOTS + '/03-match-desktop.png', fullPage: true });
+  await shot(page, '03-match-desktop.png', { fullPage: true });
 
   await page.click('button:has-text("Перейти к вопросам")');
   await page.waitForSelector('text=Вероятные вопросы для подготовки');
@@ -142,7 +150,7 @@ async function noOverflow(page) {
   await page.selectOption('#q-topic', 'Кейс');
   ok('Фильтр по теме работает', (await page.locator('.q-item').count()) === 2);
   await page.selectOption('#q-topic', 'all');
-  await page.screenshot({ path: SHOTS + '/04-questions-desktop.png', fullPage: true });
+  await shot(page, '04-questions-desktop.png', { fullPage: true });
 
   await page.click('button:has-text("Начать пробное интервью")');
   await page.waitForSelector('text=Текстовое пробное интервью');
@@ -159,7 +167,7 @@ async function noOverflow(page) {
   await page.click('button:has-text("Показать ошибку отправки (демо)")');
   ok('Показано состояние ошибки', await page.locator('.note--alert:has-text("ошибка отправки")').isVisible());
   await page.click('button:has-text("Повторить")');
-  await page.screenshot({ path: SHOTS + '/05-interview-desktop.png', fullPage: true });
+  await shot(page, '05-interview-desktop.png', { fullPage: true });
   await page.click('button:has-text("Завершить и выйти")');
   await page.click('.modal button:has-text("Завершить")');
   await page.waitForSelector('text=Итог пробного интервью');
@@ -179,7 +187,7 @@ async function noOverflow(page) {
   await page.click('button:has-text("Микрофон (заглушка)")');
   ok('Микрофон объяснён заглушкой', await page.locator('.modal:has-text("Микрофон не используется")').isVisible());
   await page.click('.modal button:has-text("Понятно")');
-  await page.screenshot({ path: SHOTS + '/06-voice-desktop.png', fullPage: true });
+  await shot(page, '06-voice-desktop.png', { fullPage: true });
   await page.click('button:has-text("Завершить")');
   await page.click('.modal button:has-text("Завершить")');
   await page.waitForSelector('text=Итог голосовой тренировки');
@@ -206,7 +214,7 @@ async function noOverflow(page) {
   ok('Панель подсказок открыта', await page.locator('text=Направление ответа').isVisible());
   await page.click('button:has-text("Следующий пример")');
   ok('Пример переключается', (await page.locator('text=/Пример 2 из \\d+/').isVisible()));
-  await page.screenshot({ path: SHOTS + '/07-assistant-desktop.png', fullPage: true });
+  await shot(page, '07-assistant-desktop.png', { fullPage: true });
   await page.click('button:has-text("Свернуть")');
   ok('Панель подсказок сворачивается', !(await page.locator('text=Направление ответа').isVisible()));
 
@@ -219,7 +227,7 @@ async function noOverflow(page) {
   await page.click('.modal button:has-text("Понятно")');
   await page.click('.plan:has-text("Резюме и подготовка") button:has-text("Выбрать в демо")');
   await page.waitForTimeout(150);
-  await page.screenshot({ path: SHOTS + '/08-plans-desktop.png', fullPage: true });
+  await shot(page, '08-plans-desktop.png', { fullPage: true });
   await page.goto(FILE + '#/interviews');
   ok('Тренировки заблокированы на младшем тарифе',
     await page.locator('text=Раздел недоступен на текущем демо-уровне').isVisible());
@@ -242,7 +250,7 @@ async function noOverflow(page) {
   await page.goto(FILE + '#/overview');
   ok('Прежний результат помечен как устаревший',
     await page.locator('text=Отчёты относятся к предыдущей версии исходников').isVisible());
-  await page.screenshot({ path: SHOTS + '/09-stale-desktop.png', fullPage: true });
+  await shot(page, '09-stale-desktop.png', { fullPage: true });
   await page.click('button:has-text("Пересобрать демо")');
   ok('Пересборка снимает отметку',
     !(await page.locator('text=Отчёты относятся к предыдущей версии исходников').isVisible()));
@@ -263,7 +271,7 @@ async function noOverflow(page) {
     (await page.locator('text=Демонстрационная версия резюме').isVisible())
     && (await page.locator('.tag--ok:has-text("Принято")').count()) > 0);
   await page.click('.q-item >> nth=1 >> button:has-text("Отклонить")');
-  await page.screenshot({ path: SHOTS + '/10-upload-analysis-desktop.png', fullPage: true });
+  await shot(page, '10-upload-analysis-desktop.png', { fullPage: true });
   await page.click('.row-item button:has-text("Заменить")');
   await page.click('.row-item button:has-text("Удалить")');
   ok('Выбор файла удаляется', !(await page.locator('#main').innerText()).includes('rezume-test.txt'));
@@ -272,7 +280,7 @@ async function noOverflow(page) {
   await setScenario(page, 'empty');
   await page.goto(FILE + '#/overview');
   ok('Пустое состояние показано', await page.locator('text=Пока ничего нет').isVisible());
-  await page.screenshot({ path: SHOTS + '/11-empty-desktop.png', fullPage: true });
+  await shot(page, '11-empty-desktop.png', { fullPage: true });
   await setScenario(page, 'filled');
   await page.goto(FILE + '#/resumes');
   await page.click('.row-item >> nth=0 >> button:has-text("Удалить")');
@@ -381,11 +389,11 @@ async function noOverflow(page) {
   await mp.waitForSelector('.topbar');
   ok('Мобильный: нет горизонтального переполнения', await mp.evaluate(() =>
     document.documentElement.scrollWidth <= document.documentElement.clientWidth + 1));
-  await mp.screenshot({ path: SHOTS + '/12-overview-mobile.png', fullPage: true });
+  await shot(mp, '12-overview-mobile.png', { fullPage: true });
   await mp.click('.menu-btn');
   await mp.waitForTimeout(250);
   ok('Мобильное меню открывается', await mp.locator('.sidebar').isVisible());
-  await mp.screenshot({ path: SHOTS + '/13-menu-mobile.png', fullPage: true });
+  await shot(mp, '13-menu-mobile.png', { fullPage: true });
   await mp.click('.nav-scrim', { position: { x: 350, y: 500 } });
   await mp.waitForTimeout(250);
   ok('Меню закрывается по клику вне', !(await mp.locator('.nav-scrim').count()));
@@ -393,10 +401,10 @@ async function noOverflow(page) {
   await mp.waitForSelector('.q-item');
   ok('Мобильный: вопросы без переполнения', await mp.evaluate(() =>
     document.documentElement.scrollWidth <= document.documentElement.clientWidth + 1));
-  await mp.screenshot({ path: SHOTS + '/14-questions-mobile.png', fullPage: true });
+  await shot(mp, '14-questions-mobile.png', { fullPage: true });
   await mp.goto(FILE + '#/assistant');
   await mp.waitForSelector('text=Помощник на собеседовании');
-  await mp.screenshot({ path: SHOTS + '/15-assistant-mobile.png', fullPage: true });
+  await shot(mp, '15-assistant-mobile.png', { fullPage: true });
 
   /* ---- Тёмная тема ---- */
   await page.goto(FILE + '#/overview');
@@ -404,7 +412,7 @@ async function noOverflow(page) {
   await page.waitForTimeout(200);
   ok('Тёмная тема применяется',
     (await page.evaluate(() => document.documentElement.getAttribute('data-theme'))) === 'dark');
-  await page.screenshot({ path: SHOTS + '/16-overview-dark.png', fullPage: true });
+  await shot(page, '16-overview-dark.png', { fullPage: true });
   await page.click('[data-act="theme:toggle"]');
 
   /* ---- 9. Сеть ---- */

@@ -19,6 +19,13 @@ const ROOT = path.resolve(__dirname, '..');
 const SHOTS = path.join(ROOT, 'docs', 'screenshots');
 const DESKTOP = path.join(ROOT, 'desktop');
 
+/* Скриншоты пишутся в репозиторий, поэтому по умолчанию выключены. */
+const WRITE_SHOTS = process.env.SCREENSHOTS === '1';
+async function shot(page, name) {
+  if (!WRITE_SHOTS) return;
+  await page.screenshot({ path: path.join(SHOTS, name) });
+}
+
 const results = [];
 function ok(name, cond, extra) {
   results.push({ name, pass: !!cond, extra: extra || '' });
@@ -68,7 +75,7 @@ function listFiles(dir) {
   ok('Сказано, что окно видно при демонстрации экрана',
     (await consent.locator('body').innerText()).includes('Не скрывает своё окно от демонстрации'));
 
-  await consent.screenshot({ path: path.join(SHOTS, '20-desktop-consent.png') });
+  await shot(consent, '20-desktop-consent.png');
   await consent.check('#c1');
   await consent.check('#c2');
   ok('Двух отметок из трёх недостаточно', await consent.locator('#accept').isDisabled());
@@ -111,7 +118,7 @@ function listFiles(dir) {
   ok('Пример подготовки подставлен',
     (await control.inputValue('#prep')).includes('Повар'));
 
-  await control.screenshot({ path: path.join(SHOTS, '21-desktop-control.png') });
+  await shot(control, '21-desktop-control.png');
   await control.click('#refresh');
   await control.waitForSelector('.source', { timeout: 15000 });
   const sourceCount = await control.locator('.source').count();
@@ -163,7 +170,7 @@ function listFiles(dir) {
     ok('В окне показано направление ответа', overlayText.length > 20);
     ok('В окне есть напоминание о видимости при демонстрации',
       overlayText.includes('видно при демонстрации экрана'));
-    await overlay.screenshot({ path: path.join(SHOTS, '22-desktop-overlay.png') });
+    await shot(overlay, '22-desktop-overlay.png');
     const bg = await overlay.evaluate(function () {
       return getComputedStyle(document.body).backgroundColor;
     });
