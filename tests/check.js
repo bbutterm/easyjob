@@ -296,6 +296,35 @@ async function noOverflow(page) {
   await closeDemoPanel(page);
   ok('Сброс демо вернул исходные данные', (await page.locator('.row-item').count()) === 2);
 
+  /* ---- Карточка подготовки ---- */
+  await page.goto(FILE + '#/prep/prep-1/questions');
+  await page.waitForSelector('.q-item');
+  await page.fill('#ans-q1', 'Отвечал за требования от сбора до приёмки в проекте согласования заявок.');
+  await page.click('.q-item >> nth=0 >> button:has-text("Отметить")');
+  await page.click('button:has-text("Собрать карточку подготовки")');
+  await page.waitForSelector('text=Карточка подготовки');
+  const cardText = await page.locator('#main').innerText();
+  ok('Карточка собрана из собственного ответа пользователя',
+    cardText.includes('Отвечал за требования от сбора до приёмки'));
+  ok('Карточка показывает слабые места', cardText.includes('Слабые места'));
+  ok('Карточка предлагает вопросы работодателю', cardText.includes('задать работодателю'));
+  ok('Карточка честно говорит, что ничего не читает и не слушает',
+    cardText.includes('не читает с экрана') || cardText.includes('ничего не читает'));
+  ok('Есть настоящая печать, а не заглушка',
+    await page.locator('button:has-text("Распечатать или сохранить в PDF")').isVisible());
+  await shot(page, '17-prep-card-desktop.png', { fullPage: true });
+
+  /* Пустое состояние карточки: ответов ещё нет. */
+  await page.goto(FILE + '#/overview');
+  await openDemoPanel(page);
+  await page.click('.demo-panel button:has-text("Сбросить демо")');
+  await page.waitForTimeout(200);
+  await closeDemoPanel(page);
+  await page.goto(FILE + '#/prep/prep-1/card');
+  await page.waitForSelector('text=Карточка подготовки');
+  ok('Без ответов карточка объясняет, что делать',
+    (await page.locator('#main').innerText()).includes('не записали ни одного ответа'));
+
   /* ---- Профессии: библиотека и произвольный ввод ---- */
   await setScenario(page, 'filled');
   await openDemoPanel(page);

@@ -325,6 +325,18 @@
       note: 'Опирается на реальные реплики сессии, а не на общие рекомендации.'
     },
     {
+      id: 'prep.card',
+      title: 'Карточка подготовки к интервью',
+      uses: ['policy.*', 'profession.name', 'prep.weakSpots', 'prep.questions', 'prep.answers',
+        'vacancy.requirements', 'resume.experience'],
+      output: 'json',
+      outputShape: '{ opening: string, strongPoints: string[], risky: [{topic, howToAnswer}], '
+        + 'askThem: string[], reminders: string[] }',
+      note: 'Краткая шпаргалка, которую человек читает перед разговором. Опирается на его '
+        + 'собственные ответы: формулировки не выдумываются за него. Открывается на телефоне '
+        + 'или втором экране и не требует чтения экрана и записи звука.'
+    },
+    {
       id: 'screen.extract',
       title: 'Выделить вопрос из текста экрана',
       uses: ['policy.*', 'screen.captureConsent', 'screen.text', 'screen.textDelta', 'screen.image'],

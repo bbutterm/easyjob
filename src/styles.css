@@ -682,6 +682,18 @@ textarea[aria-invalid="true"] { border-color: var(--danger); background: var(--d
   .card { padding: var(--space-4); }
 }
 
+/* ---------------- Печать карточки подготовки ---------------- */
+
+@media print {
+  .sidebar, .topbar, .demo-panel, .toasts, .no-print, .note, .page-head p, .toolbar { display: none !important; }
+  body { background: #fff; }
+  .content { padding: 0; max-width: none; }
+  .card { border: 0; box-shadow: none; padding: 0; }
+  .card--print { break-inside: avoid; }
+  h3 { margin-top: 16px; }
+  a[href]::after { content: ""; }
+}
+
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after {
     animation-duration: 0.001ms !important;

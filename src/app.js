@@ -65,6 +65,7 @@
         var prepId = parts[1];
         var view = parts[2] || 'match';
         if (view === 'questions') return ScreensPrep.questions(prepId);
+        if (view === 'card') return ScreensPrep.card(prepId);
         if (view === 'interview') return ScreensPrep.interview(prepId);
         if (view === 'voice') return ScreensPrep.voice(prepId);
         return ScreensPrep.match(prepId);
@@ -918,6 +919,10 @@
         return;
 
       /* -------- Заглушки -------- */
+      case 'card:print':
+        /* Настоящая печать браузера: диалог позволяет сохранить в PDF. */
+        window.print();
+        return;
       case 'stub:export':
         UI.openModal({
           title: 'Экспорт не реализован',

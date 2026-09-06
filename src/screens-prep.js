@@ -92,6 +92,7 @@ var ScreensPrep = (function () {
       + '<div class="card"><div class="btn-row">'
       + '  <a class="btn" href="#/resumes">Улучшить резюме</a>'
       + '  <button type="button" class="btn btn--primary" data-act="go:#/prep/' + esc(prep.id) + '/questions">Перейти к вопросам</button>'
+      + '  <button type="button" class="btn" data-act="go:#/prep/' + esc(prep.id) + '/card">Карточка подготовки</button>'
       + '  <button type="button" class="btn" data-act="prep:change-sources" data-id="' + esc(prep.id) + '">Изменить исходники</button>'
       + '</div></div>';
   }
@@ -177,6 +178,8 @@ var ScreensPrep = (function () {
       + '<div class="card"><div class="btn-row">'
       + '  <button type="button" class="btn btn--primary" data-act="go:#/prep/' + esc(prep.id) + '/interview">'
       + '    Начать пробное интервью</button>'
+      + '  <button type="button" class="btn" data-act="go:#/prep/' + esc(prep.id) + '/card">'
+      + '    Собрать карточку подготовки</button>'
       + '  <button type="button" class="btn" data-act="go:#/prep/' + esc(prep.id) + '/match">Вернуться к сопоставлению</button>'
       + '</div></div>';
   }
@@ -667,8 +670,105 @@ var ScreensPrep = (function () {
       + '</div>';
   }
 
+  /* ---------------- Карточка подготовки ---------------- */
+
+  /* Шпаргалка перед разговором. Собирается из того, что пользователь
+     написал сам: его ответов на вопросы и слабых мест сопоставления.
+     Ничего не читает и ничего не записывает — открывается на телефоне
+     или на втором экране и печатается. */
+  function card(prepId) {
+    var state = Store.get();
+    var prep = Store.prepById(prepId) || Store.activePrep();
+    if (!prep) return needPrep(prep, 'Карточка подготовки');
+
+    var vacancy = Store.vacancyById(prep.vacancyId);
+    var resume = Store.resumeById(prep.resumeId);
+    var requirements = (vacancy && vacancy.requirements) || [];
+
+    var answered = DEMO_DATA.questions.filter(function (q) {
+      return String(prep.answers[q.id] || '').trim().length > 0;
+    });
+    var ready = DEMO_DATA.questions.filter(function (q) { return prep.ready[q.id]; });
+    var gaps = DEMO_DATA.questions.filter(function (q) {
+      return !String(prep.answers[q.id] || '').trim() && !prep.ready[q.id];
+    });
+    var risky = requirements.filter(function (r) { return r.status !== 'confirmed'; });
+
+    var body = ''
+      + '<div class="card card--print">'
+      + '  <div class="card__head">'
+      + '    <div class="card__title"><h2>' + esc(vacancy ? vacancy.title : 'Вакансия') + '</h2>'
+      + '    <small>' + esc(vacancy ? vacancy.company : '') + ' · резюме: '
+      + esc(resume ? resume.title : 'не выбрано') + '</small></div>'
+      + '  </div>'
+
+      + '  <h3>Что сказать о себе в начале</h3>'
+      + (resume && resume.summary
+          ? '<p>' + escLines(resume.summary) + '</p>'
+          : '<p class="faint">В резюме не заполнен раздел «О себе». Впишите две-три строки — '
+            + 'с них начинается почти каждое собеседование.</p>')
+
+      + '  <h3>Мои ответы, которые стоит вспомнить</h3>'
+      + (answered.length
+          ? '<ul class="list">' + answered.map(function (q) {
+              return '<li><b>' + esc(q.text) + '</b><div>' + escLines(prep.answers[q.id]) + '</div></li>';
+            }).join('') + '</ul>'
+          : '<p class="faint">Вы пока не записали ни одного ответа. Откройте раздел вопросов '
+            + 'и напишите ответы своими словами — карточка соберётся из них.</p>')
+
+      + '  <h3>Слабые места: к чему готовиться</h3>'
+      + (risky.length
+          ? '<ul class="list">' + risky.map(function (r) {
+              return '<li><b>' + esc(r.text) + '</b> <span class="tag '
+                + (r.status === 'missing' ? 'tag--alert' : 'tag--info') + '">'
+                + esc(STATUS_LABEL[r.status].text) + '</span>'
+                + '<div>' + esc(r.advice) + '</div></li>';
+            }).join('') + '</ul>'
+          : '<p class="faint">Все требования подтверждены резюме.</p>')
+
+      + '  <h3>Вопросы, которые задать работодателю</h3>'
+      + '  <ul>'
+      + '    <li>Какие задачи стоят перед этой ролью в первые три месяца?</li>'
+      + '    <li>Кто принимает решения по спорным вопросам и как это устроено?</li>'
+      + '    <li>По каким признакам вы поймёте через полгода, что человек справился?</li>'
+      + '  </ul>'
+
+      + (gaps.length
+          ? '<h3>Ещё не разобрано</h3><ul>' + gaps.slice(0, 5).map(function (q) {
+              return '<li>' + esc(q.text) + '</li>';
+            }).join('') + '</ul>'
+          : '')
+
+      + '  <h3>Напоминания</h3>'
+      + '  <ul>'
+      + '    <li>Ответ — до двух минут, заканчивать результатом.</li>'
+      + '    <li>Не хватает данных — сказать об этом и назвать допущение.</li>'
+      + '    <li>Не приписывать себе опыт, которого нет: это проверяется следующим вопросом.</li>'
+      + '  </ul>'
+      + '</div>';
+
+    return ''
+      + pageHead('Карточка подготовки',
+          'Шпаргалка на время разговора: откройте её на телефоне или втором экране.')
+      + sourcesBar(prep)
+      + staleBanner(prep)
+      + note('info', '<div>Карточка собрана из ваших собственных ответов и результата '
+        + 'сопоставления. Она ничего не читает с экрана, не слушает звук и не требует '
+        + 'установки программ. Подготовлено ответов: ' + answered.length + ' из '
+        + DEMO_DATA.questions.length + ', отмечено готовыми: ' + ready.length + '.</div>')
+      + body
+      + '<div class="card no-print"><div class="btn-row">'
+      + '  <button type="button" class="btn btn--primary" data-act="card:print">Распечатать или сохранить в PDF</button>'
+      + '  <button type="button" class="btn" data-act="go:#/prep/' + esc(prep.id) + '/questions">Дописать ответы</button>'
+      + '</div>'
+      + '<p class="faint" style="font-size:13px;margin-top:12px">Печать выполняется браузером — '
+      + 'это настоящая функция, а не заглушка. В диалоге печати можно выбрать «Сохранить как PDF».</p>'
+      + '</div>';
+  }
+
   return {
     match: match,
+    card: card,
     questions: questions,
     interviews: interviews,
     interview: interview,
