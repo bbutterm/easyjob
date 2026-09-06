@@ -22,14 +22,16 @@ var EFFORT_BY_TASK = {
 };
 
 function toWire(request, runtime) {
-  var content = [];
+  /* Текст идёт первым, изображение последним: кадр — самая изменчивая
+     часть запроса, и если поставить его в начало, кэш префикса не
+     сработает ни разу. */
+  var content = [{ type: 'text', text: request.userText }];
   if (request.image) {
     content.push({
       type: 'image',
       source: { type: 'base64', media_type: request.image.mediaType, data: request.image.data }
     });
   }
-  content.push({ type: 'text', text: request.userText });
 
   var body = {
     model: request.model || DEFAULT_MODEL,

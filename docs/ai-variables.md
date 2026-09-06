@@ -173,7 +173,7 @@
 
 - **Переменные:** `policy.*`, `session.mode`, `session.stage`, `session.turns`, `session.turnsSummary`, `session.askedTopics`, `prep.questions`, `prep.weakSpots`, `profession.name`
 - **Формат ответа:** text — `одна реплика интервьюера`
-- **По умолчанию:** длина ответа 300 токенов, бюджет контекста 24000 токенов, потоковый вывод: да
+- **По умолчанию:** длина ответа 1200 токенов, бюджет контекста 24000 токенов, потоковый вывод: да
 - **Правило:** Модель ведёт интервью, а не оценивает вслух. Оценка выдаётся только в interview.summary.
 
 ### `interview.summary` — Итог тренировочного интервью
@@ -187,14 +187,14 @@
 
 - **Переменные:** `policy.*`, `screen.captureConsent`, `screen.text`, `screen.textDelta`, `screen.image`
 - **Формат ответа:** json — `{ question: string\|null, confidence: 0..1, speakerGuess: interviewer\|candidate\|unknown }`
-- **По умолчанию:** длина ответа 300 токенов, бюджет контекста 8000 токенов, потоковый вывод: нет
+- **По умолчанию:** длина ответа 900 токенов, бюджет контекста 8000 токенов, потоковый вывод: нет
 - **Правило:** При captureConsent=false задача не выполняется. Если вопрос не найден — question=null, и подсказка не запрашивается.
 
 ### `assistant.hint` — Подсказка во время согласованного интервью
 
 - **Переменные:** `policy.maxWords`, `policy.language`, `screen.detectedQuestion`, `prep.weakSpots`, `resume.experience`, `resume.skills`, `vacancy.requirements`, `profession.name`, `session.askedTopics`
 - **Формат ответа:** json — `{ direction: string, remind: string\|null, avoid: string\|null }`
-- **По умолчанию:** длина ответа 250 токенов, бюджет контекста 12000 токенов, потоковый вывод: да, предел 40 слов
+- **По умолчанию:** длина ответа 1200 токенов, бюджет контекста 12000 токенов, потоковый вывод: да, предел 40 слов
 - **Правило:** Направление ответа, а не готовый текст для зачитывания. Ограничение по длине жёсткое: длинную подсказку невозможно прочитать в разговоре.
 
 ## Провайдеры

@@ -5,9 +5,11 @@
 'use strict';
 
 function toWire(request, runtime) {
+  /* Текст первым, кадр последним — по той же причине, что и у Anthropic:
+     изменчивая часть запроса не должна стоять перед стабильной. */
   var parts = [{ text: request.userText }];
   if (request.image) {
-    parts.unshift({ inline_data: { mime_type: request.image.mediaType, data: request.image.data } });
+    parts.push({ inline_data: { mime_type: request.image.mediaType, data: request.image.data } });
   }
 
   var body = {

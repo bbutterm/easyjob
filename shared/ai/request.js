@@ -37,10 +37,14 @@
     'match.requirements': { maxOutputTokens: 4000, contextBudget: 32000, outputFormat: 'json', streaming: false },
     'questions.generate': { maxOutputTokens: 4000, contextBudget: 32000, outputFormat: 'json', streaming: false },
     'answer.feedback': { maxOutputTokens: 1500, contextBudget: 16000, outputFormat: 'json', streaming: false },
-    'interview.turn': { maxOutputTokens: 300, contextBudget: 24000, outputFormat: 'text', streaming: true },
+    /* Ограничение длины считается вместе с рассуждением модели, которое
+       у части моделей включено по умолчанию. Слишком низкий предел даёт
+       обрыв ответа на середине JSON. Длину самого ответа ограничивает
+       policy.maxWords, а не этот предел. */
+    'interview.turn': { maxOutputTokens: 1200, contextBudget: 24000, outputFormat: 'text', streaming: true },
     'interview.summary': { maxOutputTokens: 2000, contextBudget: 32000, outputFormat: 'json', streaming: false },
-    'screen.extract': { maxOutputTokens: 300, contextBudget: 8000, outputFormat: 'json', streaming: false },
-    'assistant.hint': { maxOutputTokens: 250, contextBudget: 12000, outputFormat: 'json', streaming: true,
+    'screen.extract': { maxOutputTokens: 900, contextBudget: 8000, outputFormat: 'json', streaming: false },
+    'assistant.hint': { maxOutputTokens: 1200, contextBudget: 12000, outputFormat: 'json', streaming: true,
       maxWords: 40 }
   };
 
