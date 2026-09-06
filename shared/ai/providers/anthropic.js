@@ -103,5 +103,19 @@ function streamStop(event) {
   return null;
 }
 
+/* Расход в потоке: вход — в message_start, выход — в message_delta. */
+function streamUsage(event) {
+  if (!event) return null;
+  if (event.type === 'message_start' && event.message && event.message.usage) {
+    var u = event.message.usage;
+    return { input: u.input_tokens, cacheRead: u.cache_read_input_tokens || 0,
+      cacheWrite: u.cache_creation_input_tokens || 0 };
+  }
+  if (event.type === 'message_delta' && event.usage) {
+    return { output: event.usage.output_tokens };
+  }
+  return null;
+}
+
 module.exports = { id: 'anthropic', defaultModel: DEFAULT_MODEL, toWire: toWire, fromWire: fromWire,
-  streamDelta: streamDelta, streamStop: streamStop };
+  streamDelta: streamDelta, streamStop: streamStop, streamUsage: streamUsage };

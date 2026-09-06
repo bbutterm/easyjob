@@ -294,6 +294,36 @@ const VACANCY_TEXT = 'Ищем повара в ресторан.\n\nТребов
 
   sec.server.close(); secLoose.server.close();
 
+  /* ---- Часть A: учёт по попыткам, политика провайдеров ---- */
+  const polApp = createApp({ dbFile: ':memory:', freePrepsPerDay: 100, secure: false, retention: false,
+    rateLimit: { perMinute: 1000, expensivePerMinute: 1000, sessionsPerHour: 1000 } });
+  await new Promise(function (r) { polApp.server.listen(0, '127.0.0.1', r); });
+  const pbase = 'http://127.0.0.1:' + polApp.server.address().port;
+  const pc = client(pbase);
+  const pv = await pc.call('POST', '/api/vacancies', { title: 'Повар', rawText: VACANCY_TEXT });
+  const dbP = require('../server/lib/db.js');
+  const pme = await pc.call('GET', '/api/me');
+  const allUsage = dbP.usage.summary(1).byTask;
+  ok('Расход заглушки помечен как «не применимо», а не ноль-по-умолчанию',
+    pv.status === 201 && allUsage.length > 0 && allUsage.every(function (r) { return r.usageUnknown === 0; }));
+  const usageRow = dbP.usage.summary(1);
+  ok('В сводке есть фаза и число попыток', usageRow.byTask[0].phase === 'main' && usageRow.byTask[0].attempts >= 1);
+
+  /* Закрытый провайдер отклоняется политикой. */
+  const prevProvider = process.env.AI_PROVIDER;
+  process.env.AI_PROVIDER = 'anthropic';
+  const hClosed = await pc.call('GET', '/api/health');
+  ok('Здоровье сообщает, что провайдер не допущен политикой', hClosed.data.ai.known === true && hClosed.data.ai.policyOk === false);
+  const closedCall = await pc.call('POST', '/api/vacancies', { title: 'Повар', rawText: VACANCY_TEXT });
+  ok('Запрос к закрытому провайдеру отклоняется контролируемо, без вызова', closedCall.status === 502 && /политик/.test(closedCall.data.error));
+  process.env.AI_PROVIDER = 'typo-provider';
+  const hTypo = await pc.call('GET', '/api/health');
+  ok('Неизвестный провайдер виден в здоровье как неизвестный', hTypo.data.ai.known === false && hTypo.data.ai.live === false);
+  const typoCall = await pc.call('POST', '/api/vacancies', { title: 'Повар', rawText: VACANCY_TEXT });
+  ok('Неизвестный провайдер не превращается в успешную заглушку', typoCall.status === 502 && /неизвестный провайдер/i.test(typoCall.data.error));
+  process.env.AI_PROVIDER = prevProvider;
+  polApp.server.close();
+
   /* ---- Обмен ключа GigaChat на токен ---- */
   const GigaChatAuth = require('../server/lib/gigachat-auth.js');
   GigaChatAuth.reset();

@@ -24,7 +24,16 @@ const Capabilities = require('../shared/ai/capabilities.js');
 
 const provider = process.env.AI_PROVIDER || 'mock';
 const profile = Capabilities.profile(provider);
+if (!profile) {
+  console.log('Неизвестный провайдер: ' + provider + '. Доступные: ' + Capabilities.ids().join(', '));
+  process.exit(2);
+}
 const model = process.env.AI_MODEL || profile.defaultModel || '';
+const policy = Capabilities.productAllowed(provider, model);
+if (!policy.allowed && process.env.AI_ALLOW_CLOSED_PROVIDERS !== '1') {
+  console.log('Не допущено политикой продукта: ' + policy.reason + '. Для сравнительной оценки задайте AI_ALLOW_CLOSED_PROVIDERS=1.');
+  process.exit(2);
+}
 
 console.log('Провайдер:  ' + provider + ' — ' + profile.title);
 console.log('Модель:     ' + (model || '(не задана)'));
@@ -75,7 +84,11 @@ Providers.execute(request, {
     + (result.mock ? ' — это заглушка, сети не было' : ''));
   if (result.usage) {
     console.log('Токены:     вход ' + result.usage.input + ', выход ' + result.usage.output
-      + (result.usage.cacheRead ? ', из кэша ' + result.usage.cacheRead : ''));
+      + (result.usage.cacheRead ? ', из кэша ' + result.usage.cacheRead : '')
+      + (result.usage.reasoning ? ', рассуждение ' + result.usage.reasoning : '')
+      + (result.usage.cost !== undefined ? ', стоимость ' + result.usage.cost : ''));
+  } else if (!result.mock) {
+    console.log('Токены:     сервис не вернул расход — статус «неизвестно», не ноль.');
   }
   const parsed = AiRequest.parseJson(result.text);
   if (!parsed.ok) {

@@ -317,6 +317,81 @@ ok('Нечувствительные поля в логе сохранены', A
   var cancelled = await cancelPromise;
   ok('Отмена сессии прекращает запрос без повторов', cancelled.aborted === true);
 
+  /* ---- Часть A: регрессии по подтверждённым дефектам ---- */
+
+  /* H5: заголовки пришли, тело замолчало — дедлайн должен сработать. */
+  var hangBody = function () {
+    return Promise.resolve({ ok: true, status: 200, headers: headers({}),
+      body: { getReader: function () { return { read: function () { return new Promise(function () {}); },
+        cancel: function () {} }; } } });
+  };
+  var t0 = Date.now();
+  var hung = await Promise.race([
+    P.execute(R.build('interview.turn', built.context, { provider: 'anthropic' }), { apiKey: 'x', timeoutMs: 120, retries: 0 }, hangBody),
+    new Promise(function (resolve) { setTimeout(function () { resolve({ hung: true }); }, 1500); })
+  ]);
+  ok('H5: дедлайн покрывает чтение тела потока', !hung.hung && !hung.ok && /замолчал/.test(hung.error || ''),
+    (Date.now() - t0) + ' мс');
+  var hangJson = function () {
+    return Promise.resolve({ ok: true, status: 200, headers: headers({}), json: function () { return new Promise(function () {}); } });
+  };
+  var hungJson = await Promise.race([
+    P.execute(R.build('match.requirements', built.context, { provider: 'anthropic' }), { apiKey: 'x', timeoutMs: 120, retries: 0 }, hangJson),
+    new Promise(function (resolve) { setTimeout(function () { resolve({ hung: true }); }, 1500); })
+  ]);
+  ok('H5: дедлайн покрывает чтение обычного тела', !hungJson.hung && !hungJson.ok);
+
+  /* H6: расход из событий потока, а не ноль. */
+  var usageStream = await P.execute(streamReq, { apiKey: 'x' }, fakeStream([
+    { type: 'message_start', message: { usage: { input_tokens: 120, cache_read_input_tokens: 40 } } },
+    { type: 'content_block_delta', delta: { type: 'text_delta', text: '{"direction":"ок"}' } },
+    { type: 'message_delta', delta: { stop_reason: 'end_turn' }, usage: { output_tokens: 9 } }
+  ]));
+  ok('H6: Anthropic — расход собирается из событий потока',
+    usageStream.usage && usageStream.usage.input === 120 && usageStream.usage.output === 9 && usageStream.usage.cacheRead === 40,
+    JSON.stringify(usageStream.usage));
+  ok('H6: попытка помечена как с известным расходом',
+    usageStream.attemptLog && usageStream.attemptLog[usageStream.attemptLog.length - 1].usageStatus === 'reported');
+  var noUsage = await P.execute(streamReq, { apiKey: 'x' }, fakeStream([
+    { type: 'content_block_delta', delta: { type: 'text_delta', text: '{"direction":"ок"}' } },
+    { type: 'message_delta', delta: { stop_reason: 'end_turn' } }
+  ]));
+  ok('H6: без usage в потоке статус «неизвестно», а не ноль',
+    noUsage.ok && noUsage.usage === null && noUsage.attemptLog[noUsage.attemptLog.length - 1].usageStatus === 'unknown');
+  var oaStreamReq = R.build('interview.turn', built.context, { provider: 'groq', model: 'qwen/qwen3-32b' });
+  var oaWire2 = P.adapter('groq').toWire(oaStreamReq, P.runtimeFor('groq', { apiKey: 'k' }));
+  ok('H6: OpenAI-совместимый поток запрашивает usage в последнем событии',
+    oaWire2.body.stream === true && oaWire2.body.stream_options && oaWire2.body.stream_options.include_usage === true);
+  var oaUsage = P.adapter('groq').streamUsage({ usage: { prompt_tokens: 50, completion_tokens: 7,
+    prompt_tokens_details: { cached_tokens: 20 }, completion_tokens_details: { reasoning_tokens: 3 }, cost: 0.0004 } });
+  ok('H6: расширенный usage разбирается (кэш, рассуждение, стоимость)',
+    oaUsage.input === 50 && oaUsage.cacheRead === 20 && oaUsage.reasoning === 3 && oaUsage.cost === 0.0004);
+
+  /* H7: неизвестный провайдер — ошибка без сети и без заглушки. */
+  var typoReq = R.build('interview.turn', built.context, { provider: 'typo-provider' });
+  var fetchCalled = false;
+  var typoRes = await P.execute(typoReq, { apiKey: 'x' }, function () { fetchCalled = true; return Promise.reject(new Error('нет')); });
+  ok('H7: неизвестный провайдер даёт ошибку, а не заглушку', !typoRes.ok && typoRes.unknownProvider === true && !fetchCalled);
+  ok('H7: профиль неизвестного провайдера — null', C.profile('typo-provider') === null && !C.isKnown('typo-provider'));
+
+  /* Политика продукта: только открытые веса. */
+  ok('Политика: закрытые провайдеры не допущены',
+    !C.productAllowed('anthropic', 'claude-opus-5').allowed && !C.productAllowed('openai', 'x').allowed && !C.productAllowed('gemini', 'x').allowed);
+  ok('Политика: через маршрутизатор закрытая модель блокируется по имени',
+    !C.productAllowed('openrouter', 'openai/gpt-4o').allowed && !C.productAllowed('groq', 'openai/gpt-oss-120b').allowed
+    && !C.productAllowed('openrouter', 'anthropic/claude-3').allowed);
+  ok('Политика: открытые модели у хостеров допущены',
+    C.productAllowed('openrouter', 'qwen/qwen3-32b').allowed && C.productAllowed('cerebras', 'llama3.1-8b').allowed
+    && C.productAllowed('together', 'meta-llama/Llama-3').allowed && C.productAllowed('openai_compatible', 'qwen3').allowed);
+  ok('Хостеры открытых весов зарегистрированы',
+    ['cerebras', 'groq', 'fireworks', 'together', 'openrouter'].every(function (id) { return P.isKnown(id) && C.isKnown(id); }));
+  var orRt = P.runtimeFor('openrouter', { apiKey: 'k' });
+  ok('OpenRouter: адрес из профиля и запрос расхода в теле',
+    /openrouter\.ai/.test(orRt.endpoint) && orRt.extraBody && orRt.extraBody.usage && orRt.extraBody.usage.include === true);
+  var orWire = P.adapter('openrouter').toWire(R.build('match.requirements', built.context, { provider: 'openrouter', model: 'qwen/qwen3-32b' }), orRt);
+  ok('OpenRouter: расширение попало в тело запроса', orWire.body.usage && orWire.body.usage.include === true
+    && orWire.url.indexOf('openrouter.ai') >= 0);
+
   var failed = results.filter(function (r) { return !r.pass; });
   console.log('\nИтого: ' + (results.length - failed.length) + ' из ' + results.length + ' проверок пройдено.');
   process.exit(failed.length ? 1 : 0);

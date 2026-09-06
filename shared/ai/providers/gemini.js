@@ -63,5 +63,10 @@ function streamStop(event) {
   return (candidate && candidate.finishReason) || null;
 }
 
+function streamUsage(event) {
+  var m = event && event.usageMetadata;
+  return m ? { input: m.promptTokenCount, output: m.candidatesTokenCount, cacheRead: m.cachedContentTokenCount || 0 } : null;
+}
+
 module.exports = { id: 'gemini', defaultModel: '', toWire: toWire, fromWire: fromWire,
-  streamDelta: streamDelta, streamStop: streamStop };
+  streamDelta: streamDelta, streamStop: streamStop, streamUsage: streamUsage };

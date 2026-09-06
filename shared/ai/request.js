@@ -66,7 +66,9 @@
     var rt = runtime || {};
     var defs = defaultsFor(taskId);
     var profileId = rt.provider || 'mock';
-    var profile = AiCapabilities.profile(profileId);
+    /* Неизвестный провайдер не подменяется заглушкой: запрос собирается,
+       а ошибку вернёт execute — с понятным сообщением и без сети. */
+    var profile = AiCapabilities.profile(profileId) || { defaultModel: '' };
 
     var policy = {
       language: rt.locale || 'ru-RU',

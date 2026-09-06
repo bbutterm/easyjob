@@ -37,16 +37,35 @@ function isLive() {
   return c.provider !== 'mock';
 }
 
+/* Политика продукта: закрытые провайдеры и модели не используются.
+   Обход только явной переменной AI_ALLOW_CLOSED_PROVIDERS=1 — для
+   сравнительной оценки на обезличенных данных, не для пользователей. */
+function policyCheck(c) {
+  if (!Capabilities.isKnown(c.provider)) {
+    return { ok: false, reason: 'неизвестный провайдер «' + c.provider + '»' };
+  }
+  const verdict = Capabilities.productAllowed(c.provider, c.model);
+  if (!verdict.allowed && process.env.AI_ALLOW_CLOSED_PROVIDERS !== '1') {
+    return { ok: false, reason: verdict.reason };
+  }
+  return { ok: true, reason: verdict.allowed ? '' : 'закрытый провайдер разрешён явно (AI_ALLOW_CLOSED_PROVIDERS=1)' };
+}
+
 function describe() {
   const c = config();
   const profile = Capabilities.profile(c.provider);
+  const policy = policyCheck(c);
   return {
     provider: c.provider,
-    title: profile.title,
-    model: c.model || profile.defaultModel || '',
-    live: c.provider !== 'mock',
-    dataRegion: profile.dataRegion,
-    hasKey: !!(c.apiKey || c.authKey)
+    known: !!profile,
+    title: profile ? profile.title : 'неизвестный провайдер',
+    model: c.model || (profile && profile.defaultModel) || '',
+    live: c.provider !== 'mock' && !!profile,
+    dataRegion: profile ? profile.dataRegion : 'unknown',
+    openWeights: profile ? profile.openWeights === true : false,
+    hasKey: !!(c.apiKey || c.authKey),
+    policyOk: policy.ok,
+    policyReason: policy.reason
   };
 }
 
@@ -79,6 +98,7 @@ function buildStore(taskId, parts) {
     .map(function (m) { return m.text + ' — ' + (m.evidence || ''); });
 
   store.set('preparation', {
+    summary: resume.summary || undefined,
     experience: resume.experience || [],
     skills: resume.skills || [],
     achievements: resume.achievements || [],
@@ -102,6 +122,15 @@ function buildStore(taskId, parts) {
 async function run(sessionId, taskId, parts, options) {
   const c = config();
   const opts = options || {};
+  const requestId = opts.requestId || ('r_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 8));
+  const phase = opts.phase || 'main';
+
+  const policy = policyCheck(c);
+  if (!policy.ok) {
+    log.error('ai.policy', { provider: c.provider, reason: policy.reason, task: taskId });
+    return { ok: false, error: 'Сервис модели не настроен: ' + policy.reason, requestId };
+  }
+
   const store = buildStore(taskId, parts);
   const built = store.build();
   const request = AiRequest.build(taskId, built.context, {
@@ -124,16 +153,28 @@ async function run(sessionId, taskId, parts, options) {
   });
   const ms = Date.now() - started;
 
-  db.usage.record(sessionId, {
-    task: taskId, provider: c.provider, model: request.model,
-    tokensIn: result.usage ? result.usage.input : 0,
-    tokensOut: result.usage ? result.usage.output : 0,
-    ok: result.ok, ms
+  /* Расход пишется по каждой попытке. Если сервис не вернул usage — статус
+     «неизвестно», а не ноль: неуспешная попытка тоже может стоить денег. */
+  const attemptLog = result.attemptLog && result.attemptLog.length ? result.attemptLog
+    : [{ attempt: 1, ok: result.ok, ms, outcome: result.ok ? 'ok' : 'error', usageStatus: result.usage ? 'reported' : 'unknown' }];
+  attemptLog.forEach(function (a, i) {
+    const isFinal = i === attemptLog.length - 1;
+    const u = isFinal ? result.usage : null;
+    db.usage.record(sessionId, {
+      requestId, phase, task: taskId, provider: c.provider, model: request.model,
+      tokensIn: u ? u.input : 0, tokensOut: u ? u.output : 0,
+      tokensCacheRead: u ? (u.cacheRead || 0) : 0, tokensReasoning: u ? (u.reasoning || 0) : 0,
+      cost: u && u.cost !== undefined ? u.cost : undefined,
+      usageStatus: c.provider === 'mock' ? 'not_applicable' : (u ? 'reported' : 'unknown'),
+      attempts: attemptLog.length, outcome: a.outcome || null,
+      ok: a.ok, ms: a.ms
+    });
   });
-  log.info('ai.task', { task: taskId, provider: c.provider, ok: result.ok, ms,
-    attempts: result.attempts, dropped: built.report.dropped, error: result.error });
+  log.info('ai.task', { requestId, phase, task: taskId, provider: c.provider, ok: result.ok, ms,
+    attempts: result.attempts, usageStatus: result.usage ? 'reported' : 'unknown',
+    dropped: built.report.dropped, error: result.error });
 
-  if (!result.ok) return { ok: false, error: result.error || 'Сервис модели не ответил', dropped: built.report.dropped };
+  if (!result.ok) return { ok: false, error: result.error || 'Сервис модели не ответил', dropped: built.report.dropped, requestId };
 
   const task = Variables.task(taskId);
   let json = null;
@@ -143,7 +184,7 @@ async function run(sessionId, taskId, parts, options) {
     json = parsed.value;
   }
   return { ok: true, text: result.text, json, truncated: result.truncated === true,
-    mock: result.mock === true, dropped: built.report.dropped, usage: result.usage };
+    mock: result.mock === true, dropped: built.report.dropped, usage: result.usage, requestId };
 }
 
-module.exports = { run, config, isLive, describe };
+module.exports = { run, config, isLive, describe, policyCheck };

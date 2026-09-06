@@ -78,5 +78,11 @@ function streamStop(event) {
   return (alternative && alternative.status) || null;
 }
 
+function streamUsage(event) {
+  var result = event && (event.result || event);
+  var u = result && result.usage;
+  return u ? { input: Number(u.inputTextTokens) || 0, output: Number(u.completionTokens) || 0, cacheRead: 0 } : null;
+}
+
 module.exports = { id: 'yandex', defaultModel: 'yandexgpt-lite', toWire: toWire, fromWire: fromWire,
-  streamDelta: streamDelta, streamStop: streamStop };
+  streamDelta: streamDelta, streamStop: streamStop, streamUsage: streamUsage };

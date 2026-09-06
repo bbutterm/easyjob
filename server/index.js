@@ -58,6 +58,9 @@ function createApp(options) {
   if (!process.env.SESSION_SECRET) {
     log.warn('SESSION_SECRET не задан: сессии сбросятся при перезапуске сервера');
   }
+  const aiInfo = require('./lib/ai.js').describe();
+  if (!aiInfo.known) log.error('AI_PROVIDER неизвестен: запросы к модели будут отклоняться', { provider: aiInfo.provider });
+  else if (!aiInfo.policyOk) log.error('AI_PROVIDER не допущен политикой продукта: запросы будут отклоняться', { provider: aiInfo.provider, reason: aiInfo.policyReason });
 
   const router = Router.create();
   api.register(router);

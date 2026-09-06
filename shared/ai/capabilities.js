@@ -46,6 +46,8 @@
       reasoning: 'adaptive_thinking_plus_effort',
       defaultModel: 'claude-opus-5',
       dataRegion: 'global',
+      openWeights: false,
+      productAllowed: false,
       verified: true,
       notes: [
         'Системная инструкция — отдельное поле system, а не роль в messages.',
@@ -72,6 +74,8 @@
       reasoning: 'effort_parameter',
       defaultModel: '',
       dataRegion: 'global',
+      openWeights: false,
+      productAllowed: false,
       verified: false,
       notes: [
         'Системная инструкция передаётся первым сообщением с ролью system.',
@@ -95,6 +99,8 @@
       reasoning: 'thinking_config',
       defaultModel: '',
       dataRegion: 'global',
+      openWeights: false,
+      productAllowed: false,
       verified: false,
       notes: [
         'История называется contents, каждое сообщение состоит из parts.',
@@ -118,6 +124,8 @@
       reasoning: 'none',
       defaultModel: '',
       dataRegion: 'self',
+      openWeights: true,
+      productAllowed: true,
       verified: false,
       notes: [
         'Строгий JSON-режим чаще всего отсутствует: ответ приходится разбирать защищённо.',
@@ -141,6 +149,8 @@
       reasoning: 'none',
       defaultModel: 'yandexgpt-lite',
       dataRegion: 'ru',
+      openWeights: false,
+      productAllowed: true,
       verified: false,
       notes: [
         'Модель задаётся строкой modelUri вида gpt://<каталог>/<модель>.',
@@ -165,6 +175,8 @@
       reasoning: 'none',
       defaultModel: '',
       dataRegion: 'ru',
+      openWeights: false,
+      productAllowed: true,
       verified: false,
       notes: [
         'Интерфейс совместим с форматом OpenAI, поэтому используется тот же адаптер.',
@@ -172,6 +184,119 @@
           + 'обновление токена в прототипе не реализовано.',
         'Обработка идёт внутри РФ: подходит для данных с персональными данными.'
       ]
+    },
+
+    /* Хостеры моделей с открытыми весами. Формат один (OpenAI-совместимый),
+       различаются адрес, имена моделей и расширения запроса. Формы собраны
+       по публичным выдержкам: сайты недоступны из среды разработки,
+       перед боевым запуском сверить с документацией. */
+    cerebras: {
+      id: 'cerebras',
+      title: 'Cerebras (открытые веса)',
+      endpoint: 'https://api.cerebras.ai/v1/chat/completions',
+      auth: { header: 'Authorization', scheme: 'Bearer' },
+      systemChannel: 'message_role',
+      messageShape: 'roles_system_user_assistant',
+      jsonMode: 'response_format_json_schema',
+      maxTokensField: 'max_completion_tokens',
+      vision: false,
+      streaming: true,
+      promptCache: 'unknown',
+      reasoning: 'model_dependent',
+      defaultModel: '',
+      dataRegion: 'global',
+      openWeights: true,
+      productAllowed: true,
+      verified: false,
+      notes: ['Модели с открытыми весами (Llama, Qwen и другие); имена моделей — из каталога сервиса.',
+        'Форма usage при потоке не проверена: до получения — статус «неизвестно».']
+    },
+    groq: {
+      id: 'groq',
+      title: 'Groq (открытые веса)',
+      endpoint: 'https://api.groq.com/openai/v1/chat/completions',
+      auth: { header: 'Authorization', scheme: 'Bearer' },
+      systemChannel: 'message_role',
+      messageShape: 'roles_system_user_assistant',
+      jsonMode: 'response_format_json_schema',
+      maxTokensField: 'max_completion_tokens',
+      vision: false,
+      streaming: true,
+      promptCache: 'automatic_prefix',
+      reasoning: 'reasoning_format',
+      reasoningParam: 'reasoning_format',
+      defaultModel: '',
+      dataRegion: 'global',
+      openWeights: true,
+      productAllowed: true,
+      verified: false,
+      notes: ['Совместимость с OpenAI заявлена как «в основном».',
+        'Модели семейства gpt-oss исключены политикой продукта, хотя хостер их отдаёт.']
+    },
+    fireworks: {
+      id: 'fireworks',
+      title: 'Fireworks (открытые веса)',
+      endpoint: 'https://api.fireworks.ai/inference/v1/chat/completions',
+      auth: { header: 'Authorization', scheme: 'Bearer' },
+      systemChannel: 'message_role',
+      messageShape: 'roles_system_user_assistant',
+      jsonMode: 'response_format_json_schema',
+      maxTokensField: 'max_tokens',
+      vision: false,
+      streaming: true,
+      promptCache: 'automatic_prefix',
+      reasoning: 'model_dependent',
+      defaultModel: '',
+      dataRegion: 'global',
+      openWeights: true,
+      productAllowed: true,
+      verified: false,
+      notes: ['Имена моделей вида accounts/fireworks/models/<имя>.']
+    },
+    together: {
+      id: 'together',
+      title: 'Together (открытые веса)',
+      endpoint: 'https://api.together.xyz/v1/chat/completions',
+      auth: { header: 'Authorization', scheme: 'Bearer' },
+      systemChannel: 'message_role',
+      messageShape: 'roles_system_user_assistant',
+      jsonMode: 'response_format_json_schema',
+      maxTokensField: 'max_tokens',
+      vision: false,
+      streaming: true,
+      promptCache: 'unknown',
+      reasoning: 'model_dependent',
+      defaultModel: '',
+      dataRegion: 'global',
+      openWeights: true,
+      productAllowed: true,
+      verified: false,
+      notes: ['Имена моделей с пространством имён, например meta-llama/….']
+    },
+    openrouter: {
+      id: 'openrouter',
+      title: 'OpenRouter (маршрутизатор)',
+      endpoint: 'https://openrouter.ai/api/v1/chat/completions',
+      auth: { header: 'Authorization', scheme: 'Bearer' },
+      systemChannel: 'message_role',
+      messageShape: 'roles_system_user_assistant',
+      jsonMode: 'response_format_json_schema',
+      maxTokensField: 'max_tokens',
+      vision: false,
+      streaming: true,
+      promptCache: 'upstream_dependent',
+      reasoning: 'model_dependent',
+      defaultModel: '',
+      dataRegion: 'global',
+      openWeights: true,
+      productAllowed: true,
+      verified: false,
+      /* usage.include даёт расход и стоимость в последнем событии потока;
+         provider — предпочтения маршрутизации, не гарантия задержки. */
+      extraBody: { usage: { include: true } },
+      notes: ['Объект provider (order, allow_fallbacks, only, ignore) — предпочтения, а не SLA.',
+        'Каталог моделей и каталог endpoint — разные вещи; доступность модели проверяется живым запросом.',
+        'Через маршрутизатор можно случайно выбрать закрытую модель: имя модели проверяется политикой продукта.']
     },
 
     mock: {
@@ -189,6 +314,8 @@
       reasoning: 'none',
       defaultModel: 'mock-1',
       dataRegion: 'none',
+      openWeights: true,
+      productAllowed: true,
       verified: true,
       notes: [
         'Возвращает фиксированные ответы. Используется в прототипе и в тестах.',
@@ -197,16 +324,41 @@
     }
   };
 
+  /* Неизвестный идентификатор — null, а не заглушка. */
   function profile(id) {
-    return PROFILES[id] || PROFILES.mock;
+    return Object.prototype.hasOwnProperty.call(PROFILES, id) ? PROFILES[id] : null;
+  }
+
+  function isKnown(id) {
+    return profile(id) !== null;
+  }
+
+  /* Политика продукта: модели закрытых провайдеров (OpenAI, Anthropic,
+     Google) исключены. Проверяется и провайдер, и имя модели — через
+     маршрутизатор закрытую модель можно выбрать по имени. */
+  var CLOSED_MODEL_PATTERNS = [/^(openai\/)?gpt-/i, /gpt-oss/i, /^o[1-9]([-\s]|$)/i, /claude/i, /anthropic\//i,
+    /gemini/i, /^google\//i];
+
+  function productAllowed(id, model) {
+    var p = profile(id);
+    if (!p || p.productAllowed !== true) return { allowed: false, reason: 'провайдер не допущен политикой продукта' };
+    var m = String(model || '');
+    for (var i = 0; i < CLOSED_MODEL_PATTERNS.length; i++) {
+      if (CLOSED_MODEL_PATTERNS[i].test(m)) {
+        return { allowed: false, reason: 'модель «' + m + '» относится к закрытым и исключена политикой продукта' };
+      }
+    }
+    return { allowed: true, reason: '' };
   }
 
   function supportsVision(id) {
-    return profile(id).vision === true;
+    var p = profile(id);
+    return !!(p && p.vision === true);
   }
 
   function supportsStrictJson(id) {
-    var mode = profile(id).jsonMode;
+    var p = profile(id);
+    var mode = p ? p.jsonMode : '';
     return mode === 'output_config_format' || mode === 'response_format_json_schema'
       || mode === 'response_schema' || mode === 'native';
   }
@@ -218,17 +370,20 @@
   /* Обрабатываются ли данные внутри РФ. Важно для персональных данных:
      отправка их в зарубежный сервис — трансграничная передача. */
   function isRussianRegion(id) {
-    return profile(id).dataRegion === 'ru';
+    var p = profile(id);
+    return !!(p && p.dataRegion === 'ru');
   }
 
   /* Сервис, которому нельзя доверять персональные данные без
      дополнительных оснований. Локальная модель считается безопасной:
      данные не покидают машину пользователя. */
   function needsCrossBorderNotice(id) {
-    return profile(id).dataRegion === 'global';
+    var p = profile(id);
+    return !!(p && p.dataRegion === 'global');
   }
 
-  return { profiles: PROFILES, profile: profile, ids: ids,
+  return { profiles: PROFILES, profile: profile, ids: ids, isKnown: isKnown,
+    productAllowed: productAllowed,
     supportsVision: supportsVision, supportsStrictJson: supportsStrictJson,
     isRussianRegion: isRussianRegion, needsCrossBorderNotice: needsCrossBorderNotice };
 });

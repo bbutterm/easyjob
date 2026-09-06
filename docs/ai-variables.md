@@ -4,7 +4,7 @@
 > `shared/ai/request.js` командой `node tools/gen-ai-docs.js`. Руками не править —
 > правьте исходники и перегенерируйте.
 
-Всего переменных: **53**, из них с персональными данными: **16**. Задач: **11**. Провайдеров: **7**.
+Всего переменных: **53**, из них с персональными данными: **16**. Задач: **11**. Провайдеров: **12**.
 
 ## Группы переменных
 
@@ -208,15 +208,24 @@
 
 Набор переменных одинаков для всех сервисов. Различается только способ их передачи.
 
-| Провайдер | Где данные | Системная инструкция | Формат истории | Структурированный ответ | Поле длины | Изображения | Поток | Кэш префикса | Глубина рассуждения | Сверено |
-| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| **Anthropic Claude** (`anthropic`) | за рубежом | top_level_field | roles_user_assistant | output_config_format | `max_tokens` | да | да | explicit_breakpoints | adaptive_thinking_plus_effort | да |
-| **OpenAI и совместимые** (`openai`) | за рубежом | message_role | roles_system_user_assistant | response_format_json_schema | `max_completion_tokens` | да | да | automatic_prefix | effort_parameter | **нет** |
-| **Google Gemini** (`gemini`) | за рубежом | system_instruction_field | contents_parts | response_schema | `maxOutputTokens` | да | да | explicit_cached_content | thinking_config | **нет** |
-| **Локальная или своя модель с совместимым интерфейсом** (`openai_compatible`) | у себя | message_role | roles_system_user_assistant | best_effort_instruction | `max_tokens` | нет | да | none | none | **нет** |
-| **YandexGPT** (`yandex`) | РФ | message_role | roles_with_text_field | best_effort_instruction | `completionOptions.maxTokens` | нет | да | none | none | **нет** |
-| **GigaChat** (`gigachat`) | РФ | message_role | roles_system_user_assistant | best_effort_instruction | `max_tokens` | нет | да | none | none | **нет** |
-| **Заглушка без сети** (`mock`) | — | top_level_field | roles_user_assistant | native | `max_tokens` | да | нет | none | none | да |
+| Провайдер | Открытые веса | Допущен для продукта | Где данные | Системная инструкция | Формат истории | Структурированный ответ | Поле длины | Изображения | Поток | Кэш префикса | Глубина рассуждения | Сверено |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| **Anthropic Claude** (`anthropic`) | нет | **нет** | за рубежом | top_level_field | roles_user_assistant | output_config_format | `max_tokens` | да | да | explicit_breakpoints | adaptive_thinking_plus_effort | да |
+| **OpenAI и совместимые** (`openai`) | нет | **нет** | за рубежом | message_role | roles_system_user_assistant | response_format_json_schema | `max_completion_tokens` | да | да | automatic_prefix | effort_parameter | **нет** |
+| **Google Gemini** (`gemini`) | нет | **нет** | за рубежом | system_instruction_field | contents_parts | response_schema | `maxOutputTokens` | да | да | explicit_cached_content | thinking_config | **нет** |
+| **Локальная или своя модель с совместимым интерфейсом** (`openai_compatible`) | да | да | у себя | message_role | roles_system_user_assistant | best_effort_instruction | `max_tokens` | нет | да | none | none | **нет** |
+| **YandexGPT** (`yandex`) | нет | да | РФ | message_role | roles_with_text_field | best_effort_instruction | `completionOptions.maxTokens` | нет | да | none | none | **нет** |
+| **GigaChat** (`gigachat`) | нет | да | РФ | message_role | roles_system_user_assistant | best_effort_instruction | `max_tokens` | нет | да | none | none | **нет** |
+| **Cerebras (открытые веса)** (`cerebras`) | да | да | за рубежом | message_role | roles_system_user_assistant | response_format_json_schema | `max_completion_tokens` | нет | да | unknown | model_dependent | **нет** |
+| **Groq (открытые веса)** (`groq`) | да | да | за рубежом | message_role | roles_system_user_assistant | response_format_json_schema | `max_completion_tokens` | нет | да | automatic_prefix | reasoning_format | **нет** |
+| **Fireworks (открытые веса)** (`fireworks`) | да | да | за рубежом | message_role | roles_system_user_assistant | response_format_json_schema | `max_tokens` | нет | да | automatic_prefix | model_dependent | **нет** |
+| **Together (открытые веса)** (`together`) | да | да | за рубежом | message_role | roles_system_user_assistant | response_format_json_schema | `max_tokens` | нет | да | unknown | model_dependent | **нет** |
+| **OpenRouter (маршрутизатор)** (`openrouter`) | да | да | за рубежом | message_role | roles_system_user_assistant | response_format_json_schema | `max_tokens` | нет | да | upstream_dependent | model_dependent | **нет** |
+| **Заглушка без сети** (`mock`) | да | да | — | top_level_field | roles_user_assistant | native | `max_tokens` | да | нет | none | none | да |
+
+Политика продукта: используются только модели с открытыми весами. Провайдеры OpenAI, Anthropic
+и Google не допущены; через маршрутизатор закрытая модель блокируется по имени. Обход только
+явной переменной `AI_ALLOW_CLOSED_PROVIDERS=1` для сравнительной оценки на обезличенных данных.
 
 Столбец «Сверено» означает, что форма запроса проверена по актуальной документации.
 Для остальных сервисов адаптер написан по общеизвестной схеме интерфейса и требует
@@ -260,6 +269,30 @@
 - Интерфейс совместим с форматом OpenAI, поэтому используется тот же адаптер.
 - Токен доступа обменивается на ключ авторизации отдельным запросом и живёт ограниченное время: обновление токена в прототипе не реализовано.
 - Обработка идёт внутри РФ: подходит для данных с персональными данными.
+
+### Cerebras (открытые веса)
+
+- Модели с открытыми весами (Llama, Qwen и другие); имена моделей — из каталога сервиса.
+- Форма usage при потоке не проверена: до получения — статус «неизвестно».
+
+### Groq (открытые веса)
+
+- Совместимость с OpenAI заявлена как «в основном».
+- Модели семейства gpt-oss исключены политикой продукта, хотя хостер их отдаёт.
+
+### Fireworks (открытые веса)
+
+- Имена моделей вида accounts/fireworks/models/<имя>.
+
+### Together (открытые веса)
+
+- Имена моделей с пространством имён, например meta-llama/….
+
+### OpenRouter (маршрутизатор)
+
+- Объект provider (order, allow_fallbacks, only, ignore) — предпочтения, а не SLA.
+- Каталог моделей и каталог endpoint — разные вещи; доступность модели проверяется живым запросом.
+- Через маршрутизатор можно случайно выбрать закрытую модель: имя модели проверяется политикой продукта.
 
 ### Заглушка без сети
 

@@ -97,6 +97,13 @@ function open(file) {
   const cols = db.prepare('PRAGMA table_info(sessions)').all().map(function (c) { return c.name; });
   if (cols.indexOf('ip_hash') < 0) db.exec('ALTER TABLE sessions ADD COLUMN ip_hash TEXT');
   db.exec('CREATE INDEX IF NOT EXISTS sessions_ip ON sessions(ip_hash)');
+  /* Учёт по попыткам: запрос, фаза, статус расхода, число попыток, стоимость. */
+  const ucols = db.prepare('PRAGMA table_info(usage)').all().map(function (c) { return c.name; });
+  [['request_id', 'TEXT'], ['phase', "TEXT DEFAULT 'main'"], ['usage_status', "TEXT DEFAULT 'reported'"],
+    ['attempts', 'INTEGER DEFAULT 1'], ['tokens_cache_read', 'INTEGER DEFAULT 0'],
+    ['tokens_reasoning', 'INTEGER DEFAULT 0'], ['cost', 'REAL'], ['outcome', 'TEXT']].forEach(function (col) {
+    if (ucols.indexOf(col[0]) < 0) db.exec('ALTER TABLE usage ADD COLUMN ' + col[0] + ' ' + col[1]);
+  });
   return db;
 }
 
@@ -362,11 +369,20 @@ const interviews = {
 /* ---- Учёт расходов ---- */
 
 const usage = {
+  /* usageStatus: reported — расход пришёл от сервиса; unknown — не пришёл,
+     в токенах стоят нули, но это НЕ «бесплатно»; not_applicable — заглушка. */
   record(sid, entry) {
-    db.prepare(`INSERT INTO usage (session_id, task, provider, model, tokens_in, tokens_out, ok, ms, created_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+    db.prepare(`INSERT INTO usage (session_id, task, provider, model, tokens_in, tokens_out, ok, ms, created_at,
+        request_id, phase, usage_status, attempts, tokens_cache_read, tokens_reasoning, cost, outcome)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
       .run(sid, entry.task, entry.provider, entry.model || '', entry.tokensIn || 0, entry.tokensOut || 0,
-        entry.ok ? 1 : 0, entry.ms || 0, now());
+        entry.ok ? 1 : 0, entry.ms || 0, now(),
+        entry.requestId || null, entry.phase || 'main', entry.usageStatus || 'reported',
+        entry.attempts || 1, entry.tokensCacheRead || 0, entry.tokensReasoning || 0,
+        entry.cost === undefined ? null : entry.cost, entry.outcome || null);
+  },
+  byRequest(sid, requestId) {
+    return db.prepare('SELECT * FROM usage WHERE session_id = ? AND request_id = ?').all(sid, requestId);
   },
   totals(sid) {
     return db.prepare(`SELECT COUNT(*) AS requests, COALESCE(SUM(tokens_in), 0) AS tokensIn,
@@ -377,10 +393,12 @@ const usage = {
     const since = Date.now() - (Number(days) || 30) * 24 * 3600 * 1000;
     return {
       since,
-      byTask: db.prepare(`SELECT task, provider, COUNT(*) AS requests, SUM(ok) AS succeeded,
+      byTask: db.prepare(`SELECT task, provider, phase, COUNT(*) AS requests, SUM(ok) AS succeeded,
           COALESCE(SUM(tokens_in), 0) AS tokensIn, COALESCE(SUM(tokens_out), 0) AS tokensOut,
-          ROUND(AVG(ms)) AS avgMs
-        FROM usage WHERE created_at >= ? GROUP BY task, provider ORDER BY requests DESC`).all(since),
+          COALESCE(SUM(tokens_cache_read), 0) AS tokensCacheRead,
+          SUM(CASE WHEN usage_status = 'unknown' THEN 1 ELSE 0 END) AS usageUnknown,
+          COALESCE(SUM(attempts), 0) AS attempts, ROUND(AVG(ms)) AS avgMs
+        FROM usage WHERE created_at >= ? GROUP BY task, provider, phase ORDER BY requests DESC`).all(since),
       byDay: db.prepare(`SELECT date(created_at / 1000, 'unixepoch') AS day, COUNT(*) AS requests,
           COUNT(DISTINCT session_id) AS sessions,
           COALESCE(SUM(tokens_in), 0) AS tokensIn, COALESCE(SUM(tokens_out), 0) AS tokensOut
