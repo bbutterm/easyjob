@@ -394,6 +394,96 @@ const VACANCY_TEXT = 'Ищем повара в ресторан.\n\nТребов
   ok('C: удаление данных пользователя удаляет и память', CM.read(sidC, ciid) === null && dbC.interviews.get(sidC, ciid) === null);
   cApp.server.close();
 
+  /* ---- Часть D: снимок подготовки, подтверждения, память в окне ---- */
+  const prevMem = process.env.CONTEXT_MEMORY;
+  process.env.CONTEXT_MEMORY = '1';
+  const dApp = createApp({ dbFile: ':memory:', freePrepsPerDay: 100, secure: false, retention: false,
+    rateLimit: { perMinute: 10000, expensivePerMinute: 10000, sessionsPerHour: 1000 } });
+  await new Promise(function (r) { dApp.server.listen(0, '127.0.0.1', r); });
+  const dbase = 'http://127.0.0.1:' + dApp.server.address().port;
+  const dc = client(dbase);
+  const dme = await dc.call('GET', '/api/me');
+  const sidD = dme.data.session.id;
+  const dr = await dc.call('POST', '/api/resumes', { title: 'Р', data: Object.assign({}, RESUME,
+    { experience: [{ role: 'Повар', company: 'Пушкин', period: '2019—2023', details: 'Горячий цех, авторские соусы, заготовки.' }] }) });
+  const dv = await dc.call('POST', '/api/vacancies', { title: 'Повар', rawText: VACANCY_TEXT });
+  const dp = await dc.call('POST', '/api/preps', { resumeId: dr.data.id, vacancyId: dv.data.id });
+  const di = await dc.call('POST', '/api/preps/' + dp.data.id + '/interviews');
+  const diid = di.data.interviewId;
+  const dbD = require('../server/lib/db.js');
+  const prepD = dbD.preps.get(sidD, dp.data.id);
+  ok('D: первая реплика закрепляет снимок подготовки на версиях исходников',
+    di.data.context && di.data.context.snapshotPinned === true && prepD.snapshot && prepD.snapshot.resumeRev === 1
+    && prepD.snapshot.profile.experience[0].company === 'Пушкин', JSON.stringify(di.data.context));
+  ok('D: индекс подтверждений содержит разделы резюме и реплику', dbD.evidence.available()
+    && dbD.evidence.count(sidD, 'resume', dr.data.id) >= 3 && dbD.evidence.count(sidD, 'turn', diid) === 1);
+
+  const dt1 = await dc.call('POST', '/api/interviews/' + diid + '/turns', { text: 'Я работал в горячем цехе и делал авторские соусы.' });
+  ok('D: подтверждения подбираются по текущему ответу из резюме и сопоставления',
+    dt1.status === 200 && dt1.data.context.evidenceVia === 'fts'
+    && dt1.data.context.evidence.indexOf('resume.experience[0]') >= 0
+    && dt1.data.context.evidence.some(function (e) { return /^match:/.test(e); }), JSON.stringify(dt1.data.context));
+
+  /* Ранний ответ уходит за окно, но находится как подтверждение. */
+  for (let i = 0; i < 5; i++) await dc.call('POST', '/api/interviews/' + diid + '/turns', { text: 'Ответ без деталей номер ' + i + '.' });
+  const dt2 = await dc.call('POST', '/api/interviews/' + diid + '/turns', { text: 'Про соусы я уже говорил раньше.' });
+  ok('D: реплика вне окна находится как подтверждение, реплики из окна не дублируются',
+    dt2.data.context.evidence.indexOf('turn:2') >= 0 && dt2.data.context.windowFrom === 1
+    && dt2.data.context.evidence.every(function (e) { return !/^turn:1[0-9]$/.test(e) || Number(e.slice(5)) < dt2.data.turn.seq - 6; }),
+    JSON.stringify(dt2.data.context));
+  ok('D: без памяти окно начинается с первой реплики (свёртка как раньше)', dt2.data.context.windowFrom === 1
+    && dt2.data.context.memoryStatus === 'none');
+
+  /* Память покрывает первые реплики — они уходят из окна, свёртки по ним нет. */
+  const intD = dbD.interviews.get(sidD, diid);
+  const CMD = require('../server/lib/context-memory.js');
+  const vD = CMD.validate({ facts: [{ factId: 'f1', value: 'Делал авторские соусы', status: 'user_said',
+    sourceRef: { kind: 'turn', seq: 2 }, quote: 'авторские соусы' }], askedTopics: ['соусы'] }, intD.turns);
+  const covered = intD.turns.length - 4;
+  const pubD = CMD.publish(sidD, diid, 0, vD.memory, { resumeRev: 1, vacancyRev: 1 }, covered);
+  const dt3 = await dc.call('POST', '/api/interviews/' + diid + '/turns', { text: 'Продолжаем.' });
+  const expectedFrom = Math.min(covered + 1, intD.turns.length + 1 - 6 + 1);
+  ok('D: действительная память вытесняет покрытые реплики из окна',
+    pubD.ok && dt3.data.context.memoryVersion === 1 && dt3.data.context.memoryStatus === 'valid'
+    && dt3.data.context.windowFrom === expectedFrom, 'windowFrom=' + dt3.data.context.windowFrom + ' ожидалось ' + expectedFrom);
+
+  /* Правка резюме: интервью остаётся на снимке, память помечена устаревшей и в запрос не идёт. */
+  await dc.call('PUT', '/api/resumes/' + dr.data.id, { data: Object.assign({}, RESUME, { summary: 'Теперь кондитер.' }) });
+  const dt4 = await dc.call('POST', '/api/interviews/' + diid + '/turns', { text: 'Ещё ответ.' });
+  const prepD2 = dbD.preps.get(sidD, dp.data.id);
+  ok('D: после правки резюме интервью идёт на закреплённом снимке и сообщает об изменении исходников',
+    dt4.data.context.sourcesChanged === true && dt4.data.context.snapshotPinned === true
+    && prepD2.snapshot.resumeRev === 1 && prepD2.snapshot.profile.summary !== 'Теперь кондитер.');
+  ok('D: устаревшая память не подставляется в запрос, окно возвращается к свёртке',
+    dt4.data.context.memoryStatus === 'stale' && dt4.data.context.windowFrom === 1);
+  ok('D: индекс резюме обновлён под новую версию', dbD.evidence.search(sidD, 'resume', dr.data.id, '"кондитер"', 3).length === 1
+    && dbD.evidence.search(sidD, 'resume', dr.data.id, '"пушкин"', 3).length === 0);
+
+  /* Итог: подтверждения по всем ответам, а не только по окну. */
+  const dfin = await dc.call('POST', '/api/interviews/' + diid + '/finish');
+  ok('D: итог интервью собирает подтверждения из реплик', dfin.status === 200 && dfin.data.context
+    && dfin.data.context.evidenceVia === 'fts', JSON.stringify(dfin.data.context));
+
+  /* Чужая сессия ничего не находит в индексе. */
+  ok('D: индекс подтверждений не пересекает владельцев', dbD.evidence.search('s_чужой', 'resume', dr.data.id, '"горяч"', 3).length === 0);
+
+  /* Флаг выключен — прежнее поведение. */
+  process.env.CONTEXT_MEMORY = '0';
+  const di2 = await dc.call('POST', '/api/preps/' + dp.data.id + '/interviews');
+  ok('D: без флага подтверждения и память не используются, снимок — используется',
+    di2.data.context.evidenceVia === 'off' && di2.data.context.memoryStatus === 'none' && di2.data.context.snapshotPinned === true);
+  process.env.CONTEXT_MEMORY = '1';
+
+  /* Удаление подготовки чистит индекс реплик; удаление данных — всё. */
+  await dc.call('DELETE', '/api/preps/' + dp.data.id);
+  ok('D: удаление подготовки удаляет реплики из индекса', dbD.evidence.count(sidD, 'turn', diid) === 0
+    && dbD.evidence.count(sidD, 'turn', di2.data.interviewId) === 0);
+  await dc.call('DELETE', '/api/me');
+  ok('D: удаление данных пользователя очищает индекс', dbD.evidence.count(sidD, 'resume', dr.data.id) === 0);
+  process.env.CONTEXT_MEMORY = prevMem === undefined ? '' : prevMem;
+  if (prevMem === undefined) delete process.env.CONTEXT_MEMORY;
+  dApp.server.close();
+
   /* ---- Обмен ключа GigaChat на токен ---- */
   const GigaChatAuth = require('../server/lib/gigachat-auth.js');
   GigaChatAuth.reset();

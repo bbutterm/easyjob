@@ -85,6 +85,8 @@
     'СЛАБЫЕ МЕСТА СОПОСТАВЛЕНИЯ': 'prep.weakSpots',
     'ВОПРОСЫ ПОДГОТОВКИ': 'prep.questions',
     'ОТВЕТЫ ПОЛЬЗОВАТЕЛЯ': 'prep.answers',
+    'ПОДТВЕРЖДЕНИЯ ПО ТЕКУЩЕМУ ВОПРОСУ': 'prep.evidence',
+    'ПАМЯТЬ ИНТЕРВЬЮ': 'session.memory',
     'РАНЕЕ В РАЗГОВОРЕ (СВЁРТКА)': 'session.turnsSummary',
     'ПОСЛЕДНИЕ РЕПЛИКИ': 'session.turns',
     'УЖЕ ЗАТРОНУТЫЕ ТЕМЫ': 'session.askedTopics',
@@ -139,25 +141,83 @@
     return role + '\n\nПравила:\n— ' + rules.join('\n— ');
   }
 
+  /* Память интервью — компактный текст, а не JSON: факты с источником и
+     статусом, противоречия, открытые вопросы. Статус берётся из записи;
+     модель не имеет права повышать его своим тоном. */
+  var STATUS_LABEL = {
+    user_said: 'сказал кандидат', in_document: 'указано в документе', confirmed: 'подтверждено',
+    conflict: 'противоречие', unknown: 'не подтверждено'
+  };
+
+  function renderMemory(memory) {
+    if (!memory || typeof memory !== 'object') return '';
+    var lines = [];
+    var facts = Array.isArray(memory.facts) ? memory.facts : [];
+    if (facts.length) {
+      lines.push('Факты (статус — из реестра, не из тона ответа):');
+      facts.forEach(function (f) {
+        var src = '';
+        if (f.sourceRef && f.sourceRef.kind === 'turn') src = 'реплика ' + f.sourceRef.seq;
+        else if (f.sourceRef && f.sourceRef.kind === 'document') src = f.sourceRef.field;
+        lines.push('— [' + (f.factId || '?') + '] ' + (STATUS_LABEL[f.status] || f.status) + ': ' + f.value
+          + (src ? ' (' + src + ')' : '') + (f.supersedes ? ' — уточняет ' + f.supersedes : ''));
+      });
+    }
+    if (Array.isArray(memory.contradictions) && memory.contradictions.length) {
+      lines.push('Противоречия, которые нужно уточнить:');
+      memory.contradictions.forEach(function (c) {
+        lines.push('— ' + (c.text || c) + (c.seqs && c.seqs.length ? ' (реплики ' + c.seqs.join(', ') + ')' : ''));
+      });
+    }
+    if (Array.isArray(memory.unresolvedQuestions) && memory.unresolvedQuestions.length) {
+      lines.push('Открытые вопросы:');
+      memory.unresolvedQuestions.forEach(function (q) { lines.push('— ' + q); });
+    }
+    if (memory.coveredThroughSeq) lines.push('Память покрывает реплики до № ' + memory.coveredThroughSeq + ' включительно.');
+    return lines.join('\n');
+  }
+
+  /* Подтверждения — по одному на строку с источником, чтобы модель
+     ссылалась на конкретное место, а не на «резюме вообще». */
+  function renderEvidence(items) {
+    if (!Array.isArray(items)) return typeof items === 'string' ? items : '';
+    return items.map(function (e) {
+      if (typeof e === 'string') return '— ' + e;
+      return '— (' + (e.source || 'источник не указан') + ') ' + (e.text || '');
+    }).join('\n');
+  }
+
   function section(title, value, taskId) {
     if (value === undefined || value === null) return '';
     if (Array.isArray(value) && !value.length) return '';
     if (typeof value === 'object' && !Array.isArray(value) && !Object.keys(value).length) return '';
     var varKey = SECTION_VARS[title];
     if (taskId && varKey && !allows(taskId, varKey)) return '';
-    var body = typeof value === 'string' ? value : JSON.stringify(value, null, 1);
+    var body;
+    if (typeof value === 'string') body = value;
+    else if (varKey === 'session.memory') body = renderMemory(value);
+    else if (varKey === 'prep.evidence') body = renderEvidence(value);
+    else body = JSON.stringify(value, null, 1);
+    if (!body) return '';
     return '[' + title + ']\n' + neutralize(body) + '\n\n';
   }
 
   /* Порядок разделов важен: стабильное впереди, изменчивое в конце.
-     Так кэш префикса переживает смену реплики или кадра экрана. */
+     Так кэш префикса переживает смену реплики или кадра экрана.
+     Порядок: задача и формат → стабильный снимок подготовки →
+     подтверждения по текущему вопросу → память → последние реплики
+     и текущий вопрос. */
   function buildUser(taskId, ctx) {
     var identity = ctx.identity || {};
     var prep = ctx.preparation || {};
     var session = ctx.session || {};
     var moment = ctx.moment || {};
+    var task = AiVariables.task(taskId);
 
-    var text = '';
+    var text = '[ЗАДАЧА]\n' + (task ? task.title : taskId) + '\n\n';
+    if (task && task.output === 'json') {
+      text += '[ФОРМАТ ОТВЕТА]\n' + task.outputShape + '\n\n';
+    }
     text += section('ПРОФЕССИЯ', identity.profession
       ? identity.profession + (identity.professionKnown === false
         ? ' (в справочнике сервиса такой профессии нет — опирайся на резюме и вакансию)' : '')
@@ -174,18 +234,14 @@
     text += section('СЛАБЫЕ МЕСТА СОПОСТАВЛЕНИЯ', prep.weakSpots, taskId);
     text += section('ВОПРОСЫ ПОДГОТОВКИ', prep.questions, taskId);
     text += section('ОТВЕТЫ ПОЛЬЗОВАТЕЛЯ', prep.answers, taskId);
+    text += section('ПОДТВЕРЖДЕНИЯ ПО ТЕКУЩЕМУ ВОПРОСУ', prep.evidence, taskId);
+    text += section('ПАМЯТЬ ИНТЕРВЬЮ', session.memory, taskId);
     text += section('РАНЕЕ В РАЗГОВОРЕ (СВЁРТКА)', session.turnsSummary, taskId);
     text += section('ПОСЛЕДНИЕ РЕПЛИКИ', session.turns, taskId);
     text += section('УЖЕ ЗАТРОНУТЫЕ ТЕМЫ', session.askedTopics, taskId);
     text += section('РАСПОЗНАНО НА ЭКРАНЕ (ИЗМЕНЕНИЕ)', moment.textDelta, taskId);
     text += section('РАСПОЗНАНО НА ЭКРАНЕ', moment.text, taskId);
     text += section('ВОПРОС СОБЕСЕДУЮЩЕГО', moment.detectedQuestion, taskId);
-
-    var task = AiVariables.task(taskId);
-    text += '[ЗАДАЧА]\n' + (task ? task.title : taskId) + '\n';
-    if (task && task.output === 'json') {
-      text += '\n[ФОРМАТ ОТВЕТА]\n' + task.outputShape + '\n';
-    }
     return text.trim();
   }
 
@@ -199,6 +255,8 @@
     buildSystem: buildSystem,
     buildUser: buildUser,
     schemaFor: schemaFor,
+    renderMemory: renderMemory,
+    renderEvidence: renderEvidence,
     baseRules: BASE_RULES,
     roles: ROLE_BY_TASK
   };

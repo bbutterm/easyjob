@@ -377,22 +377,23 @@ function register(r) {
     const prep = db.preps.get(sid, interview.prepId);
     const resume = db.resumes.get(sid, prep.resumeId);
     const vacancy = db.vacancies.get(sid, prep.vacancyId);
-    const result = await ai.run(sid, 'interview.summary', { resume, vacancy, prep, turns: interview.turns });
+    const result = await ai.run(sid, 'interview.summary', { resume, vacancy, prep, interview });
     if (!result.ok) throw new HttpError(result.overflow ? 422 : 502, result.error, result.overflow ? { overflow: true, sizing: result.sizing } : null);
     const finished = db.interviews.finish(sid, interview.id, result.json);
-    sendJson(res, 200, Object.assign({}, finished, { mock: result.mock }));
+    sendJson(res, 200, Object.assign({}, finished, { mock: result.mock, context: result.context }));
   });
 
   async function interviewerTurn(sid, prep, interview, onDelta) {
     const resume = db.resumes.get(sid, prep.resumeId);
     const vacancy = db.vacancies.get(sid, prep.vacancyId);
-    const result = await ai.run(sid, 'interview.turn', { resume, vacancy, prep, turns: interview.turns },
+    const result = await ai.run(sid, 'interview.turn', { resume, vacancy, prep, interview },
       { streaming: !!onDelta, onDelta });
     if (!result.ok) throw new HttpError(result.overflow ? 422 : 502, result.error, result.overflow ? { overflow: true, sizing: result.sizing } : null);
     const text = str(result.text, 2000, 'turn', true);
     const appended = db.interviews.appendTurn(sid, interview.id, { role: 'interviewer', text });
     return { interviewId: interview.id, turn: { role: 'interviewer', text, seq: appended.turn.seq },
-      turns: appended.interview.turns.length, mock: result.mock, dropped: result.dropped, sizing: result.sizing };
+      turns: appended.interview.turns.length, mock: result.mock, dropped: result.dropped, sizing: result.sizing,
+      context: result.context };
   }
 }
 

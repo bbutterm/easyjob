@@ -35,13 +35,14 @@
       inputCap: 6000, outputReserve: 1200, outputReserveThinkingOff: 500, windowTurns: 6,
       required: ['identity.profession', 'session.currentTurn', 'preparation.weakSpots'],
       dropFirst: ['preparation.rawResumeText', 'preparation.vacancyRawText', 'preparation.education',
-        'preparation.achievements', 'preparation.questions', 'preparation.skills', 'session.turnsSummary']
+        'preparation.achievements', 'preparation.questions', 'preparation.skills', 'session.turnsSummary',
+        'preparation.evidence']
     },
     'assistant.hint': {
       inputCap: 4000, outputReserve: 900, outputReserveThinkingOff: 200, windowTurns: 4,
       required: ['moment.detectedQuestion', 'preparation.weakSpots'],
       dropFirst: ['moment.image', 'moment.text', 'preparation.education', 'preparation.achievements',
-        'session.turnsSummary', 'preparation.experience']
+        'session.turnsSummary', 'preparation.experience', 'preparation.evidence']
     },
     'screen.extract': {
       inputCap: 4000, outputReserve: 900, outputReserveThinkingOff: 300, windowTurns: 2,
@@ -71,7 +72,8 @@
     'interview.summary': {
       inputCap: 16000, outputReserve: 3000, outputReserveThinkingOff: 3000, windowTurns: 40,
       required: ['preparation.weakSpots', 'session.turns'],
-      dropFirst: ['preparation.vacancyRawText', 'preparation.rawResumeText', 'preparation.education', 'preparation.questions']
+      dropFirst: ['preparation.vacancyRawText', 'preparation.rawResumeText', 'preparation.education',
+        'preparation.questions', 'preparation.evidence']
     },
     'answer.feedback': {
       inputCap: 8000, outputReserve: 1500, outputReserveThinkingOff: 1500, windowTurns: 0,
@@ -79,8 +81,9 @@
     },
     'context.compact': {
       inputCap: 10000, outputReserve: 2500, outputReserveThinkingOff: 2500, windowTurns: 40,
-      required: ['session.turns'], dropFirst: ['preparation.vacancyRawText', 'preparation.rawResumeText',
-        'preparation.education', 'preparation.questions', 'preparation.experience']
+      required: ['session.turns', 'session.memory'],
+      dropFirst: ['preparation.vacancyRawText', 'preparation.rawResumeText',
+        'preparation.education', 'preparation.questions', 'preparation.experience', 'preparation.evidence']
     }
   };
 

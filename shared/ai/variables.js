@@ -188,7 +188,12 @@
           note: 'Ответы пользователя по questionId. Передаются только в задачи обратной связи.' },
         { key: 'prep.weakSpots', type: 'string[]', required: false, pii: false,
           source: 'вычисляется из prep.match', budget: 'мал',
-          note: 'Требования со статусом «нужно уточнить» и «не указано». Главный ориентир для вопросов и подсказок.' }
+          note: 'Требования со статусом «нужно уточнить» и «не указано». Главный ориентир для вопросов и подсказок.' },
+        { key: 'prep.evidence', type: 'object[]', required: false, pii: true,
+          source: 'подбор по текущему вопросу: прямые ссылки по requirementId, затем полнотекстовый поиск',
+          budget: 'средний',
+          note: 'Подтверждения из резюме и прежних реплик, относящиеся к текущему вопросу: source, text. '
+            + 'Заменяет передачу всего резюме в задачах интервью.' }
       ]
     },
     {
@@ -214,7 +219,11 @@
           source: 'runtime', budget: '—', note: 'Длительность сессии. Влияет на подсказку «пора закругляться».' },
         { key: 'session.askedTopics', type: 'string[]', required: false, pii: false,
           source: 'история сессии', budget: 'мал',
-          note: 'Уже затронутые темы, чтобы не повторяться.' }
+          note: 'Уже затронутые темы, чтобы не повторяться.' },
+        { key: 'session.memory', type: 'object', required: false, pii: true,
+          source: 'таблица context_memory (задача context.compact)', budget: 'средний',
+          note: 'Реестр фактов интервью с источником и статусом, противоречия, открытые вопросы, '
+            + 'покрытый диапазон реплик. Заменяет реплики, которые уже покрыты памятью.' }
       ]
     },
     {
@@ -311,7 +320,8 @@
       id: 'interview.turn',
       title: 'Реплика интервьюера в тренировке',
       uses: ['policy.*', 'session.mode', 'session.stage', 'session.turns', 'session.turnsSummary',
-        'session.askedTopics', 'prep.questions', 'prep.weakSpots', 'profession.name'],
+        'session.askedTopics', 'session.memory', 'prep.questions', 'prep.weakSpots', 'prep.evidence',
+        'profession.name'],
       output: 'text',
       outputShape: 'одна реплика интервьюера',
       note: 'Модель ведёт интервью, а не оценивает вслух. Оценка выдаётся только в interview.summary.'
@@ -319,7 +329,8 @@
     {
       id: 'interview.summary',
       title: 'Итог тренировочного интервью',
-      uses: ['policy.*', 'session.turns', 'session.turnsSummary', 'prep.weakSpots', 'profession.name'],
+      uses: ['policy.*', 'session.turns', 'session.turnsSummary', 'session.memory', 'prep.weakSpots',
+        'prep.evidence', 'profession.name'],
       output: 'json',
       outputShape: '{ strong: string[], repeat: string[], advice: string[] }',
       note: 'Опирается на реальные реплики сессии, а не на общие рекомендации.'
@@ -349,8 +360,8 @@
       id: 'assistant.hint',
       title: 'Подсказка во время согласованного интервью',
       uses: ['policy.maxWords', 'policy.language', 'screen.detectedQuestion', 'prep.weakSpots',
-        'resume.experience', 'resume.skills', 'vacancy.requirements', 'profession.name',
-        'session.askedTopics'],
+        'prep.evidence', 'resume.experience', 'resume.skills', 'vacancy.requirements', 'profession.name',
+        'session.askedTopics', 'session.memory'],
       output: 'json',
       outputShape: '{ direction: string, remind: string|null, avoid: string|null }',
       note: 'Направление ответа, а не готовый текст для зачитывания. Ограничение по длине жёсткое: '

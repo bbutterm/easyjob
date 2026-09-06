@@ -77,10 +77,14 @@ async function resolveApiKey(c) {
   return c.apiKey;
 }
 
-/* Сборка контекста из записей базы. resume.data — структура резюме
-   ({ profession, summary, experience, skills, achievements, education }
-   либо { rawText }). */
+/* ---- Единый сборщик контекста ----
+   Порядок на каждом ходе (docs/adr/context-management.md):
+     снимок подготовки → подтверждения по текущему вопросу → память →
+     окно последних реплик и текущая реплика (ровно один раз).
+   Других сборщиков нет: и интервью, и итог, и сжатие идут через buildStore. */
 const ContextPolicy = require('../../shared/context/policy.js');
+const ContextMemory = require('./context-memory.js');
+const Evidence = require('./evidence.js');
 
 /* Жёсткий предел на размер запроса включён всегда; CONTEXT_POLICY=legacy
    возвращает прежние широкие бюджеты слоёв (для сравнения). */
@@ -88,16 +92,88 @@ function policyMode() {
   return process.env.CONTEXT_POLICY === 'legacy' ? 'legacy' : 'policy';
 }
 
-function buildStore(taskId, parts) {
+/* Память интервью и подбор подтверждений — за флагом. Выключен —
+   прежнее поведение: окно и свёртка без модели. */
+function memoryEnabled() {
+  return process.env.CONTEXT_MEMORY === '1';
+}
+
+const INTERVIEW_TASKS = ['interview.turn', 'interview.summary', 'context.compact'];
+
+/* Компактный снимок подготовки: профиль, требования, версии исходников.
+   Строится из версий резюме и вакансии, на которых создана подготовка,
+   и сохраняется в preps.snapshot — дальнейшие правки резюме активное
+   интервью не меняют. */
+function makeSnapshot(prep, resume, vacancy) {
+  const r = (resume && resume.data) || {};
+  const cut = function (v, n) { return typeof v === 'string' && v.length > n ? v.slice(0, n - 1) + '…' : v; };
+  return {
+    resumeRev: resume ? resume.rev : prep.resumeRev,
+    vacancyRev: vacancy ? vacancy.rev : prep.vacancyRev,
+    builtAt: Date.now(),
+    profession: prep.profession || r.profession || (vacancy && vacancy.title) || '',
+    profile: {
+      summary: cut(r.summary, 600),
+      experience: (Array.isArray(r.experience) ? r.experience : []).slice(0, 8).map(function (e) {
+        return { role: e.role, company: e.company, period: e.period, details: cut(e.details, 500) };
+      }),
+      skills: (Array.isArray(r.skills) ? r.skills : []).slice(0, 40),
+      achievements: (Array.isArray(r.achievements) ? r.achievements : []).slice(0, 12).map(function (a) { return cut(a, 300); }),
+      education: (Array.isArray(r.education) ? r.education : []).slice(0, 6)
+    },
+    vacancy: vacancy ? { title: vacancy.title, company: vacancy.company } : null,
+    requirements: (vacancy && vacancy.requirements) || null
+  };
+}
+
+/* Снимок для подготовки: сохранённый, если он соответствует версиям
+   подготовки; иначе строится из текущих исходников и закрепляется.
+   sourcesChanged — исходники правились после подготовки: интервью идёт
+   на закреплённой версии, и это сообщается, а не скрывается. */
+function snapshotFor(sid, prep, resume, vacancy) {
+  const saved = prep.snapshot;
+  if (saved && saved.resumeRev === prep.resumeRev && saved.vacancyRev === prep.vacancyRev) {
+    return { snapshot: saved, pinned: true,
+      sourcesChanged: !!((resume && resume.rev !== prep.resumeRev) || (vacancy && vacancy.rev !== prep.vacancyRev)) };
+  }
+  const fresh = makeSnapshot(prep, resume, vacancy);
+  const matchesPrep = fresh.resumeRev === prep.resumeRev && fresh.vacancyRev === prep.vacancyRev;
+  if (matchesPrep && sid) db.preps.setSnapshot(sid, prep.id, fresh);
+  /* Исходники уже новее подготовки, а снимка не было: старой версии
+     больше нет, берём текущую и говорим об этом. */
+  return { snapshot: fresh, pinned: matchesPrep, sourcesChanged: !matchesPrep };
+}
+
+function buildStore(taskId, parts, sid) {
   const policy = ContextPolicy.policyFor(taskId);
   const legacy = policyMode() === 'legacy';
+  const windowTurns = legacy ? 12 : Math.max(2, policy.windowTurns || 8);
   const store = ContextStore.create({
     contextBudget: legacy ? AiRequest.defaultsFor(taskId).contextBudget : policy.inputCap,
-    windowTurns: legacy ? 12 : Math.max(2, policy.windowTurns || 8)
+    windowTurns
   });
-  const resume = parts.resume ? parts.resume.data : {};
   const prep = parts.prep || {};
   const vacancy = parts.vacancy || null;
+  const interview = parts.interview || null;
+  const turns = interview ? interview.turns : (parts.turns || null);
+  const isInterview = INTERVIEW_TASKS.indexOf(taskId) >= 0 && !!parts.prep;
+  const info = { snapshotPinned: false, sourcesChanged: false, memoryVersion: 0, memoryStatus: 'none',
+    windowFrom: turns && turns.length ? turns[0].seq || 1 : 0, evidence: [], evidenceVia: 'off' };
+
+  /* Задачи интервью идут на снимке подготовки; остальные (разбор, обзор,
+     сопоставление) — на текущих документах, потому что они их и пересобирают. */
+  let resume = parts.resume ? parts.resume.data : {};
+  let requirements = (vacancy && vacancy.requirements) || null;
+  let vacancyBrief = vacancy ? { title: vacancy.title, company: vacancy.company } : undefined;
+  if (isInterview) {
+    const snap = snapshotFor(sid, prep, parts.resume, vacancy);
+    info.snapshotPinned = snap.pinned;
+    info.sourcesChanged = snap.sourcesChanged;
+    resume = Object.assign({}, snap.snapshot.profile, { profession: snap.snapshot.profession });
+    requirements = snap.snapshot.requirements;
+    vacancyBrief = snap.snapshot.vacancy || undefined;
+    info.snapshot = snap.snapshot;
+  }
   const profession = prep.profession || resume.profession || (vacancy && vacancy.title) || '';
 
   store.set('identity', {
@@ -106,7 +182,6 @@ function buildStore(taskId, parts) {
     professionKnown: parts.professionKnown !== false
   });
 
-  const requirements = (vacancy && vacancy.requirements) || null;
   const weakSpots = (prep.match || []).filter(function (m) { return m.status !== 'confirmed'; })
     .map(function (m) { return m.text + ' — ' + (m.evidence || ''); });
 
@@ -117,18 +192,73 @@ function buildStore(taskId, parts) {
     achievements: resume.achievements || [],
     education: resume.education || [],
     rawResumeText: resume.rawText || undefined,
-    vacancy: vacancy ? { title: vacancy.title, company: vacancy.company } : undefined,
-    vacancyRawText: vacancy ? vacancy.rawText : undefined,
+    vacancy: vacancyBrief,
+    vacancyRawText: vacancy && !isInterview ? vacancy.rawText : undefined,
     requirements: requirements || undefined,
     weakSpots: weakSpots.length ? weakSpots : undefined,
     questions: prep.questions || undefined,
     answers: parts.includeAnswers ? prep.answers : undefined
   });
 
-  if (parts.turns) {
-    parts.turns.forEach(function (t) { store.addTurn(t); });
+  if (!turns || !turns.length) return { store, info };
+
+  /* Память: действительная память заменяет покрытые ею реплики за окном.
+     Устаревшая (исходники правились) в запрос не идёт — только сообщается. */
+  let memoryRow = null;
+  let covered = 0;
+  if (isInterview && interview && memoryEnabled() && sid) {
+    memoryRow = ContextMemory.read(sid, interview.id);
+    if (memoryRow) {
+      info.memoryVersion = memoryRow.memoryVersion;
+      info.memoryStatus = memoryRow.status;
+      if (memoryRow.status === 'valid' && taskId !== 'context.compact') {
+        covered = memoryRow.coveredThroughSeq || 0;
+        const m = memoryRow.memory || {};
+        store.patch('session', {
+          memory: {
+            facts: ContextMemory.activeFacts(m).slice(-40),
+            contradictions: m.contradictions || [],
+            unresolvedQuestions: m.unresolvedQuestions || [],
+            coveredThroughSeq: covered
+          },
+          askedTopics: (m.askedTopics || []).slice(-30)
+        });
+      }
+    }
   }
-  return store;
+
+  /* Окно: последние windowTurns реплик; реплики до covered за окном
+     выбрасываются (их держит память), непокрытые — сворачиваются. */
+  let start = Math.max(0, turns.length - windowTurns);
+  const firstUncovered = turns.findIndex(function (t) { return (t.seq || 0) > covered; });
+  if (covered > 0) start = Math.min(start, firstUncovered < 0 ? turns.length - 1 : firstUncovered);
+  else start = 0;
+  info.windowFrom = turns[start].seq || (start + 1);
+  for (let i = start; i < turns.length; i++) store.addTurn(turns[i]);
+  const windowSeqs = store.get('session').turns.map(function (t) { return t.seq; });
+
+  /* Подтверждения по текущему вопросу: прямые ссылки, затем FTS. */
+  if (isInterview && memoryEnabled() && sid && taskId !== 'context.compact') {
+    let query = '';
+    if (taskId === 'interview.summary') {
+      query = weakSpots.concat((requirements || []).map(function (r) { return r.text; })).join(' ');
+    } else {
+      const lastTwo = turns.slice(-2);
+      query = lastTwo.map(function (t) { return t.text; }).join(' ');
+      if (parts.question) query = parts.question + ' ' + query;
+    }
+    const picked = Evidence.select(sid, {
+      query, requirementId: parts.requirementId || null, prep, snapshot: info.snapshot,
+      resumeId: taskId === 'interview.summary' ? null : prep.resumeId,
+      interviewId: interview ? interview.id : null, turns, excludeSeqs: windowSeqs,
+      limits: taskId === 'interview.summary' ? { direct: 6, resume: 0, turns: 8 } : undefined,
+      maxTerms: taskId === 'interview.summary' ? 20 : 8
+    });
+    if (picked.items.length) store.patch('preparation', { evidence: picked.items });
+    info.evidence = picked.items.map(function (e) { return e.source; });
+    info.evidenceVia = picked.via;
+  }
+  return { store, info };
 }
 
 /* Выполнить задачу. Возвращает { ok, text, json, usage, error, truncated }. */
@@ -144,7 +274,10 @@ async function run(sessionId, taskId, parts, options) {
     return { ok: false, error: 'Сервис модели не настроен: ' + policy.reason, requestId };
   }
 
-  const store = buildStore(taskId, parts);
+  const assembled = buildStore(taskId, parts, sessionId);
+  const store = assembled.store;
+  const contextInfo = Object.assign({}, assembled.info);
+  delete contextInfo.snapshot;
   const fitted = AiRequest.fit(taskId, store, {
     provider: c.provider, model: c.model, locale: c.locale,
     endpoint: c.endpoint || undefined, streaming: opts.streaming,
@@ -158,7 +291,7 @@ async function run(sessionId, taskId, parts, options) {
       ok: false, ms: 0, usageStatus: 'not_applicable', attempts: 0, outcome: 'overflow',
       tokensEstimate: fitted.sizing.inputTokens });
     return { ok: false, overflow: true, error: fitted.error, dropped: fitted.report.dropped, requestId,
-      sizing: fitted.sizing };
+      sizing: fitted.sizing, context: contextInfo };
   }
   const request = fitted.request;
   const built = { report: fitted.report };
@@ -212,7 +345,7 @@ async function run(sessionId, taskId, parts, options) {
   }
   return { ok: true, text: result.text, json, truncated: result.truncated === true,
     mock: result.mock === true, dropped: built.report.dropped, usage: result.usage, requestId,
-    sizing: request.sizing };
+    sizing: request.sizing, context: contextInfo };
 }
 
-module.exports = { run, config, isLive, describe, policyCheck };
+module.exports = { run, config, isLive, describe, policyCheck, buildStore, snapshotFor, makeSnapshot, memoryEnabled };

@@ -4,7 +4,7 @@
 > `shared/ai/request.js` командой `node tools/gen-ai-docs.js`. Руками не править —
 > правьте исходники и перегенерируйте.
 
-Всего переменных: **53**, из них с персональными данными: **16**. Задач: **11**. Провайдеров: **12**.
+Всего переменных: **55**, из них с персональными данными: **18**. Задач: **11**. Провайдеров: **12**.
 
 ## Группы переменных
 
@@ -93,6 +93,7 @@
 | `prep.questions` | object[] | нет | нет | задача questions.generate | средний | Вопросы: id, topic, text, why, guidance. |
 | `prep.answers` | object | нет | **да** | ввод пользователя | средний | Ответы пользователя по questionId. Передаются только в задачи обратной связи. |
 | `prep.weakSpots` | string[] | нет | нет | вычисляется из prep.match | мал | Требования со статусом «нужно уточнить» и «не указано». Главный ориентир для вопросов и подсказок. |
+| `prep.evidence` | object[] | нет | **да** | подбор по текущему вопросу: прямые ссылки по requirementId, затем полнотекстовый поиск | средний | Подтверждения из резюме и прежних реплик, относящиеся к текущему вопросу: source, text. Заменяет передачу всего резюме в задачах интервью. |
 
 ### Сессия интервью (`session`)
 
@@ -107,6 +108,7 @@
 | `session.turnsSummary` | string | нет | **да** | свёртка старых реплик | средний | Краткое изложение вытесненных из окна реплик. Заменяет их, а не дополняет. |
 | `session.elapsedSec` | number | нет | нет | runtime | — | Длительность сессии. Влияет на подсказку «пора закругляться». |
 | `session.askedTopics` | string[] | нет | нет | история сессии | мал | Уже затронутые темы, чтобы не повторяться. |
+| `session.memory` | object | нет | **да** | таблица context_memory (задача context.compact) | средний | Реестр фактов интервью с источником и статусом, противоречия, открытые вопросы, покрытый диапазон реплик. Заменяет реплики, которые уже покрыты памятью. |
 
 ### Чтение экрана (только программа для компьютера) (`screen`)
 
@@ -171,14 +173,14 @@
 
 ### `interview.turn` — Реплика интервьюера в тренировке
 
-- **Переменные:** `policy.*`, `session.mode`, `session.stage`, `session.turns`, `session.turnsSummary`, `session.askedTopics`, `prep.questions`, `prep.weakSpots`, `profession.name`
+- **Переменные:** `policy.*`, `session.mode`, `session.stage`, `session.turns`, `session.turnsSummary`, `session.askedTopics`, `session.memory`, `prep.questions`, `prep.weakSpots`, `prep.evidence`, `profession.name`
 - **Формат ответа:** text — `одна реплика интервьюера`
 - **По умолчанию:** длина ответа 1200 токенов, бюджет контекста 24000 токенов, потоковый вывод: да
 - **Правило:** Модель ведёт интервью, а не оценивает вслух. Оценка выдаётся только в interview.summary.
 
 ### `interview.summary` — Итог тренировочного интервью
 
-- **Переменные:** `policy.*`, `session.turns`, `session.turnsSummary`, `prep.weakSpots`, `profession.name`
+- **Переменные:** `policy.*`, `session.turns`, `session.turnsSummary`, `session.memory`, `prep.weakSpots`, `prep.evidence`, `profession.name`
 - **Формат ответа:** json — `{ strong: string[], repeat: string[], advice: string[] }`
 - **По умолчанию:** длина ответа 2000 токенов, бюджет контекста 32000 токенов, потоковый вывод: нет
 - **Правило:** Опирается на реальные реплики сессии, а не на общие рекомендации.
@@ -199,7 +201,7 @@
 
 ### `assistant.hint` — Подсказка во время согласованного интервью
 
-- **Переменные:** `policy.maxWords`, `policy.language`, `screen.detectedQuestion`, `prep.weakSpots`, `resume.experience`, `resume.skills`, `vacancy.requirements`, `profession.name`, `session.askedTopics`
+- **Переменные:** `policy.maxWords`, `policy.language`, `screen.detectedQuestion`, `prep.weakSpots`, `prep.evidence`, `resume.experience`, `resume.skills`, `vacancy.requirements`, `profession.name`, `session.askedTopics`, `session.memory`
 - **Формат ответа:** json — `{ direction: string, remind: string\|null, avoid: string\|null }`
 - **По умолчанию:** длина ответа 1200 токенов, бюджет контекста 12000 токенов, потоковый вывод: да, предел 40 слов
 - **Правило:** Направление ответа, а не готовый текст для зачитывания. Ограничение по длине жёсткое: длинную подсказку невозможно прочитать в разговоре.
@@ -317,8 +319,10 @@
 - `resume.education`
 - `resume.rawText`
 - `prep.answers`
+- `prep.evidence`
 - `session.turns`
 - `session.turnsSummary`
+- `session.memory`
 - `screen.sourceLabel`
 - `screen.text`
 - `screen.textDelta`

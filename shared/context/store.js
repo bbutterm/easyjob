@@ -107,11 +107,15 @@
        всё вытесненное уходит в свёртку. Свёртка заменяет реплики,
        а не дополняет их — иначе контекст растёт бесконечно. */
     function addTurn(turn, summarize) {
-      data.session.turns.push({
+      var stored = {
         role: turn.role,
         text: String(turn.text || ''),
         ts: turn.ts || Date.now()
-      });
+      };
+      /* Устойчивый номер реплики нужен памяти и подтверждениям, чтобы
+         ссылаться на оригинал; без него ссылки невозможно проверить. */
+      if (typeof turn.seq === 'number') stored.seq = turn.seq;
+      data.session.turns.push(stored);
       if (turn.topic && data.session.askedTopics.indexOf(turn.topic) < 0) {
         data.session.askedTopics.push(turn.topic);
       }
@@ -225,7 +229,7 @@
 
       if (layer === 'preparation') {
         var order = ['rawResumeText', 'vacancyRawText', 'education', 'achievements',
-          'skills', 'experience', 'requirements', 'weakSpots'];
+          'skills', 'evidence', 'experience', 'requirements', 'weakSpots'];
         for (var i = 0; i < order.length && estimateTokens(copy) > allowed; i++) {
           var key = order[i];
           if (copy[key] === undefined || protectedKey(key)) continue;
@@ -246,6 +250,15 @@
         while (Array.isArray(copy.turns) && copy.turns.length > keepTurns && estimateTokens(copy) > allowed) {
           copy.turns.shift();
           report.dropped.push('session.turns: вытеснена ранняя реплика');
+        }
+        /* Память укорачивается с ранних фактов; сама память не выбрасывается. */
+        if (copy.memory && Array.isArray(copy.memory.facts) && !protectedKey('memory')) {
+          var droppedFacts = 0;
+          while (copy.memory.facts.length > 5 && estimateTokens(copy) > allowed) {
+            copy.memory.facts.shift();
+            droppedFacts++;
+          }
+          if (droppedFacts) report.dropped.push('session.memory: убраны ранние факты (' + droppedFacts + ')');
         }
         if (estimateTokens(copy) > allowed && copy.turnsSummary) {
           var keep = Math.max(200, allowed * 2);

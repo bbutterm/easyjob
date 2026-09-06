@@ -13,6 +13,7 @@ const path = require('node:path');
 const fs = require('node:fs');
 
 let db = null;
+let ftsAvailable = false;
 
 const SCHEMA = `
 CREATE TABLE IF NOT EXISTS sessions (
@@ -113,6 +114,22 @@ function open(file) {
   const icols = db.prepare('PRAGMA table_info(interviews)').all().map(function (c) { return c.name; });
   if (icols.indexOf('version') < 0) db.exec('ALTER TABLE interviews ADD COLUMN version INTEGER NOT NULL DEFAULT 0');
   if (icols.indexOf('compacting') < 0) db.exec('ALTER TABLE interviews ADD COLUMN compacting INTEGER NOT NULL DEFAULT 0');
+  /* Снимок подготовки: компактный профиль, требования и версии исходников,
+     на которых построена подготовка. Активное интервью идёт на снимке, а
+     не на текущей версии резюме — подмена версии незаметно запрещена. */
+  const pcols = db.prepare('PRAGMA table_info(preps)').all().map(function (c) { return c.name; });
+  if (pcols.indexOf('snapshot') < 0) db.exec('ALTER TABLE preps ADD COLUMN snapshot TEXT');
+  /* Индекс подтверждений: разделы резюме и реплики интервью для подбора
+     evidence по текущему вопросу. FTS5 trigram — подстрочный поиск без
+     морфологии; если сборка SQLite без FTS5, подбор идёт перебором в JS. */
+  ftsAvailable = false;
+  try {
+    db.exec(`CREATE VIRTUAL TABLE IF NOT EXISTS evidence_fts USING fts5(
+      session_id UNINDEXED, kind UNINDEXED, owner_id UNINDEXED, ref UNINDEXED, text, tokenize='trigram')`);
+    ftsAvailable = true;
+  } catch (e) {
+    ftsAvailable = false;
+  }
   /* Учёт по попыткам: запрос, фаза, статус расхода, число попыток, стоимость. */
   const ucols = db.prepare('PRAGMA table_info(usage)').all().map(function (c) { return c.name; });
   [['request_id', 'TEXT'], ['phase', "TEXT DEFAULT 'main'"], ['usage_status', "TEXT DEFAULT 'reported'"],
@@ -169,6 +186,7 @@ const sessions = {
       db.prepare('DELETE FROM interviews WHERE session_id = ?').run(sid);
       const preps = db.prepare('DELETE FROM preps WHERE session_id = ?').run(sid).changes;
       db.prepare('DELETE FROM sessions WHERE id = ?').run(sid);
+      evidence.removeSession(sid);
       db.exec('COMMIT');
       return { resumes, preps };
     } catch (e) { db.exec('ROLLBACK'); throw e; }
@@ -197,6 +215,7 @@ const sessions = {
         db.prepare('DELETE FROM interviews WHERE session_id = ?').run(sid);
         prepsRemoved += db.prepare('DELETE FROM preps WHERE session_id = ?').run(sid).changes;
         db.prepare('DELETE FROM sessions WHERE id = ?').run(sid);
+        evidence.removeSession(sid);
       });
     };
     db.exec('BEGIN');
@@ -222,6 +241,7 @@ const resumes = {
     const rid = id('res');
     db.prepare('INSERT INTO resumes (id, session_id, title, rev, data, created_at, updated_at) VALUES (?, ?, ?, 1, ?, ?, ?)')
       .run(rid, sid, title, JSON.stringify(data), t, t);
+    evidence.replace(sid, 'resume', rid, resumeSections(data));
     return resumes.get(sid, rid);
   },
   get(sid, rid) {
@@ -232,8 +252,9 @@ const resumes = {
   },
   update(sid, rid, title, data) {
     /* Любая правка содержимого повышает версию — по ней отмечаются устаревшие отчёты. */
-    db.prepare('UPDATE resumes SET title = ?, data = ?, rev = rev + 1, review = NULL, updated_at = ? WHERE id = ? AND session_id = ?')
+    const res = db.prepare('UPDATE resumes SET title = ?, data = ?, rev = rev + 1, review = NULL, updated_at = ? WHERE id = ? AND session_id = ?')
       .run(title, JSON.stringify(data), now(), rid, sid);
+    if (res.changes) evidence.replace(sid, 'resume', rid, resumeSections(data));
     return resumes.get(sid, rid);
   },
   /* Переименование не меняет содержимое — версию не повышает. */
@@ -247,9 +268,39 @@ const resumes = {
       .run(JSON.stringify(review), rid, sid);
   },
   remove(sid, rid) {
-    return db.prepare('DELETE FROM resumes WHERE id = ? AND session_id = ?').run(rid, sid).changes > 0;
+    const removed = db.prepare('DELETE FROM resumes WHERE id = ? AND session_id = ?').run(rid, sid).changes > 0;
+    if (removed) evidence.removeOwner(sid, 'resume', rid);
+    return removed;
   }
 };
+
+/* Разделы резюме как отдельные документы для поиска подтверждений.
+   Ссылка ref называет место в резюме, чтобы модель и память могли на
+   него сослаться. Длинный исходный текст режется по абзацам. */
+function resumeSections(data) {
+  const d = data || {};
+  const out = [];
+  const push = function (ref, text) {
+    const t = String(text || '').trim();
+    if (t) out.push({ ref, text: t.slice(0, 1200) });
+  };
+  push('resume.summary', d.summary);
+  (Array.isArray(d.experience) ? d.experience : []).forEach(function (e, i) {
+    if (!e || typeof e !== 'object') return;
+    push('resume.experience[' + i + ']', [e.role, e.company, e.period, e.details].filter(Boolean).join('. '));
+  });
+  if (Array.isArray(d.skills) && d.skills.length) push('resume.skills', d.skills.join(', '));
+  (Array.isArray(d.achievements) ? d.achievements : []).forEach(function (a, i) { push('resume.achievements[' + i + ']', a); });
+  (Array.isArray(d.education) ? d.education : []).forEach(function (e, i) {
+    if (!e || typeof e !== 'object') return;
+    push('resume.education[' + i + ']', [e.place, e.program, e.period].filter(Boolean).join('. '));
+  });
+  if (typeof d.rawText === 'string' && d.rawText.trim()) {
+    d.rawText.split(/\n\s*\n/).map(function (x) { return x.trim(); }).filter(Boolean).slice(0, 40)
+      .forEach(function (par, i) { push('resume.rawText#' + (i + 1), par); });
+  }
+  return out;
+}
 
 /* ---- Вакансии ---- */
 
@@ -292,7 +343,7 @@ function rowToPrep(row) {
     profession: row.profession || '',
     match: parse(row.match, null), questions: parse(row.questions, null),
     answers: parse(row.answers, {}), ready: parse(row.ready, {}),
-    card: parse(row.card, null),
+    card: parse(row.card, null), snapshot: parse(row.snapshot, null),
     createdAt: row.created_at, updatedAt: row.updated_at
   };
 }
@@ -326,15 +377,24 @@ const preps = {
     stmt.run.apply(stmt, values);
     return preps.get(sid, pid);
   },
-  /* Пересборка под текущие версии исходников: старые отчёты сбрасываются. */
+  /* Снимок пишется один раз для версий, на которых построена подготовка;
+     повторная запись для тех же версий не меняет его. */
+  setSnapshot(sid, pid, snapshot) {
+    db.prepare('UPDATE preps SET snapshot = ? WHERE id = ? AND session_id = ? AND resume_rev = ? AND vacancy_rev = ?')
+      .run(JSON.stringify(snapshot), pid, sid, snapshot.resumeRev, snapshot.vacancyRev);
+    return preps.get(sid, pid);
+  },
+  /* Пересборка под текущие версии исходников: старые отчёты и снимок сбрасываются. */
   rebuild(sid, pid, resume, vacancy) {
-    db.prepare(`UPDATE preps SET resume_rev = ?, vacancy_rev = ?, match = NULL, questions = NULL, card = NULL, updated_at = ?
-      WHERE id = ? AND session_id = ?`).run(resume.rev, vacancy.rev, now(), pid, sid);
+    db.prepare(`UPDATE preps SET resume_rev = ?, vacancy_rev = ?, match = NULL, questions = NULL, card = NULL,
+      snapshot = NULL, updated_at = ? WHERE id = ? AND session_id = ?`).run(resume.rev, vacancy.rev, now(), pid, sid);
     return preps.get(sid, pid);
   },
   remove(sid, pid) {
     db.prepare(`DELETE FROM context_memory WHERE session_id = ? AND interview_id IN
       (SELECT id FROM interviews WHERE prep_id = ? AND session_id = ?)`).run(sid, pid, sid);
+    db.prepare('SELECT id FROM interviews WHERE prep_id = ? AND session_id = ?').all(pid, sid)
+      .forEach(function (row) { evidence.removeOwner(sid, 'turn', row.id); });
     db.prepare('DELETE FROM interviews WHERE prep_id = ? AND session_id = ?').run(pid, sid);
     return db.prepare('DELETE FROM preps WHERE id = ? AND session_id = ?').run(pid, sid).changes > 0;
   },
@@ -387,8 +447,11 @@ const interviews = {
     return rowToInterview(db.prepare('SELECT * FROM interviews WHERE prep_id = ? AND session_id = ? ORDER BY created_at DESC LIMIT 1').get(pid, sid));
   },
   setTurns(sid, iid, turns) {
-    db.prepare('UPDATE interviews SET turns = ?, version = version + 1, updated_at = ? WHERE id = ? AND session_id = ?')
+    const res = db.prepare('UPDATE interviews SET turns = ?, version = version + 1, updated_at = ? WHERE id = ? AND session_id = ?')
       .run(JSON.stringify(turns), now(), iid, sid);
+    if (res.changes) {
+      evidence.replace(sid, 'turn', iid, withSeq(turns).map(function (t) { return { ref: String(t.seq), text: t.text }; }));
+    }
   },
   /* Добавить реплику идемпотентно и без потери обновления.
        clientTurnId — идентификатор от клиента: повторная отправка той же
@@ -412,6 +475,7 @@ const interviews = {
         WHERE id = ? AND session_id = ? AND version = ?`)
         .run(JSON.stringify(turns), now(), iid, sid, current.version);
       if (res.changes === 1) {
+        evidence.add(sid, 'turn', iid, String(stored.seq), stored.text);
         return { interview: Object.assign({}, current, { turns, version: current.version + 1 }), turn: stored, duplicate: false };
       }
       /* Кто-то успел записать раньше — повторяем с новой версией. */
@@ -486,6 +550,53 @@ const contextMemory = {
   }
 };
 
+/* ---- Индекс подтверждений ----
+   Хранит только текст разделов резюме и реплик с владельцем; поиск —
+   подстрочный (trigram), ранжирование bm25. Ничего сверх того, что уже
+   лежит в resumes и interviews, не хранится; удаляется вместе с ними. */
+
+const evidence = {
+  available() { return ftsAvailable; },
+  add(sid, kind, ownerId, ref, text) {
+    if (!ftsAvailable) return;
+    const t = String(text || '').trim();
+    if (!t) return;
+    db.prepare('INSERT INTO evidence_fts (session_id, kind, owner_id, ref, text) VALUES (?, ?, ?, ?, ?)')
+      .run(sid, kind, ownerId, ref, t.slice(0, 4000));
+  },
+  replace(sid, kind, ownerId, docs) {
+    if (!ftsAvailable) return;
+    db.prepare('DELETE FROM evidence_fts WHERE session_id = ? AND kind = ? AND owner_id = ?').run(sid, kind, ownerId);
+    (docs || []).forEach(function (d) { evidence.add(sid, kind, ownerId, d.ref, d.text); });
+  },
+  removeOwner(sid, kind, ownerId) {
+    if (!ftsAvailable) return;
+    db.prepare('DELETE FROM evidence_fts WHERE session_id = ? AND kind = ? AND owner_id = ?').run(sid, kind, ownerId);
+  },
+  removeSession(sid) {
+    if (!ftsAvailable) return;
+    db.prepare('DELETE FROM evidence_fts WHERE session_id = ?').run(sid);
+  },
+  /* match — выражение FTS5 (фразы в кавычках через OR). Только свои документы. */
+  search(sid, kind, ownerId, match, limit) {
+    if (!ftsAvailable || !match) return [];
+    try {
+      return db.prepare(`SELECT ref, text, bm25(evidence_fts) AS rank FROM evidence_fts
+          WHERE evidence_fts MATCH ? AND session_id = ? AND kind = ? AND owner_id = ? ORDER BY rank LIMIT ?`)
+        .all(match, sid, kind, ownerId, Math.max(1, Number(limit) || 5))
+        .map(function (r) { return { ref: r.ref, text: r.text, rank: r.rank }; });
+    } catch (e) {
+      /* Неразборчивое выражение — не ошибка запроса пользователя, а пустой результат. */
+      return [];
+    }
+  },
+  count(sid, kind, ownerId) {
+    if (!ftsAvailable) return 0;
+    return db.prepare('SELECT COUNT(*) AS c FROM evidence_fts WHERE session_id = ? AND kind = ? AND owner_id = ?')
+      .get(sid, kind, ownerId).c;
+  }
+};
+
 /* ---- Учёт расходов ---- */
 
 const usage = {
@@ -532,4 +643,5 @@ const usage = {
   }
 };
 
-module.exports = { open, close, closeIf, id, sessions, resumes, vacancies, preps, interviews, contextMemory, usage };
+module.exports = { open, close, closeIf, id, sessions, resumes, vacancies, preps, interviews, contextMemory, evidence,
+  resumeSections, usage };
