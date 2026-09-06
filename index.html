@@ -1,0 +1,3967 @@
+<!-- Автономная сборка. Исходники — в каталоге src/, пересборка: node build.js -->
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex, nofollow">
+<title>Карьерный помощник — демонстрационный макет</title>
+<style>
+/* ============================================================
+   Карьерный помощник — демонстрационный прототип
+   Токены оформления и базовые компоненты.
+   Только локальные стили: внешние шрифты и CDN не подключаются.
+   ============================================================ */
+
+:root {
+  color-scheme: light;
+
+  --font-ui: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
+    "Helvetica Neue", Arial, "PT Sans", sans-serif;
+  --font-mono: ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+
+  --bg: #f4f6f4;
+  --surface: #ffffff;
+  --surface-2: #f0f2f0;
+  --surface-3: #e7ebe7;
+  --border: #d9dedb;
+  --border-strong: #b9c2bd;
+
+  --text: #1e2422;
+  --text-muted: #59635e;
+  --text-faint: #7c847f;
+
+  --accent: #35704f;
+  --accent-hover: #2b5c41;
+  --accent-soft: #e7f0ea;
+  --accent-border: #a9c8b6;
+
+  --warn: #7a5c12;
+  --warn-soft: #fbf3df;
+  --warn-border: #e2cf9d;
+
+  --danger: #9b3b32;
+  --danger-soft: #fbeceb;
+  --danger-border: #e6c0bc;
+
+  --info: #2f5673;
+  --info-soft: #e9f0f5;
+  --info-border: #b6cbdb;
+
+  --radius-sm: 4px;
+  --radius: 7px;
+  --radius-lg: 11px;
+
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 24px;
+  --space-6: 32px;
+  --space-7: 48px;
+
+  --shadow-1: 0 1px 2px rgba(24, 34, 29, 0.06);
+  --shadow-2: 0 6px 20px rgba(24, 34, 29, 0.12);
+
+  --sidebar-w: 248px;
+  --duration: 140ms;
+}
+
+[data-theme="dark"] {
+  color-scheme: dark;
+  --bg: #141816;
+  --surface: #1c211e;
+  --surface-2: #232925;
+  --surface-3: #2c332e;
+  --border: #333b36;
+  --border-strong: #4a544e;
+
+  --text: #e6eae7;
+  --text-muted: #a7b0ab;
+  --text-faint: #868f8a;
+
+  --accent: #6fae8b;
+  --accent-hover: #85c0a0;
+  --accent-soft: #1f2f26;
+  --accent-border: #3c5a49;
+
+  --warn: #d9bd76;
+  --warn-soft: #2c2718;
+  --warn-border: #4e452a;
+
+  --danger: #dd968e;
+  --danger-soft: #2e1e1c;
+  --danger-border: #52332f;
+
+  --info: #9cc0d8;
+  --info-soft: #1a242c;
+  --info-border: #33454f;
+
+  --shadow-1: 0 1px 2px rgba(0, 0, 0, 0.4);
+  --shadow-2: 0 6px 20px rgba(0, 0, 0, 0.5);
+}
+
+*,
+*::before,
+*::after { box-sizing: border-box; }
+
+html, body { height: 100%; }
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font-ui);
+  font-size: 15px;
+  line-height: 1.5;
+  -webkit-text-size-adjust: 100%;
+  overflow-x: hidden;
+}
+
+h1, h2, h3, h4 { margin: 0; font-weight: 620; line-height: 1.25; letter-spacing: -0.01em; }
+h1 { font-size: 22px; }
+h2 { font-size: 18px; }
+h3 { font-size: 15.5px; }
+h4 { font-size: 14px; }
+p { margin: 0 0 var(--space-3); }
+p:last-child { margin-bottom: 0; }
+ul, ol { margin: 0 0 var(--space-3); padding-left: 20px; }
+ul:last-child, ol:last-child { margin-bottom: 0; }
+li + li { margin-top: var(--space-1); }
+small { font-size: 12.5px; }
+
+a { color: var(--accent); }
+a:hover { color: var(--accent-hover); }
+
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  border-radius: var(--radius-sm);
+}
+
+.skip-link {
+  position: absolute;
+  left: -9999px;
+  top: var(--space-2);
+  z-index: 100;
+  background: var(--surface);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius);
+  padding: var(--space-2) var(--space-4);
+}
+.skip-link:focus { left: var(--space-2); }
+
+.visually-hidden {
+  position: absolute;
+  width: 1px; height: 1px;
+  margin: -1px; padding: 0;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* ---------------- Кнопки ---------------- */
+
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-2);
+  min-height: 38px;
+  padding: 0 var(--space-4);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius);
+  background: var(--surface);
+  color: var(--text);
+  font: inherit;
+  font-size: 14px;
+  font-weight: 550;
+  text-decoration: none;
+  cursor: pointer;
+  transition: background var(--duration) ease, border-color var(--duration) ease,
+    color var(--duration) ease;
+}
+.btn:hover { background: var(--surface-2); }
+.btn:active { background: var(--surface-3); }
+.btn[disabled],
+.btn[aria-disabled="true"] { opacity: 0.55; cursor: not-allowed; }
+.btn[disabled]:hover,
+.btn[aria-disabled="true"]:hover { background: var(--surface); }
+
+.btn--primary {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #ffffff;
+}
+[data-theme="dark"] .btn--primary { color: #10201a; }
+.btn--primary:hover { background: var(--accent-hover); border-color: var(--accent-hover); }
+.btn--primary:active { background: var(--accent-hover); }
+
+.btn--quiet { border-color: transparent; background: transparent; }
+.btn--quiet:hover { background: var(--surface-2); }
+
+.btn--danger { color: var(--danger); border-color: var(--danger-border); }
+.btn--danger:hover { background: var(--danger-soft); }
+
+.btn--sm { min-height: 30px; padding: 0 var(--space-3); font-size: 13px; }
+.btn--block { width: 100%; }
+
+.btn-row { display: flex; flex-wrap: wrap; gap: var(--space-2); }
+.btn-row--end { justify-content: flex-end; }
+.btn-row--between { justify-content: space-between; }
+
+/* ---------------- Поля ввода ---------------- */
+
+.field { display: block; margin-bottom: var(--space-4); }
+.field:last-child { margin-bottom: 0; }
+.field__label {
+  display: block;
+  margin-bottom: var(--space-1);
+  font-size: 13.5px;
+  font-weight: 560;
+}
+.field__hint {
+  display: block;
+  margin-top: var(--space-1);
+  color: var(--text-muted);
+  font-size: 12.5px;
+}
+.field__error {
+  display: block;
+  margin-top: var(--space-1);
+  color: var(--danger);
+  font-size: 12.5px;
+  font-weight: 550;
+}
+.req { color: var(--danger); }
+
+input[type="text"],
+input[type="email"],
+input[type="password"],
+input[type="url"],
+select,
+textarea {
+  width: 100%;
+  padding: 8px 10px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius);
+  background: var(--surface);
+  color: var(--text);
+  font: inherit;
+  font-size: 14px;
+}
+textarea { min-height: 96px; resize: vertical; line-height: 1.5; }
+input:hover, select:hover, textarea:hover { border-color: var(--text-faint); }
+input[aria-invalid="true"],
+textarea[aria-invalid="true"] { border-color: var(--danger); background: var(--danger-soft); }
+::placeholder { color: var(--text-faint); }
+
+.switch {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-3);
+  padding: var(--space-3) 0;
+  border-bottom: 1px solid var(--border);
+}
+.switch:last-child { border-bottom: 0; }
+.switch input { margin: 3px 0 0; width: 18px; height: 18px; accent-color: var(--accent); flex: none; }
+.switch__text { font-size: 14px; }
+.switch__text small { display: block; color: var(--text-muted); }
+
+.grid-2 { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--space-4); }
+.grid-3 { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--space-4); }
+
+/* ---------------- Карточки и блоки ---------------- */
+
+.card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  padding: var(--space-5);
+  box-shadow: var(--shadow-1);
+}
+.card + .card { margin-top: var(--space-4); }
+.card__head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-4);
+  margin-bottom: var(--space-4);
+}
+.card__title { display: flex; flex-direction: column; gap: 2px; }
+.card__title small { color: var(--text-muted); }
+
+.stack > * + * { margin-top: var(--space-4); }
+.stack-sm > * + * { margin-top: var(--space-2); }
+.muted { color: var(--text-muted); }
+.faint { color: var(--text-faint); }
+
+.list { list-style: none; margin: 0; padding: 0; }
+.list > li { padding: 0; margin: 0; }
+.list > li + li { margin-top: var(--space-3); }
+
+.row-item {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-4);
+  padding: var(--space-4);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+}
+.row-item__main { min-width: 0; }
+.row-item__title { font-weight: 600; margin-bottom: 2px; }
+.row-item__meta { color: var(--text-muted); font-size: 13px; }
+
+.divide { border: 0; border-top: 1px solid var(--border); margin: var(--space-5) 0; }
+
+/* ---------------- Метки и бейджи ---------------- */
+
+.tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  border: 1px solid var(--border-strong);
+  background: var(--surface-2);
+  font-size: 12px;
+  font-weight: 560;
+  white-space: nowrap;
+}
+.tag--demo { background: var(--warn-soft); border-color: var(--warn-border); color: var(--warn); }
+.tag--ok { background: var(--accent-soft); border-color: var(--accent-border); color: var(--accent); }
+.tag--info { background: var(--info-soft); border-color: var(--info-border); color: var(--info); }
+.tag--alert { background: var(--danger-soft); border-color: var(--danger-border); color: var(--danger); }
+
+.note {
+  display: flex;
+  gap: var(--space-3);
+  padding: var(--space-3) var(--space-4);
+  border: 1px solid var(--border);
+  border-left-width: 3px;
+  border-radius: var(--radius);
+  background: var(--surface-2);
+  font-size: 13.5px;
+}
+.note--demo { background: var(--warn-soft); border-color: var(--warn-border); border-left-color: var(--warn); }
+.note--info { background: var(--info-soft); border-color: var(--info-border); border-left-color: var(--info); }
+.note--alert { background: var(--danger-soft); border-color: var(--danger-border); border-left-color: var(--danger); }
+.note strong { font-weight: 620; }
+
+/* ---------------- Оболочка приложения ---------------- */
+
+.shell { display: flex; min-height: 100vh; }
+
+.sidebar {
+  width: var(--sidebar-w);
+  flex: none;
+  border-right: 1px solid var(--border);
+  background: var(--surface);
+  display: flex;
+  flex-direction: column;
+  position: sticky;
+  top: 0;
+  height: 100vh;
+  overflow-y: auto;
+}
+.sidebar__brand {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: var(--space-4) var(--space-4) var(--space-3);
+  border-bottom: 1px solid var(--border);
+}
+.sidebar__brand b { font-size: 15px; }
+.sidebar__nav { padding: var(--space-3) var(--space-2); flex: 1; }
+.navlink {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  padding: 8px 10px;
+  border-radius: var(--radius);
+  color: var(--text);
+  text-decoration: none;
+  font-size: 14px;
+}
+.navlink + .navlink { margin-top: 2px; }
+.navlink:hover { background: var(--surface-2); color: var(--text); }
+.navlink[aria-current="page"] {
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-weight: 600;
+}
+.navlink__lock { font-size: 11.5px; color: var(--text-faint); font-weight: 500; white-space: nowrap; flex: none; }
+.sidebar__foot { padding: var(--space-3) var(--space-4) var(--space-4); border-top: 1px solid var(--border); }
+
+.main { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+
+.topbar {
+  position: sticky;
+  top: 0;
+  z-index: 20;
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-3) var(--space-5);
+  background: color-mix(in srgb, var(--surface) 92%, transparent);
+  border-bottom: 1px solid var(--border);
+  backdrop-filter: blur(6px);
+}
+.topbar__ctx { min-width: 0; flex: 1; display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); }
+.topbar__ctx b {
+  font-size: 14px;
+  min-width: 0;
+  max-width: 62ch;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.topbar__spacer { flex: 1; }
+.menu-btn { display: none; }
+.badge-short { display: none; }
+
+.content { padding: var(--space-5) var(--space-5) 120px; max-width: 1080px; width: 100%; }
+.page-head { margin-bottom: var(--space-5); }
+.page-head h1 { margin-bottom: var(--space-2); }
+.page-head p { color: var(--text-muted); max-width: 68ch; }
+
+/* ---------------- Публичные страницы ---------------- */
+
+.public {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: var(--space-6) var(--space-4) var(--space-7);
+}
+.public__inner { width: 100%; max-width: 720px; }
+.public__brand { display: flex; align-items: baseline; gap: var(--space-3); margin-bottom: var(--space-5); }
+
+/* ---------------- Шаги мастера ---------------- */
+
+.steps { display: flex; flex-wrap: wrap; gap: var(--space-2); margin-bottom: var(--space-5); list-style: none; padding: 0; }
+.steps li { margin: 0; }
+.step {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: 6px 10px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--surface);
+  font-size: 13px;
+  color: var(--text-muted);
+  cursor: pointer;
+  font-family: inherit;
+}
+.step[aria-current="step"] { border-color: var(--accent); background: var(--accent-soft); color: var(--accent); font-weight: 600; }
+.step__num {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 20px; height: 20px; border-radius: 50%;
+  background: var(--surface-3); font-size: 11.5px; font-weight: 620;
+}
+.step[aria-current="step"] .step__num { background: var(--accent); color: #fff; }
+[data-theme="dark"] .step[aria-current="step"] .step__num { color: #10201a; }
+.step--done .step__num { background: var(--accent-border); }
+
+/* ---------------- Сопоставление требований ---------------- */
+
+.req-item { border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface); overflow: hidden; }
+.req-item + .req-item { margin-top: var(--space-3); }
+.req-item__head {
+  display: flex; align-items: flex-start; gap: var(--space-3);
+  width: 100%; padding: var(--space-3) var(--space-4);
+  background: transparent; border: 0; font: inherit; text-align: left; cursor: pointer;
+}
+.req-item__head:hover { background: var(--surface-2); }
+.req-item__text { flex: 1; min-width: 0; font-weight: 550; }
+.req-item__chev { color: var(--text-faint); flex: none; font-size: 12px; }
+.req-item__body { padding: 0 var(--space-4) var(--space-4); border-top: 1px solid var(--border); padding-top: var(--space-3); }
+
+.summary-counts { display: flex; flex-wrap: wrap; gap: var(--space-3); }
+.count-box {
+  flex: 1 1 150px;
+  padding: var(--space-3) var(--space-4);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface-2);
+}
+.count-box b { display: block; font-size: 22px; line-height: 1.2; }
+.count-box span { font-size: 12.5px; color: var(--text-muted); }
+
+/* ---------------- Вопросы ---------------- */
+
+.q-item { border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface); padding: var(--space-4); }
+.q-item + .q-item { margin-top: var(--space-3); }
+.q-item__top { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); margin-bottom: var(--space-2); }
+.q-item__text { font-weight: 570; margin-bottom: var(--space-2); }
+
+.toolbar {
+  display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-3);
+  padding: var(--space-3) var(--space-4);
+  border: 1px solid var(--border); border-radius: var(--radius);
+  background: var(--surface-2); margin-bottom: var(--space-4);
+}
+.toolbar label { font-size: 13px; font-weight: 550; }
+.toolbar select { width: auto; min-width: 150px; }
+
+/* ---------------- Чат ---------------- */
+
+.chat {
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface-2);
+  padding: var(--space-4);
+  max-height: 420px;
+  overflow-y: auto;
+}
+.msg { display: flex; flex-direction: column; gap: 4px; max-width: 82%; margin-bottom: var(--space-4); }
+.msg:last-child { margin-bottom: 0; }
+.msg__who { font-size: 12px; color: var(--text-muted); font-weight: 560; }
+.msg__body { padding: var(--space-3) var(--space-4); border-radius: var(--radius-lg); border: 1px solid var(--border); background: var(--surface); }
+.msg--user { margin-left: auto; align-items: flex-end; }
+.msg--user .msg__body { background: var(--accent-soft); border-color: var(--accent-border); }
+.msg--sys { max-width: 100%; align-items: center; }
+.msg--sys .msg__body { background: var(--warn-soft); border-color: var(--warn-border); color: var(--warn); font-size: 13px; }
+
+.dots span {
+  display: inline-block; width: 6px; height: 6px; margin-right: 3px;
+  border-radius: 50%; background: var(--text-faint);
+  animation: pulse 1s infinite ease-in-out;
+}
+.dots span:nth-child(2) { animation-delay: 0.15s; }
+.dots span:nth-child(3) { animation-delay: 0.3s; }
+@keyframes pulse { 0%, 100% { opacity: 0.3; } 50% { opacity: 1; } }
+
+/* ---------------- Голосовой экран ---------------- */
+
+.voice-stage {
+  display: flex; flex-direction: column; align-items: center; gap: var(--space-3);
+  padding: var(--space-6) var(--space-4);
+  border: 1px solid var(--border); border-radius: var(--radius-lg);
+  background: var(--surface-2);
+}
+.voice-orb {
+  width: 92px; height: 92px; border-radius: 50%;
+  border: 2px solid var(--accent-border); background: var(--accent-soft);
+  display: flex; align-items: center; justify-content: center;
+  font-size: 13px; font-weight: 600; color: var(--accent); text-align: center;
+}
+.voice-orb--live { animation: breathe 2.4s infinite ease-in-out; }
+.voice-orb--err { border-color: var(--danger-border); background: var(--danger-soft); color: var(--danger); }
+@keyframes breathe { 0%, 100% { transform: scale(1); } 50% { transform: scale(1.05); } }
+.transcript { max-height: 260px; overflow-y: auto; }
+.transcript__line { padding: var(--space-2) 0; border-bottom: 1px dashed var(--border); font-size: 14px; }
+.transcript__line b { display: block; font-size: 12px; color: var(--text-muted); }
+
+/* ---------------- Тарифы ---------------- */
+
+.plans { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--space-4); align-items: start; }
+.plan { border: 1px solid var(--border); border-radius: var(--radius-lg); background: var(--surface); padding: var(--space-5); }
+.plan--active { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
+.plan h3 { margin-bottom: var(--space-1); }
+.plan__price { font-size: 15px; font-weight: 620; color: var(--text-muted); margin-bottom: var(--space-3); }
+.plan ul { padding-left: 18px; font-size: 13.5px; }
+
+/* ---------------- Загрузка файла ---------------- */
+
+.dropzone {
+  display: flex; flex-direction: column; align-items: center; gap: var(--space-2);
+  padding: var(--space-6) var(--space-4);
+  border: 2px dashed var(--border-strong); border-radius: var(--radius-lg);
+  background: var(--surface-2); text-align: center; cursor: pointer;
+  width: 100%; font: inherit; color: var(--text);
+}
+.dropzone:hover { border-color: var(--accent); background: var(--accent-soft); }
+.dropzone--over { border-color: var(--accent); background: var(--accent-soft); }
+
+/* ---------------- Панель состояний демо ---------------- */
+
+.demo-panel {
+  position: fixed;
+  right: var(--space-4);
+  bottom: var(--space-4);
+  z-index: 40;
+  width: 280px;
+  max-width: calc(100vw - var(--space-5));
+  border: 1px solid var(--warn-border);
+  border-radius: var(--radius-lg);
+  background: var(--surface);
+  box-shadow: var(--shadow-2);
+  overflow: hidden;
+}
+.demo-panel__head {
+  display: flex; align-items: center; justify-content: space-between; gap: var(--space-2);
+  width: 100%; padding: 8px var(--space-3);
+  background: var(--warn-soft); color: var(--warn);
+  border: 0; border-bottom: 1px solid var(--warn-border);
+  font: inherit; font-size: 12.5px; font-weight: 620; cursor: pointer; text-align: left;
+}
+.demo-panel__body { padding: var(--space-3); }
+.demo-panel__body p { font-size: 12.5px; color: var(--text-muted); }
+.demo-panel .field { margin-bottom: var(--space-3); }
+.demo-panel--collapsed { width: auto; }
+.demo-panel--collapsed .demo-panel__body { display: none; }
+
+/* ---------------- Диалоги ---------------- */
+
+.modal-backdrop {
+  position: fixed; inset: 0; z-index: 60;
+  background: rgba(18, 26, 22, 0.45);
+  display: flex; align-items: center; justify-content: center;
+  padding: var(--space-4);
+}
+.modal {
+  width: 100%; max-width: 520px; max-height: 86vh; overflow-y: auto;
+  background: var(--surface); border: 1px solid var(--border);
+  border-radius: var(--radius-lg); box-shadow: var(--shadow-2);
+  padding: var(--space-5);
+}
+.modal__head { display: flex; align-items: flex-start; justify-content: space-between; gap: var(--space-4); margin-bottom: var(--space-4); }
+.modal__foot { margin-top: var(--space-5); display: flex; flex-wrap: wrap; gap: var(--space-2); justify-content: flex-end; }
+
+/* ---------------- Уведомления ---------------- */
+
+.toasts { position: fixed; left: 50%; transform: translateX(-50%); bottom: var(--space-4); z-index: 80; display: flex; flex-direction: column; gap: var(--space-2); width: min(420px, calc(100vw - 32px)); }
+.toast {
+  padding: var(--space-3) var(--space-4);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius);
+  background: var(--surface);
+  box-shadow: var(--shadow-2);
+  font-size: 13.5px;
+}
+
+/* ---------------- Скелетон / загрузка ---------------- */
+
+.skeleton { border-radius: var(--radius); background: var(--surface-3); animation: shimmer 1.2s infinite ease-in-out; }
+.skeleton + .skeleton { margin-top: var(--space-2); }
+@keyframes shimmer { 0%, 100% { opacity: 0.55; } 50% { opacity: 0.95; } }
+
+.empty {
+  text-align: center;
+  padding: var(--space-7) var(--space-4);
+  border: 1px dashed var(--border-strong);
+  border-radius: var(--radius-lg);
+  background: var(--surface);
+}
+.empty h3 { margin-bottom: var(--space-2); }
+.empty p { color: var(--text-muted); max-width: 46ch; margin-left: auto; margin-right: auto; }
+
+/* ---------------- Предпросмотр резюме ---------------- */
+
+.resume-preview {
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+  padding: var(--space-5);
+}
+.resume-preview h3 { font-size: 19px; }
+.resume-preview__section { margin-top: var(--space-4); padding-top: var(--space-4); border-top: 1px solid var(--border); }
+.resume-preview__section h4 { text-transform: uppercase; letter-spacing: 0.05em; font-size: 11.5px; color: var(--text-muted); margin-bottom: var(--space-2); }
+.diff-old { background: var(--danger-soft); border-left: 3px solid var(--danger-border); padding: var(--space-2) var(--space-3); border-radius: var(--radius-sm); }
+.diff-new { background: var(--accent-soft); border-left: 3px solid var(--accent-border); padding: var(--space-2) var(--space-3); border-radius: var(--radius-sm); margin-top: var(--space-2); }
+
+/* ---------------- Адаптив ---------------- */
+
+@media (max-width: 900px) {
+  .grid-2, .grid-3, .plans { grid-template-columns: minmax(0, 1fr); }
+  .sidebar {
+    position: fixed; z-index: 50; top: 0; left: 0; bottom: 0;
+    transform: translateX(-100%);
+    transition: transform var(--duration) ease;
+    box-shadow: var(--shadow-2);
+  }
+  body[data-nav="open"] .sidebar { transform: translateX(0); }
+  .nav-scrim { position: fixed; inset: 0; z-index: 45; background: rgba(18, 26, 22, 0.4); border: 0; }
+  .menu-btn { display: inline-flex; }
+  .badge-full { display: none; }
+  .badge-short { display: inline; }
+  .topbar { flex-wrap: wrap; }
+  .topbar__ctx { order: 3; flex-basis: 100%; }
+  .content { padding: var(--space-4) var(--space-4) 110px; }
+  .topbar { padding: var(--space-3) var(--space-4); }
+  .demo-panel { right: var(--space-3); bottom: var(--space-3); width: 260px; }
+  .row-item { flex-direction: column; align-items: stretch; }
+  .card__head { flex-direction: column; gap: var(--space-2); }
+  .card { padding: var(--space-4); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+  }
+}
+
+</style>
+</head>
+<body>
+<a class="skip-link" href="#main">Перейти к содержимому</a>
+<div id="app"></div>
+<noscript>
+  <p style="padding:24px">Для работы демонстрационного макета нужен включённый JavaScript.
+  Данные при этом никуда не отправляются: весь код выполняется в вашем браузере.</p>
+</noscript>
+<script>
+/* ==== data.js ==== */
+/* ============================================================
+   DEMO_DATA — единый комплект демонстрационных данных.
+   Все персоны, компании и тексты вымышлены и созданы для макета.
+   Реальные личные данные и документы третьих лиц не используются.
+   ============================================================ */
+
+var DEMO_DATA = (function () {
+  'use strict';
+
+  var candidate = {
+    name: 'Демо-кандидат: Ирина Ковалёва',
+    city: 'Москва',
+    profession: 'Бизнес-аналитик',
+    note: 'Вымышленный профиль для демонстрации интерфейса.'
+  };
+
+  /* ---- Резюме, созданное в макете (демонстрационная версия) ---- */
+  var resumeCreated = {
+    id: 'res-created',
+    title: 'Бизнес-аналитик — черновик из мастера',
+    source: 'created',
+    demo: true,
+    rev: 1,
+    updatedAt: '12.03 14:20',
+    profession: 'Бизнес-аналитик',
+    wishes: 'Продуктовая команда, финтех или логистика, гибридный формат.',
+    summary:
+      'Бизнес-аналитик с опытом сбора требований, описания процессов и подготовки '
+      + 'постановок для команды разработки.',
+    experience: [
+      {
+        id: 'exp-1',
+        role: 'Бизнес-аналитик',
+        company: 'Демо-Интегратор',
+        period: '2022 — настоящее время',
+        details:
+          'Сбор и согласование требований, интервью с заказчиком, описание процессов '
+          + 'as-is/to-be, подготовка постановок и приёмка доработок.'
+      },
+      {
+        id: 'exp-2',
+        role: 'Системный аналитик (младший)',
+        company: 'Демо-Софт',
+        period: '2020 — 2022',
+        details:
+          'Поддержка внутренних сервисов, описание API-контрактов вместе с разработчиками, '
+          + 'ведение базы знаний команды.'
+      }
+    ],
+    skills: [
+      'Сбор и документирование требований',
+      'BPMN, описание процессов',
+      'SQL (выборки, соединения, агрегаты)',
+      'Постановки для разработки, приёмка',
+      'Confluence, Jira'
+    ],
+    achievements: [
+      'Описала процесс согласования заявок, после чего сократилось число возвратов на доработку.',
+      'Подготовила единый шаблон постановки, которым пользуется команда из 6 человек.'
+    ],
+    education: [
+      { id: 'edu-1', place: 'Демо-Университет', program: 'Прикладная информатика, бакалавр', period: '2016 — 2020' }
+    ]
+  };
+
+  /* ---- Резюме, «загруженное файлом» (только демонстрация) ---- */
+  var resumeUploaded = {
+    id: 'res-uploaded',
+    title: 'Резюме из файла — демонстрационный образец',
+    source: 'uploaded',
+    demo: true,
+    rev: 1,
+    updatedAt: '11.03 09:05',
+    fileNameShown: 'Пример: rezume-analitik.pdf (файл не читается макетом)',
+    profession: 'Бизнес-аналитик',
+    wishes: '',
+    summary:
+      'Опыт работы с требованиями и отчётностью. Участие в проектах внедрения.',
+    experience: [
+      {
+        id: 'exp-u1',
+        role: 'Аналитик',
+        company: 'Демо-Компания',
+        period: '2021 — настоящее время',
+        details: 'Работа с требованиями, отчётность, взаимодействие с подразделениями.'
+      }
+    ],
+    skills: ['Работа с требованиями', 'Excel', 'Отчётность'],
+    achievements: [],
+    education: [
+      { id: 'edu-u1', place: 'Демо-Институт', program: 'Экономика, бакалавр', period: '2015 — 2019' }
+    ]
+  };
+
+  /* ---- Демонстрационный отчёт по загруженному резюме ---- */
+  var analysisReport = {
+    strengths: [
+      'Указана понятная роль и период работы — рекрутеру легко считать хронологию.',
+      'Есть базовый набор инструментов, релевантный аналитике.',
+      'Объём резюме компактный, читается за минуту.'
+    ],
+    vague: [
+      {
+        id: 'sug-1',
+        title: 'Расплывчатая формулировка обязанностей',
+        before: 'Работа с требованиями, отчётность, взаимодействие с подразделениями.',
+        after:
+          'Собирала требования на интервью с заказчиком, описывала процессы в BPMN и '
+          + 'готовила постановки для команды разработки; вела регулярную отчётность по статусу задач.',
+        why: 'Формулировка не показывает, что именно вы делали и с кем взаимодействовали.'
+      },
+      {
+        id: 'sug-2',
+        title: 'Раздел «О себе» не отражает специализацию',
+        before: 'Опыт работы с требованиями и отчётностью. Участие в проектах внедрения.',
+        after:
+          'Бизнес-аналитик: требования, описание процессов и постановки для разработки. '
+          + 'Опыт участия в проектах внедрения на стороне заказчика.',
+        why: 'Первый абзац читают всегда — в нём стоит назвать специализацию и тип проектов.'
+      }
+    ],
+    missing: [
+      {
+        id: 'sug-3',
+        title: 'Не указан масштаб задач',
+        before: '—',
+        after:
+          'Добавьте, с какими объёмами вы работали: число процессов, размер команды, '
+          + 'количество систем. Впишите свои настоящие цифры.',
+        why: 'Без масштаба сложно оценить уровень. Макет не придумывает цифры за вас.'
+      },
+      {
+        id: 'sug-4',
+        title: 'Нет упоминания инструментов постановки задач',
+        before: '—',
+        after:
+          'Если вы использовали Jira, Confluence, Figma или схожие инструменты — перечислите их '
+          + 'в отдельной строке навыков.',
+        why: 'Такие инструменты часто указаны в требованиях вакансии и ищутся по ключевым словам.'
+      }
+    ]
+  };
+
+  /* ---- Вакансия ---- */
+  var vacancy = {
+    id: 'vac-1',
+    demo: true,
+    rev: 1,
+    title: 'Бизнес-аналитик',
+    company: 'Демо-Банк (вымышленная компания)',
+    location: 'Москва, гибрид',
+    text:
+      'Мы ищем бизнес-аналитика в команду продукта. Задачи: сбор и формализация требований, '
+      + 'описание процессов, подготовка постановок, участие в приёмке, взаимодействие с '
+      + 'разработкой и поддержкой.\n\nТребования: опыт от 2 лет, знание BPMN, уверенный SQL, '
+      + 'опыт написания постановок, понимание интеграций через API, опыт работы с Jira и Confluence.',
+    requirements: [
+      {
+        id: 'req-1',
+        text: 'Опыт бизнес-анализа от 2 лет',
+        status: 'confirmed',
+        evidence: 'В демо-резюме указан непрерывный опыт с 2020 года в аналитических ролях.',
+        advice: 'На интервью назовите период и тип проектов одной фразой, без пересказа всей биографии.'
+      },
+      {
+        id: 'req-2',
+        text: 'Описание процессов в BPMN',
+        status: 'confirmed',
+        evidence: 'В навыках указано «BPMN, описание процессов», в опыте — as-is/to-be.',
+        advice: 'Подготовьте один пример процесса, который сможете описать словами за две минуты.'
+      },
+      {
+        id: 'req-3',
+        text: 'Уверенный SQL: выборки, соединения, агрегаты',
+        status: 'unclear',
+        evidence: 'SQL указан в навыках, но в опыте нет задач, где он применялся.',
+        advice: 'Добавьте в резюме задачу, где вы делали выборку сами, и будьте готовы к вопросу про JOIN и GROUP BY.'
+      },
+      {
+        id: 'req-4',
+        text: 'Постановки задач для разработки и приёмка',
+        status: 'confirmed',
+        evidence: 'В опыте прямо указаны подготовка постановок и приёмка доработок.',
+        advice: 'Держите наготове структуру вашей постановки: цель, сценарии, границы, критерии приёмки.'
+      },
+      {
+        id: 'req-5',
+        text: 'Понимание интеграций через API',
+        status: 'unclear',
+        evidence: 'Есть упоминание описания API-контрактов, но без деталей о протоколах и форматах.',
+        advice: 'Уточните, что именно вы описывали: методы, поля, коды ответов, обработку ошибок.'
+      },
+      {
+        id: 'req-6',
+        text: 'Опыт в финансовой отрасли',
+        status: 'missing',
+        evidence: 'В демо-резюме отраслевой опыт в финансах не указан.',
+        advice: 'Не выдумывайте отраслевой опыт. Покажите переносимый: регламенты, согласования, требования к точности данных.'
+      }
+    ]
+  };
+
+  /* ---- Вопросы для подготовки ---- */
+  var questions = [
+    { id: 'q1', topic: 'Опыт', text: 'Расскажите о проекте, где вы отвечали за требования от начала до приёмки.', why: 'Вакансия предполагает полный цикл: сбор требований, постановка, приёмка.', guidance: 'Опишите контекст, свою роль, что было сложным и чем закончилось. Держитесь в пределах двух минут.' },
+    { id: 'q2', topic: 'Опыт', text: 'Как вы поступаете, когда заказчик не может сформулировать, что ему нужно?', why: 'Проверяют способность вести интервью и уточнять требования.', guidance: 'Покажите приём: вопросы о текущем процессе, разбор конкретного случая, набросок сценария на проверку.' },
+    { id: 'q3', topic: 'Процессы', text: 'Чем описание as-is отличается от to-be в вашей практике?', why: 'В требованиях есть BPMN и описание процессов.', guidance: 'Дайте определение коротко и сразу перейдите к примеру из своего опыта.' },
+    { id: 'q4', topic: 'Процессы', text: 'Как вы согласуете схему процесса с людьми, которые видят его по-разному?', why: 'Согласование — частая реальная задача аналитика.', guidance: 'Расскажите про совместный разбор, фиксацию разногласий и решение спорных мест владельцем процесса.' },
+    { id: 'q5', topic: 'SQL и данные', text: 'Какие выборки вы писали самостоятельно и для чего?', why: 'Требование «уверенный SQL» в резюме подтверждено не полностью.', guidance: 'Назовите конкретную задачу и структуру запроса. Если опыт ограничен — скажите об этом прямо и покажите готовность.' },
+    { id: 'q6', topic: 'SQL и данные', text: 'Как проверяете, что данные в отчёте корректны?', why: 'Точность данных важна для финансовых продуктов.', guidance: 'Расскажите про сверку с источником, контрольные суммы и обсуждение расхождений с владельцем данных.' },
+    { id: 'q7', topic: 'Постановки', text: 'Что обязательно входит в вашу постановку задачи?', why: 'Прямое требование вакансии.', guidance: 'Перечислите структуру: цель, сценарии, границы, требования к данным, критерии приёмки.' },
+    { id: 'q8', topic: 'Постановки', text: 'Как вы поступаете, если разработчик считает постановку невыполнимой в срок?', why: 'Проверяют работу с ограничениями и приоритетами.', guidance: 'Покажите разбор объёма, поиск минимального решения и открытый разговор с владельцем продукта.' },
+    { id: 'q9', topic: 'Интеграции', text: 'Что вы описываете, когда задача касается интеграции по API?', why: 'В резюме тема упомянута без деталей.', guidance: 'Методы, поля, обязательность, ошибки, повторные вызовы, ограничения по объёму.' },
+    { id: 'q10', topic: 'Кейс', text: 'Требование к сроку и требование к качеству данных противоречат друг другу. Ваши действия?', why: 'Кейсы проверяют рассуждение, а не заученный ответ.', guidance: 'Проговорите вслух допущения, варианты и критерий выбора. Здесь важен ход мысли.' },
+    { id: 'q11', topic: 'Кейс', text: 'Как вы будете разбираться в незнакомой предметной области за неделю?', why: 'Отраслевого опыта в финансах в резюме нет.', guidance: 'План: документы, разговоры с носителями знаний, схема процесса, проверка понимания на конкретном случае.' },
+    { id: 'q12', topic: 'О вакансии', text: 'Почему вам интересна именно эта роль и продукт?', why: 'Стандартный вопрос, который часто отвечают шаблонно.', guidance: 'Свяжите свой опыт с задачами из описания вакансии. Без общих слов о «динамичной команде».' },
+    { id: 'q13', topic: 'О вакансии', text: 'Какие у вас вопросы к нам?', why: 'Вопросы кандидата показывают уровень подготовки.', guidance: 'Подготовьте три: про задачи первых месяцев, про принятие решений в команде, про критерии успеха роли.' }
+  ];
+
+  /* ---- Сценарий текстового интервью ---- */
+  var interviewScript = [
+    { ask: 'Здравствуйте. Начнём с короткого рассказа: чем вы занимались в последние два года?', react: 'Спасибо. Ответ записан в макете. Переходим к следующему вопросу.' },
+    { ask: 'Опишите процесс, который вы формализовали. Что было до и что стало после?', react: 'Принято. В демонстрационном режиме ответы не оцениваются.' },
+    { ask: 'Какие выборки в SQL вы писали самостоятельно?', react: 'Записано. Осталось ещё два вопроса.' },
+    { ask: 'Что вы включаете в критерии приёмки?', react: 'Хорошо, идём дальше.' },
+    { ask: 'Последний вопрос: как вы разберётесь в новой предметной области за неделю?', react: 'Это был последний вопрос сценария. Можно завершить интервью и открыть итог.' }
+  ];
+
+  var interviewSummary = {
+    strong: [
+      'Ответы по описанию процессов были структурными: контекст, действие, результат.',
+      'В ответе про постановки прозвучали критерии приёмки — это ожидаемая часть.'
+    ],
+    repeat: [
+      'SQL: подготовьте конкретный пример запроса и задачу, которую он решал.',
+      'Интеграции: проговорите, что именно вы описываете в контракте.',
+      'Отраслевой контекст: как переносите опыт в новую предметную область.'
+    ],
+    advice: [
+      'Держите ответ в пределах двух минут и заканчивайте результатом.',
+      'Если данных не хватает — скажите об этом и назовите допущение, а не угадывайте.'
+    ]
+  };
+
+  /* ---- Сценарий голосового интервью ---- */
+  var voiceScript = [
+    { who: 'Интервьюер', text: 'Добрый день. Расскажите коротко о своём опыте.' },
+    { who: 'Вы (демо-расшифровка)', text: 'Работаю бизнес-аналитиком: требования, процессы, постановки для разработки.' },
+    { who: 'Интервьюер', text: 'Какой процесс вам было сложнее всего описать?' },
+    { who: 'Вы (демо-расшифровка)', text: 'Согласование заявок: в нём было четыре подразделения и разные исключения.' },
+    { who: 'Интервьюер', text: 'Как вы поняли, что описали его верно?' },
+    { who: 'Вы (демо-расшифровка)', text: 'Проверили на реальных случаях за прошлый месяц вместе с владельцем процесса.' }
+  ];
+
+  /* ---- Примеры подсказок помощника на собеседовании ---- */
+  var assistantHints = [
+    {
+      heard: 'Интервьюер: «Расскажите про самый сложный процесс, который вы описывали».',
+      hint: 'Назовите процесс, число участников и главное затруднение. Закончите тем, как проверили корректность описания.',
+      remind: 'Не перечисляйте все проекты подряд — достаточно одного примера.'
+    },
+    {
+      heard: 'Интервьюер: «Насколько уверенно вы работаете с SQL?»',
+      hint: 'Ответьте честно об уровне и приведите пример задачи. Если сложных запросов не писали — скажите, что делали и что готовы освоить.',
+      remind: 'Завышенная самооценка проверяется следующим вопросом.'
+    },
+    {
+      heard: 'Интервьюер: «У нас финансовый продукт, у вас такого опыта нет».',
+      hint: 'Согласитесь с фактом и покажите переносимый опыт: регламенты, точность данных, согласования. Назовите план входа в тему.',
+      remind: 'Не придумывайте отраслевой опыт, которого нет.'
+    },
+    {
+      heard: 'Интервьюер: «Какие у вас вопросы к нам?»',
+      hint: 'Спросите про задачи первых трёх месяцев, про то, кто принимает решения по требованиям, и по каким критериям оценят результат.',
+      remind: 'Отсутствие вопросов часто читается как отсутствие интереса.'
+    }
+  ];
+
+  var plans = [
+    {
+      id: 'basic',
+      name: 'Резюме и подготовка',
+      price: 'Цена уточняется',
+      limits: 'Лимит будет определён',
+      features: [
+        'Создание резюме в мастере',
+        'Разбор готового резюме',
+        'Добавление вакансии и сопоставление',
+        'Вопросы для подготовки'
+      ],
+      sections: ['overview', 'resumes', 'vacancies', 'plans', 'history', 'settings']
+    },
+    {
+      id: 'training',
+      name: 'Тренировки',
+      price: 'Цена уточняется',
+      limits: 'Лимит будет определён',
+      features: [
+        'Всё из уровня «Резюме и подготовка»',
+        'Текстовое пробное интервью',
+        'Голосовое пробное интервью',
+        'Итоги тренировок в истории'
+      ],
+      sections: ['overview', 'resumes', 'vacancies', 'interviews', 'plans', 'history', 'settings']
+    },
+    {
+      id: 'assistant',
+      name: 'С помощником',
+      price: 'Цена уточняется',
+      limits: 'Лимит будет определён',
+      features: [
+        'Всё из уровня «Тренировки»',
+        'Помощник на собеседовании (скачиваемый компонент)',
+        'Подсказки во время реального интервью — по замыслу владельца'
+      ],
+      sections: ['overview', 'resumes', 'vacancies', 'interviews', 'assistant', 'plans', 'history', 'settings']
+    }
+  ];
+
+  return {
+    candidate: candidate,
+    resumeCreated: resumeCreated,
+    resumeUploaded: resumeUploaded,
+    analysisReport: analysisReport,
+    vacancy: vacancy,
+    questions: questions,
+    interviewScript: interviewScript,
+    interviewSummary: interviewSummary,
+    voiceScript: voiceScript,
+    assistantHints: assistantHints,
+    plans: plans
+  };
+})();
+
+</script>
+<script>
+/* ==== state.js ==== */
+/* ============================================================
+   Состояние макета.
+   Всё, что вводит пользователь, живёт только в памяти страницы.
+   В localStorage сохраняются исключительно тема оформления,
+   выбранный демо-сценарий, демо-тариф и состояние демо-панели.
+   Резюме, файлы, ответы, токены и пароли не сохраняются никуда.
+   ============================================================ */
+
+var Store = (function () {
+  'use strict';
+
+  var LS_KEY = 'career-helper-prototype-prefs';
+  var listeners = [];
+
+  function loadPrefs() {
+    var fallback = { theme: 'light', scenario: 'filled', plan: 'training', demoPanelOpen: false };
+    try {
+      var raw = window.localStorage.getItem(LS_KEY);
+      if (!raw) return fallback;
+      var parsed = JSON.parse(raw);
+      return {
+        theme: parsed.theme === 'dark' ? 'dark' : 'light',
+        scenario: ['empty', 'filled', 'loading', 'error', 'limit'].indexOf(parsed.scenario) >= 0
+          ? parsed.scenario : 'filled',
+        plan: ['basic', 'training', 'assistant'].indexOf(parsed.plan) >= 0 ? parsed.plan : 'training',
+        demoPanelOpen: parsed.demoPanelOpen === true
+      };
+    } catch (e) {
+      return fallback;
+    }
+  }
+
+  function savePrefs() {
+    try {
+      window.localStorage.setItem(LS_KEY, JSON.stringify({
+        theme: state.theme,
+        scenario: state.scenario,
+        plan: state.plan,
+        demoPanelOpen: state.demoPanelOpen
+      }));
+    } catch (e) {
+      /* приватный режим браузера — просто работаем без сохранения настроек */
+    }
+  }
+
+  function clone(value) {
+    return JSON.parse(JSON.stringify(value));
+  }
+
+  function uid(prefix) {
+    return prefix + '-' + Math.random().toString(36).slice(2, 8);
+  }
+
+  function emptyBuilder() {
+    return {
+      step: 0,
+      errors: {},
+      data: {
+        profession: '',
+        wishes: '',
+        summary: '',
+        experience: [],
+        skills: '',
+        achievements: '',
+        education: []
+      },
+      built: null
+    };
+  }
+
+  function filledPreps() {
+    var prep = {
+      id: 'prep-1',
+      resumeId: 'res-created',
+      vacancyId: 'vac-1',
+      resumeRev: 1,
+      vacancyRev: 1,
+      createdAt: '12.03 15:04',
+      stale: false,
+      staleReason: '',
+      answers: {},
+      ready: {},
+      chat: null,
+      voice: null
+    };
+    return [prep];
+  }
+
+  function baseState(scenario) {
+    var filled = scenario !== 'empty';
+    return {
+      resumes: filled ? [clone(DEMO_DATA.resumeCreated), clone(DEMO_DATA.resumeUploaded)] : [],
+      vacancies: filled ? [clone(DEMO_DATA.vacancy)] : [],
+      preps: filled ? filledPreps() : [],
+      history: filled
+        ? [
+            { id: 'h1', when: '12.03 15:40', what: 'Текстовое пробное интервью', prepId: 'prep-1', route: '#/prep/prep-1/interview' },
+            { id: 'h2', when: '12.03 15:12', what: 'Сопоставление резюме с вакансией', prepId: 'prep-1', route: '#/prep/prep-1/match' },
+            { id: 'h3', when: '12.03 14:20', what: 'Резюме собрано в мастере', prepId: null, route: '#/resumes' }
+          ]
+        : [],
+      activePrepId: filled ? 'prep-1' : null,
+      builder: emptyBuilder(),
+      upload: { fileName: '', analysisShown: false, decisions: {} },
+      vacancyDraft: { title: '', company: '', text: '', resumeId: '' },
+      assistant: { status: 'disconnected', prepId: filled ? 'prep-1' : null, hintIndex: 0, hintsOpen: false },
+      settings: {
+        emailUpdates: true,
+        weeklyDigest: false,
+        practiceReminders: true,
+        showDemoLabels: true
+      }
+    };
+  }
+
+  var prefs = loadPrefs();
+
+  var state = {
+    theme: prefs.theme,
+    scenario: prefs.scenario,
+    plan: prefs.plan,
+    demoPanelOpen: prefs.demoPanelOpen,
+    reloadNoticeShown: false,
+    modal: null,
+    toasts: []
+  };
+
+  var mock = baseState(prefs.scenario);
+  Object.keys(mock).forEach(function (key) { state[key] = mock[key]; });
+
+  /* ------------------------------------------------------- */
+
+  function subscribe(fn) { listeners.push(fn); }
+
+  function notify() { listeners.forEach(function (fn) { fn(); }); }
+
+  function update(fn) {
+    fn(state);
+    notify();
+  }
+
+  function get() { return state; }
+
+  function setPref(key, value) {
+    state[key] = value;
+    savePrefs();
+    notify();
+  }
+
+  function applyScenario(scenario) {
+    state.scenario = scenario;
+    var fresh = baseState(scenario === 'empty' ? 'empty' : 'filled');
+    Object.keys(fresh).forEach(function (key) { state[key] = fresh[key]; });
+    savePrefs();
+    notify();
+  }
+
+  function resetDemo() {
+    applyScenario(state.scenario);
+  }
+
+  /* -------- Доступ по демо-тарифу -------- */
+
+  function planById(id) {
+    for (var i = 0; i < DEMO_DATA.plans.length; i++) {
+      if (DEMO_DATA.plans[i].id === id) return DEMO_DATA.plans[i];
+    }
+    return DEMO_DATA.plans[0];
+  }
+
+  function sectionAllowed(section) {
+    return planById(state.plan).sections.indexOf(section) >= 0;
+  }
+
+  /* -------- Работа с сущностями -------- */
+
+  function resumeById(id) {
+    for (var i = 0; i < state.resumes.length; i++) {
+      if (state.resumes[i].id === id) return state.resumes[i];
+    }
+    return null;
+  }
+
+  function vacancyById(id) {
+    for (var i = 0; i < state.vacancies.length; i++) {
+      if (state.vacancies[i].id === id) return state.vacancies[i];
+    }
+    return null;
+  }
+
+  function prepById(id) {
+    for (var i = 0; i < state.preps.length; i++) {
+      if (state.preps[i].id === id) return state.preps[i];
+    }
+    return null;
+  }
+
+  function activePrep() {
+    return prepById(state.activePrepId);
+  }
+
+  /* Отметить подготовки устаревшими, если исходники изменились. */
+  function markStale(kind, id, reason) {
+    state.preps.forEach(function (prep) {
+      if (kind === 'resume' && prep.resumeId !== id) return;
+      if (kind === 'vacancy' && prep.vacancyId !== id) return;
+      prep.stale = true;
+      prep.staleReason = reason;
+    });
+  }
+
+  function bumpResume(resume, reason) {
+    resume.rev += 1;
+    resume.updatedAt = nowLabel();
+    markStale('resume', resume.id, reason);
+  }
+
+  function bumpVacancy(vacancy, reason) {
+    vacancy.rev += 1;
+    markStale('vacancy', vacancy.id, reason);
+  }
+
+  function rebuildPrep(prep) {
+    var resume = resumeById(prep.resumeId);
+    var vacancy = vacancyById(prep.vacancyId);
+    prep.resumeRev = resume ? resume.rev : prep.resumeRev;
+    prep.vacancyRev = vacancy ? vacancy.rev : prep.vacancyRev;
+    prep.stale = false;
+    prep.staleReason = '';
+    prep.createdAt = nowLabel();
+  }
+
+  function nowLabel() {
+    var d = new Date();
+    function pad(n) { return (n < 10 ? '0' : '') + n; }
+    return pad(d.getDate()) + '.' + pad(d.getMonth() + 1) + ' ' + pad(d.getHours()) + ':' + pad(d.getMinutes());
+  }
+
+  function addHistory(what, route, prepId) {
+    state.history.unshift({
+      id: uid('h'),
+      when: nowLabel(),
+      what: what,
+      prepId: prepId || null,
+      route: route
+    });
+    if (state.history.length > 20) state.history.length = 20;
+  }
+
+  function createPrep(resumeId, vacancyId) {
+    var prep = {
+      id: uid('prep'),
+      resumeId: resumeId,
+      vacancyId: vacancyId,
+      resumeRev: (resumeById(resumeId) || {}).rev || 1,
+      vacancyRev: (vacancyById(vacancyId) || {}).rev || 1,
+      createdAt: nowLabel(),
+      stale: false,
+      staleReason: '',
+      answers: {},
+      ready: {},
+      chat: null,
+      voice: null
+    };
+    state.preps.unshift(prep);
+    state.activePrepId = prep.id;
+    return prep;
+  }
+
+  return {
+    get: get,
+    update: update,
+    subscribe: subscribe,
+    notify: notify,
+    setPref: setPref,
+    applyScenario: applyScenario,
+    resetDemo: resetDemo,
+    emptyBuilder: emptyBuilder,
+    planById: planById,
+    sectionAllowed: sectionAllowed,
+    resumeById: resumeById,
+    vacancyById: vacancyById,
+    prepById: prepById,
+    activePrep: activePrep,
+    bumpResume: bumpResume,
+    bumpVacancy: bumpVacancy,
+    rebuildPrep: rebuildPrep,
+    createPrep: createPrep,
+    addHistory: addHistory,
+    nowLabel: nowLabel,
+    uid: uid,
+    clone: clone
+  };
+})();
+
+</script>
+<script>
+/* ==== ui.js ==== */
+/* ============================================================
+   Мелкие помощники интерфейса: экранирование, диалоги,
+   уведомления, управление фокусом.
+   ============================================================ */
+
+var UI = (function () {
+  'use strict';
+
+  function esc(value) {
+    return String(value === undefined || value === null ? '' : value)
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#39;');
+  }
+
+  /* Многострочный пользовательский текст: экранируем и сохраняем переносы. */
+  function escLines(value) {
+    return esc(value).replace(/\n/g, '<br>');
+  }
+
+  function demoBadge(text) {
+    return '<span class="tag tag--demo">' + esc(text || 'Демо-данные') + '</span>';
+  }
+
+  function note(kind, html) {
+    return '<div class="note note--' + kind + '"><div>' + html + '</div></div>';
+  }
+
+  function toast(message) {
+    var state = Store.get();
+    var item = { id: Store.uid('t'), message: message };
+    state.toasts.push(item);
+    /* Не даём уведомлениям накапливаться и перекрывать содержимое. */
+    while (state.toasts.length > 3) state.toasts.shift();
+    Store.notify();
+    window.setTimeout(function () {
+      var list = Store.get().toasts;
+      for (var i = 0; i < list.length; i++) {
+        if (list[i].id === item.id) { list.splice(i, 1); break; }
+      }
+      Store.notify();
+    }, 4200);
+  }
+
+  /* modal: { title, body, actions: [{label, act, variant, data}], size } */
+  function openModal(modal) {
+    Store.get().modal = modal;
+    Store.notify();
+  }
+
+  function closeModal() {
+    Store.get().modal = null;
+    Store.notify();
+  }
+
+  function confirm(options) {
+    openModal({
+      title: options.title,
+      body: options.body,
+      confirmAct: options.act,
+      confirmData: options.data || {},
+      confirmLabel: options.confirmLabel || 'Подтвердить',
+      danger: options.danger === true
+    });
+  }
+
+  function renderModal(modal) {
+    if (!modal) return '';
+    var buttons = '';
+    if (modal.confirmAct) {
+      buttons =
+        '<button type="button" class="btn" data-act="modal:close">Отмена</button>'
+        + '<button type="button" class="btn ' + (modal.danger ? 'btn--danger' : 'btn--primary')
+        + '" data-act="modal:confirm">' + esc(modal.confirmLabel) + '</button>';
+    } else {
+      buttons = '<button type="button" class="btn btn--primary" data-act="modal:close">'
+        + esc(modal.closeLabel || 'Понятно') + '</button>';
+    }
+    return ''
+      + '<div class="modal-backdrop" data-act="modal:backdrop">'
+      + '  <div class="modal" role="dialog" aria-modal="true" aria-labelledby="modal-title">'
+      + '    <div class="modal__head">'
+      + '      <h2 id="modal-title">' + esc(modal.title) + '</h2>'
+      + '      <button type="button" class="btn btn--sm btn--quiet" data-act="modal:close" aria-label="Закрыть диалог">✕</button>'
+      + '    </div>'
+      + '    <div class="stack-sm">' + modal.body + '</div>'
+      + '    <div class="modal__foot">' + buttons + '</div>'
+      + '  </div>'
+      + '</div>';
+  }
+
+  function renderToasts(toasts) {
+    if (!toasts.length) return '<div class="toasts" role="status" aria-live="polite"></div>';
+    return '<div class="toasts" role="status" aria-live="polite">'
+      + toasts.map(function (t) { return '<div class="toast">' + esc(t.message) + '</div>'; }).join('')
+      + '</div>';
+  }
+
+  /* Ловушка фокуса для открытого диалога. */
+  function trapFocus(root) {
+    var dialog = root.querySelector('.modal');
+    if (!dialog) return;
+    var selector = 'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])';
+    var nodes = Array.prototype.slice.call(dialog.querySelectorAll(selector));
+    if (!nodes.length) return;
+    if (!dialog.contains(document.activeElement)) nodes[0].focus();
+    dialog.addEventListener('keydown', function (event) {
+      if (event.key !== 'Tab') return;
+      var first = nodes[0];
+      var last = nodes[nodes.length - 1];
+      if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault();
+        first.focus();
+      }
+    });
+  }
+
+  function field(options) {
+    var id = options.id;
+    var type = options.type || 'text';
+    var error = options.error
+      ? '<span class="field__error" id="' + id + '-err">' + esc(options.error) + '</span>' : '';
+    var hint = options.hint
+      ? '<span class="field__hint" id="' + id + '-hint">' + esc(options.hint) + '</span>' : '';
+    var describedBy = [];
+    if (options.hint) describedBy.push(id + '-hint');
+    if (options.error) describedBy.push(id + '-err');
+    var attrs = ''
+      + ' id="' + id + '"'
+      + ' name="' + id + '"'
+      + ' data-model="' + esc(options.model) + '"'
+      + (options.required ? ' required' : '')
+      + (options.error ? ' aria-invalid="true"' : '')
+      + (describedBy.length ? ' aria-describedby="' + describedBy.join(' ') + '"' : '')
+      + (options.placeholder ? ' placeholder="' + esc(options.placeholder) + '"' : '');
+    var control;
+    if (type === 'textarea') {
+      control = '<textarea' + attrs + (options.rows ? ' rows="' + options.rows + '"' : '') + '>'
+        + esc(options.value) + '</textarea>';
+    } else {
+      control = '<input type="' + type + '"' + attrs + ' value="' + esc(options.value) + '">';
+    }
+    return ''
+      + '<label class="field" for="' + id + '">'
+      + '  <span class="field__label">' + esc(options.label)
+      + (options.required ? ' <span class="req" aria-hidden="true">*</span>' : '') + '</span>'
+      + control + hint + error
+      + '</label>';
+  }
+
+  function select(options) {
+    var id = options.id;
+    var opts = options.options.map(function (o) {
+      return '<option value="' + esc(o.value) + '"' + (o.value === options.value ? ' selected' : '') + '>'
+        + esc(o.label) + '</option>';
+    }).join('');
+    return ''
+      + '<label class="field" for="' + id + '">'
+      + '  <span class="field__label">' + esc(options.label) + '</span>'
+      + '  <select id="' + id + '" data-model="' + esc(options.model || '') + '"'
+      + (options.act ? ' data-change-act="' + esc(options.act) + '"' : '') + '>' + opts + '</select>'
+      + (options.hint ? '<span class="field__hint">' + esc(options.hint) + '</span>' : '')
+      + '</label>';
+  }
+
+  function emptyState(title, text, buttonLabel, act) {
+    return ''
+      + '<div class="empty">'
+      + '  <h3>' + esc(title) + '</h3>'
+      + '  <p>' + esc(text) + '</p>'
+      + (buttonLabel
+        ? '<p style="margin-top:16px"><button type="button" class="btn btn--primary" data-act="' + esc(act) + '">'
+          + esc(buttonLabel) + '</button></p>'
+        : '')
+      + '</div>';
+  }
+
+  function skeletonBlock() {
+    return ''
+      + '<div class="card" aria-busy="true">'
+      + '  <div class="skeleton" style="height:18px;width:45%"></div>'
+      + '  <div class="skeleton" style="height:12px;width:90%;margin-top:16px"></div>'
+      + '  <div class="skeleton" style="height:12px;width:80%"></div>'
+      + '  <div class="skeleton" style="height:12px;width:60%"></div>'
+      + '  <p class="muted" style="margin-top:16px;font-size:13px">Демонстрационная загрузка: ничего не отправляется по сети.</p>'
+      + '</div>';
+  }
+
+  function errorBlock(act) {
+    return ''
+      + '<div class="card">'
+      + note('alert', '<div><strong>Демонстрационная ошибка.</strong> Так выглядит экран, когда действие не удалось. '
+        + 'Это сценарий из панели «Состояния демо», а не настоящий сбой.</div>')
+      + '  <div class="btn-row" style="margin-top:16px">'
+      + '    <button type="button" class="btn btn--primary" data-act="' + esc(act || 'demo:scenario-filled') + '">Повторить</button>'
+      + '  </div>'
+      + '</div>';
+  }
+
+  function limitBlock() {
+    return ''
+      + '<div class="card">'
+      + note('demo', '<div><strong>Достигнут демонстрационный лимит.</strong> В готовом продукте здесь было бы '
+        + 'сообщение об исчерпанном объёме тарифа. Точные лимиты ещё не определены.</div>')
+      + '  <div class="btn-row" style="margin-top:16px">'
+      + '    <a class="btn" href="#/plans">Открыть тарифы</a>'
+      + '    <button type="button" class="btn btn--primary" data-act="demo:scenario-filled">Вернуться к заполненному демо</button>'
+      + '  </div>'
+      + '</div>';
+  }
+
+  return {
+    esc: esc,
+    escLines: escLines,
+    demoBadge: demoBadge,
+    note: note,
+    toast: toast,
+    openModal: openModal,
+    closeModal: closeModal,
+    confirm: confirm,
+    renderModal: renderModal,
+    renderToasts: renderToasts,
+    trapFocus: trapFocus,
+    field: field,
+    select: select,
+    emptyState: emptyState,
+    skeletonBlock: skeletonBlock,
+    errorBlock: errorBlock,
+    limitBlock: limitBlock
+  };
+})();
+
+</script>
+<script>
+/* ==== screens-core.js ==== */
+/* ============================================================
+   Экраны: вход, обзор, резюме (мастер, загрузка, список),
+   вакансии.
+   Каждая функция возвращает HTML-строку рабочей области.
+   ============================================================ */
+
+var ScreensCore = (function () {
+  'use strict';
+
+  var esc = UI.esc;
+  var escLines = UI.escLines;
+  var note = UI.note;
+
+  /* ---------------- Вспомогательное ---------------- */
+
+  function pageHead(title, text) {
+    return '<div class="page-head"><h1>' + esc(title) + '</h1>'
+      + (text ? '<p>' + esc(text) + '</p>' : '') + '</div>';
+  }
+
+  function prepTitle(prep) {
+    var vacancy = Store.vacancyById(prep.vacancyId);
+    var resume = Store.resumeById(prep.resumeId);
+    return (vacancy ? vacancy.title + ' · ' + vacancy.company : 'Вакансия не выбрана')
+      + ' — ' + (resume ? resume.title : 'резюме не выбрано');
+  }
+
+  function staleBanner(prep) {
+    if (!prep || !prep.stale) return '';
+    return note('demo',
+      '<div><strong>Отчёты относятся к предыдущей версии исходников.</strong> '
+      + esc(prep.staleReason || 'Резюме или вакансия изменились после демонстрационного анализа.')
+      + ' Пока показан прежний результат. '
+      + '<button type="button" class="btn btn--sm btn--primary" style="margin-top:8px" '
+      + 'data-act="prep:rebuild" data-id="' + esc(prep.id) + '">Пересобрать демо</button></div>');
+  }
+
+  function nextStep(prep) {
+    if (!prep) return { label: 'Добавить вакансию', route: '#/vacancy/new' };
+    var answered = Object.keys(prep.answers || {}).length;
+    if (prep.stale) return { label: 'Пересобрать демонстрационный анализ', route: '#/prep/' + prep.id + '/match' };
+    if (answered === 0) return { label: 'Разобрать вопросы для подготовки', route: '#/prep/' + prep.id + '/questions' };
+    if (!prep.chat || !prep.chat.finished) return { label: 'Пройти текстовое пробное интервью', route: '#/prep/' + prep.id + '/interview' };
+    if (!prep.voice || !prep.voice.finished) return { label: 'Попробовать голосовой формат', route: '#/prep/' + prep.id + '/voice' };
+    return { label: 'Повторить тренировку', route: '#/prep/' + prep.id + '/interview' };
+  }
+
+  /* ---------------- Публичные страницы ---------------- */
+
+  function start() {
+    return ''
+      + '<div class="public"><div class="public__inner stack">'
+      + '  <div class="public__brand">'
+      + '    <h1>Карьерный помощник</h1>'
+      + '    <span class="tag tag--demo">Рабочее название</span>'
+      + '  </div>'
+      + note('demo', '<div><strong>Демо — ИИ и платежи не подключены.</strong> Это кликабельный макет интерфейса. '
+        + 'Тексты «от ИИ» — заранее подготовленные образцы. Введённые данные и файлы остаются в браузере.</div>')
+      + '  <div class="card stack">'
+      + '    <h2>Подготовка к поиску работы и собеседованиям</h2>'
+      + '    <p class="muted">Собрать или улучшить резюме, разобрать конкретную вакансию, подготовить ответы '
+      + '    на вероятные вопросы и потренироваться в пробном интервью — текстом или голосом.</p>'
+      + '    <ul class="muted">'
+      + '      <li>Резюме с нуля по шагам или разбор уже готового.</li>'
+      + '      <li>Сопоставление своего опыта с требованиями вакансии.</li>'
+      + '      <li>Вероятные вопросы и тренировочные интервью.</li>'
+      + '      <li>Отдельный раздел про помощника на реальном собеседовании.</li>'
+      + '    </ul>'
+      + '    <div class="btn-row">'
+      + '      <a class="btn btn--primary" href="#/onboarding">Открыть демо</a>'
+      + '      <a class="btn" href="#/auth/login">Экран входа (заглушка)</a>'
+      + '    </div>'
+      + '    <p class="faint" style="font-size:13px">Регистрация не требуется: макет открывается сразу.</p>'
+      + '  </div>'
+      + '</div></div>';
+  }
+
+  function auth(mode) {
+    var isRegister = mode === 'register';
+    var isReset = mode === 'reset';
+    var title = isRegister ? 'Регистрация' : (isReset ? 'Восстановление доступа' : 'Вход');
+    var body;
+    if (isReset) {
+      body = UI.field({ id: 'auth-email', label: 'Электронная почта', model: '', value: '', placeholder: 'name@example.com', hint: 'Поле неактивно: письма не отправляются.' });
+    } else {
+      body = UI.field({ id: 'auth-email', label: 'Электронная почта', model: '', value: '', placeholder: 'name@example.com' })
+        + '<div class="field"><span class="field__label">Пароль</span>'
+        + '<div class="note note--info" style="margin-top:4px">Поле пароля в макете не показывается: '
+        + 'прототип не собирает и не хранит пароли.</div></div>';
+    }
+    return ''
+      + '<div class="public"><div class="public__inner stack">'
+      + '  <div class="public__brand"><h1>Карьерный помощник</h1><span class="tag tag--demo">Демо</span></div>'
+      + '  <div class="card stack">'
+      + '    <h2>' + esc(title) + '</h2>'
+      + note('alert', '<div><strong>Настоящей авторизации нет.</strong> Это визуальная заглушка: данные не '
+        + 'проверяются, аккаунт не создаётся, письма не отправляются.</div>')
+      + body
+      + '    <div class="btn-row">'
+      + '      <a class="btn btn--primary" href="#/onboarding">Продолжить в демо без входа</a>'
+      + (isReset
+          ? '<a class="btn" href="#/auth/login">Назад ко входу</a>'
+          : (isRegister
+              ? '<a class="btn" href="#/auth/login">У меня есть аккаунт</a>'
+              : '<a class="btn" href="#/auth/register">Создать аккаунт</a>'))
+      + '    </div>'
+      + (isReset ? '' : '<p><a href="#/auth/reset">Забыли пароль?</a></p>')
+      + '  </div>'
+      + '  <p><a href="#/start">← На начальную страницу</a></p>'
+      + '</div></div>';
+  }
+
+  function onboarding() {
+    return ''
+      + '<div class="public"><div class="public__inner stack">'
+      + '  <div class="public__brand"><h1>С чего начнём?</h1></div>'
+      + note('demo', '<div>Любой вариант ведёт в макет. Демонстрационные результаты одинаковы для всех и '
+        + 'не подстраиваются под ваш ввод.</div>')
+      + '  <div class="card stack">'
+      + '    <h2>Создать резюме</h2>'
+      + '    <p class="muted">Пошаговая форма: профессия, опыт, навыки, образование и предпросмотр.</p>'
+      + '    <div class="btn-row"><a class="btn btn--primary" href="#/resume/new">Начать с нуля</a></div>'
+      + '  </div>'
+      + '  <div class="card stack">'
+      + '    <h2>У меня уже есть резюме</h2>'
+      + '    <p class="muted">Выбрать файл на устройстве и посмотреть, как выглядит разбор и предложения по улучшению.</p>'
+      + '    <div class="btn-row"><a class="btn" href="#/resume/upload">Загрузить резюме</a></div>'
+      + '  </div>'
+      + '  <div class="card stack">'
+      + '    <h2>Посмотреть пример</h2>'
+      + '    <p class="muted">Открыть заполненное демо: резюме, вакансия, сопоставление, вопросы и интервью уже готовы.</p>'
+      + '    <div class="btn-row"><button type="button" class="btn" data-act="demo:example">Открыть пример</button></div>'
+      + '  </div>'
+      + '  <p><a href="#/start">← На начальную страницу</a></p>'
+      + '</div></div>';
+  }
+
+  /* ---------------- Обзор ---------------- */
+
+  function overview() {
+    var state = Store.get();
+    if (state.scenario === 'loading') return pageHead('Обзор') + UI.skeletonBlock();
+    if (state.scenario === 'error') return pageHead('Обзор') + UI.errorBlock();
+
+    if (!state.preps.length && !state.resumes.length) {
+      return pageHead('Обзор', 'Здесь появятся ваши подготовки к собеседованиям.')
+        + UI.emptyState(
+          'Пока ничего нет',
+          'Начните с резюме: соберите новое в мастере или загрузите готовое, чтобы посмотреть демонстрационный разбор.',
+          'Создать резюме', 'go:#/resume/new')
+        + '<div class="btn-row" style="margin-top:16px;justify-content:center">'
+        + '<button type="button" class="btn" data-act="go:#/resume/upload">Загрузить готовое резюме</button>'
+        + '<button type="button" class="btn" data-act="demo:example">Показать пример заполненного демо</button>'
+        + '</div>';
+    }
+
+    var prep = Store.activePrep() || state.preps[0];
+    var step = nextStep(prep);
+    var cards = state.preps.map(function (p) {
+      var s = nextStep(p);
+      return ''
+        + '<li><div class="row-item">'
+        + '  <div class="row-item__main">'
+        + '    <div class="row-item__title">' + esc(prepTitle(p)) + '</div>'
+        + '    <div class="row-item__meta">Собрано: ' + esc(p.createdAt)
+        + (p.stale ? ' · <span class="tag tag--alert">Исходники изменились</span>' : '') + '</div>'
+        + '  </div>'
+        + '  <div class="btn-row">'
+        + '    <button type="button" class="btn btn--sm" data-act="prep:open" data-id="' + esc(p.id) + '">Открыть</button>'
+        + '    <button type="button" class="btn btn--sm btn--primary" data-act="go:' + esc(s.route) + '" '
+        + 'data-prep="' + esc(p.id) + '">Продолжить</button>'
+        + '  </div>'
+        + '</div></li>';
+    }).join('');
+
+    return ''
+      + pageHead('Обзор', 'Последние подготовки и ближайший шаг.')
+      + (prep && prep.stale ? staleBanner(prep) : '')
+      + '<div class="card stack">'
+      + '  <div class="card__head" style="margin-bottom:0">'
+      + '    <div class="card__title"><h2>Ближайший шаг</h2><small>' + esc(prepTitle(prep)) + '</small></div>'
+      + '  </div>'
+      + '  <p>' + esc(step.label) + '</p>'
+      + '  <div class="btn-row">'
+      + '    <button type="button" class="btn btn--primary" data-act="go:' + esc(step.route) + '" data-prep="'
+      + esc(prep.id) + '">Продолжить</button>'
+      + '    <a class="btn" href="#/vacancy/new">Добавить другую вакансию</a>'
+      + '  </div>'
+      + '</div>'
+      + '<div class="card"><div class="card__head"><div class="card__title"><h2>Мои подготовки</h2>'
+      + '<small>Одна подготовка связывает резюме, вакансию, вопросы и интервью.</small></div></div>'
+      + '<ul class="list">' + cards + '</ul></div>'
+      + '<div class="card stack">'
+      + '  <h2>Режим демо</h2>'
+      + '  <p class="muted">Можно переключиться между пустым и заполненным состоянием, чтобы посмотреть оба варианта.</p>'
+      + '  <div class="btn-row">'
+      + '    <button type="button" class="btn" data-act="demo:scenario-empty">Показать пустое состояние</button>'
+      + '    <button type="button" class="btn" data-act="demo:scenario-filled">Показать заполненное состояние</button>'
+      + '    <a class="btn" href="#/history">История</a>'
+      + '  </div>'
+      + '</div>';
+  }
+
+  /* ---------------- Мастер создания резюме ---------------- */
+
+  var STEP_NAMES = ['Профессия', 'Опыт', 'Навыки', 'Образование', 'Предпросмотр'];
+
+  function stepsBar(current) {
+    return '<ul class="steps">' + STEP_NAMES.map(function (name, index) {
+      var cls = 'step' + (index < current ? ' step--done' : '');
+      return '<li><button type="button" class="' + cls + '"'
+        + (index === current ? ' aria-current="step"' : '')
+        + ' data-act="builder:goto" data-step="' + index + '">'
+        + '<span class="step__num">' + (index + 1) + '</span>' + esc(name) + '</button></li>';
+    }).join('') + '</ul>';
+  }
+
+  function resumeWizard() {
+    var state = Store.get();
+    var b = state.builder;
+    var body;
+
+    if (b.built) return builtPreview(b);
+
+    if (b.step === 0) {
+      body = ''
+        + UI.field({ id: 'b-profession', label: 'Желаемая профессия', model: 'builder.data.profession',
+            value: b.data.profession, required: true, error: b.errors.profession,
+            placeholder: 'Например: бизнес-аналитик',
+            hint: 'Можно указать любую профессию — макет не ограничен одним направлением.' })
+        + UI.field({ id: 'b-wishes', label: 'Пожелания к работе', model: 'builder.data.wishes', type: 'textarea',
+            value: b.data.wishes, placeholder: 'Формат работы, отрасль, город, что важно в команде',
+            hint: 'Свободный текст. Он подставляется в предпросмотр как есть.' })
+        + UI.field({ id: 'b-summary', label: 'Коротко о себе', model: 'builder.data.summary', type: 'textarea',
+            value: b.data.summary, placeholder: 'Две-три строки о вашей специализации',
+            hint: 'Пишите своими словами: макет не придумывает за вас достижения.' });
+    } else if (b.step === 1) {
+      var items = b.data.experience.map(function (item, index) {
+        return ''
+          + '<div class="card" style="background:var(--surface-2)">'
+          + '  <div class="card__head"><div class="card__title"><h3>Место работы ' + (index + 1) + '</h3></div>'
+          + '    <button type="button" class="btn btn--sm btn--danger" data-act="builder:exp-remove" data-index="'
+          + index + '">Удалить</button></div>'
+          + '  <div class="grid-2">'
+          + UI.field({ id: 'exp-role-' + index, label: 'Должность', model: 'builder.data.experience.' + index + '.role',
+              value: item.role, required: true, error: b.errors['exp' + index] })
+          + UI.field({ id: 'exp-company-' + index, label: 'Компания', model: 'builder.data.experience.' + index + '.company',
+              value: item.company })
+          + '  </div>'
+          + UI.field({ id: 'exp-period-' + index, label: 'Период', model: 'builder.data.experience.' + index + '.period',
+              value: item.period, placeholder: '2022 — настоящее время' })
+          + UI.field({ id: 'exp-details-' + index, label: 'Что вы делали', type: 'textarea',
+              model: 'builder.data.experience.' + index + '.details', value: item.details,
+              placeholder: 'Задачи, за которые вы отвечали' })
+          + '</div>';
+      }).join('');
+      body = (items || note('info', '<div>Пока не добавлено ни одного места работы.</div>'))
+        + (b.errors.experience ? '<p class="field__error">' + esc(b.errors.experience) + '</p>' : '')
+        + '<div class="btn-row" style="margin-top:16px">'
+        + '<button type="button" class="btn" data-act="builder:exp-add">Добавить место работы</button></div>';
+    } else if (b.step === 2) {
+      body = ''
+        + UI.field({ id: 'b-skills', label: 'Навыки', model: 'builder.data.skills', type: 'textarea',
+            value: b.data.skills, required: true, error: b.errors.skills,
+            placeholder: 'По одному навыку в строке',
+            hint: 'Каждая строка станет отдельным пунктом в предпросмотре.' })
+        + UI.field({ id: 'b-ach', label: 'Достижения', model: 'builder.data.achievements', type: 'textarea',
+            value: b.data.achievements, placeholder: 'По одному достижению в строке',
+            hint: 'Указывайте только то, что было на самом деле. Макет ничего не дописывает за вас.' });
+    } else if (b.step === 3) {
+      var edu = b.data.education.map(function (item, index) {
+        return ''
+          + '<div class="card" style="background:var(--surface-2)">'
+          + '  <div class="card__head"><div class="card__title"><h3>Образование ' + (index + 1) + '</h3></div>'
+          + '    <button type="button" class="btn btn--sm btn--danger" data-act="builder:edu-remove" data-index="'
+          + index + '">Удалить</button></div>'
+          + '  <div class="grid-2">'
+          + UI.field({ id: 'edu-place-' + index, label: 'Учебное заведение',
+              model: 'builder.data.education.' + index + '.place', value: item.place })
+          + UI.field({ id: 'edu-program-' + index, label: 'Программа',
+              model: 'builder.data.education.' + index + '.program', value: item.program })
+          + '  </div>'
+          + UI.field({ id: 'edu-period-' + index, label: 'Период',
+              model: 'builder.data.education.' + index + '.period', value: item.period })
+          + '</div>';
+      }).join('');
+      body = (edu || note('info', '<div>Раздел можно оставить пустым.</div>'))
+        + '<div class="btn-row" style="margin-top:16px">'
+        + '<button type="button" class="btn" data-act="builder:edu-add">Добавить образование</button></div>';
+    } else {
+      body = ''
+        + note('demo', '<div><strong>Дальше — демонстрационная сборка.</strong> Ваши поля подставятся в предпросмотр '
+          + 'без изменений. Текст, помеченный как образец ИИ, — фиксированный пример, а не результат анализа ваших данных.</div>')
+        + previewCard(builderToResume(b), false)
+        + '<div class="btn-row" style="margin-top:16px">'
+        + '<button type="button" class="btn btn--primary" data-act="builder:build">Собрать резюме</button></div>';
+    }
+
+    var nav = ''
+      + '<div class="btn-row btn-row--between" style="margin-top:24px">'
+      + '  <button type="button" class="btn" data-act="builder:prev"' + (b.step === 0 ? ' disabled' : '') + '>Назад</button>'
+      + (b.step < 4
+          ? '<button type="button" class="btn btn--primary" data-act="builder:next">Далее</button>'
+          : '<span></span>')
+      + '</div>';
+
+    return ''
+      + pageHead('Создание резюме', 'Пошаговая форма. Введённое сохраняется при переходах между шагами внутри макета.')
+      + stepsBar(b.step)
+      + '<div class="card">' + body + nav + '</div>'
+      + note('demo', '<div>После перезагрузки страницы введённый текст сбрасывается: макет не сохраняет '
+        + 'персональные данные ни на сервере, ни в браузере.</div>');
+  }
+
+  function splitLines(text) {
+    return String(text || '').split('\n').map(function (s) { return s.trim(); })
+      .filter(function (s) { return s.length > 0; });
+  }
+
+  function builderToResume(b) {
+    return {
+      id: 'builder-preview',
+      title: (b.data.profession || 'Резюме') + ' — черновик',
+      source: 'created',
+      demo: false,
+      profession: b.data.profession,
+      wishes: b.data.wishes,
+      summary: b.data.summary,
+      experience: b.data.experience,
+      skills: splitLines(b.data.skills),
+      achievements: splitLines(b.data.achievements),
+      education: b.data.education
+    };
+  }
+
+  function previewCard(resume, showSample) {
+    var exp = (resume.experience || []).filter(function (e) { return e.role || e.company; });
+    return ''
+      + '<div class="resume-preview">'
+      + '  <h3>' + esc(resume.profession || 'Профессия не указана') + '</h3>'
+      + '  <p class="muted">' + escLines(resume.wishes || 'Пожелания не указаны') + '</p>'
+      + '  <div class="resume-preview__section"><h4>О себе</h4><p>'
+      + (resume.summary ? escLines(resume.summary) : '<span class="faint">Не заполнено</span>') + '</p></div>'
+      + '  <div class="resume-preview__section"><h4>Опыт</h4>'
+      + (exp.length
+          ? '<ul class="list">' + exp.map(function (e) {
+              return '<li><b>' + esc(e.role || 'Должность не указана') + '</b>'
+                + (e.company ? ' — ' + esc(e.company) : '')
+                + (e.period ? '<div class="row-item__meta">' + esc(e.period) + '</div>' : '')
+                + (e.details ? '<div>' + escLines(e.details) + '</div>' : '') + '</li>';
+            }).join('') + '</ul>'
+          : '<p class="faint">Не заполнено</p>')
+      + '  </div>'
+      + '  <div class="resume-preview__section"><h4>Навыки</h4>'
+      + ((resume.skills || []).length
+          ? '<ul>' + resume.skills.map(function (s) { return '<li>' + esc(s) + '</li>'; }).join('') + '</ul>'
+          : '<p class="faint">Не заполнено</p>')
+      + '  </div>'
+      + ((resume.achievements || []).length
+          ? '<div class="resume-preview__section"><h4>Достижения</h4><ul>'
+            + resume.achievements.map(function (s) { return '<li>' + esc(s) + '</li>'; }).join('') + '</ul></div>'
+          : '')
+      + '  <div class="resume-preview__section"><h4>Образование</h4>'
+      + ((resume.education || []).filter(function (e) { return e.place || e.program; }).length
+          ? '<ul class="list">' + resume.education.filter(function (e) { return e.place || e.program; })
+              .map(function (e) {
+                return '<li><b>' + esc(e.place || '') + '</b>'
+                  + (e.program ? ' — ' + esc(e.program) : '')
+                  + (e.period ? '<div class="row-item__meta">' + esc(e.period) + '</div>' : '') + '</li>';
+              }).join('') + '</ul>'
+          : '<p class="faint">Не заполнено</p>')
+      + '  </div>'
+      + (showSample
+          ? '<div class="resume-preview__section">'
+            + '<h4>Образец формулировки <span class="tag tag--demo">Фиксированный пример, не ИИ</span></h4>'
+            + '<p class="muted">«Бизнес-аналитик: собираю требования, описываю процессы и готовлю постановки '
+            + 'для разработки. Довожу задачу до приёмки.» — это заранее написанный образец стиля. '
+            + 'Он не составлен по вашим данным и не подставляется в резюме автоматически.</p></div>'
+          : '')
+      + '</div>';
+  }
+
+  function builtPreview(b) {
+    if (b.built === 'loading') {
+      return pageHead('Сборка резюме') + UI.skeletonBlock();
+    }
+    var resume = builderToResume(b);
+    return ''
+      + pageHead('Резюме собрано', 'Поля подставлены в предпросмотр локально, в браузере.')
+      + note('demo', '<div><strong>Демонстрационная сборка.</strong> Настоящий ИИ не подключён: текст не '
+        + 'переписывался и не оценивался.</div>')
+      + '<div class="card">' + previewCard(resume, true) + '</div>'
+      + '<div class="card stack">'
+      + '  <h2>Что дальше</h2>'
+      + '  <div class="btn-row">'
+      + '    <button type="button" class="btn" data-act="builder:edit">Редактировать</button>'
+      + '    <button type="button" class="btn btn--primary" data-act="builder:save">Сохранить и использовать для подготовки</button>'
+      + '    <button type="button" class="btn" data-act="stub:export">Экспорт в PDF</button>'
+      + '  </div>'
+      + '  <p class="faint" style="font-size:13px">Экспорт — заглушка: макет не создаёт файлы.</p>'
+      + '</div>';
+  }
+
+  /* ---------------- Загрузка готового резюме ---------------- */
+
+  function upload() {
+    var state = Store.get();
+    var up = state.upload;
+    var fileRow = up.fileName
+      ? '<div class="row-item" style="margin-top:16px"><div class="row-item__main">'
+        + '<div class="row-item__title">' + esc(up.fileName) + '</div>'
+        + '<div class="row-item__meta">Файл выбран локально. Он не загружается на сервер и не читается макетом.</div>'
+        + '</div><div class="btn-row">'
+        + '<button type="button" class="btn btn--sm" data-act="upload:pick">Заменить</button>'
+        + '<button type="button" class="btn btn--sm btn--danger" data-act="upload:clear">Удалить</button>'
+        + '</div></div>'
+      : '';
+
+    return ''
+      + pageHead('Загрузка готового резюме', 'Выберите файл, чтобы посмотреть, как устроен разбор.')
+      + note('alert', '<div><strong>Чтение PDF и DOCX ещё не реализовано.</strong> Файл остаётся на вашем '
+        + 'устройстве: он не отправляется по сети и не анализируется. Отчёт ниже — общий демонстрационный образец, '
+        + 'а не разбор вашего документа.</div>')
+      + '<div class="card">'
+      + '  <button type="button" class="dropzone" id="dropzone" data-act="upload:pick">'
+      + '    <b>Перетащите файл сюда или нажмите, чтобы выбрать</b>'
+      + '    <span class="muted">Для демонстрации подойдут PDF или DOCX</span>'
+      + '  </button>'
+      + '  <input type="file" id="file-input" class="visually-hidden" accept=".pdf,.docx,.doc,.rtf,.txt" '
+      + '    aria-label="Выбрать файл резюме">'
+      + fileRow
+      + '  <div class="btn-row" style="margin-top:16px">'
+      + '    <button type="button" class="btn btn--primary" data-act="upload:show-analysis">Показать пример анализа</button>'
+      + '    <a class="btn" href="#/resumes">К списку резюме</a>'
+      + '  </div>'
+      + '</div>'
+      + (up.analysisShown ? analysisReport() : '');
+  }
+
+  function suggestionBlock(item, decision) {
+    var status = decision === 'accepted'
+      ? '<span class="tag tag--ok">Принято</span>'
+      : (decision === 'rejected' ? '<span class="tag">Отклонено</span>' : '');
+    return ''
+      + '<div class="q-item">'
+      + '  <div class="q-item__top"><span class="tag tag--info">Предложение</span>' + status + '</div>'
+      + '  <div class="q-item__text">' + esc(item.title) + '</div>'
+      + '  <p class="muted" style="font-size:13.5px">' + esc(item.why) + '</p>'
+      + '  <div class="diff-old"><b style="font-size:12px">Было</b><div>' + esc(item.before) + '</div></div>'
+      + '  <div class="diff-new"><b style="font-size:12px">Стало</b><div>' + esc(item.after) + '</div></div>'
+      + '  <div class="btn-row" style="margin-top:12px">'
+      + '    <button type="button" class="btn btn--sm btn--primary" data-act="sug:accept" data-id="' + esc(item.id) + '">Принять</button>'
+      + '    <button type="button" class="btn btn--sm" data-act="sug:reject" data-id="' + esc(item.id) + '">Отклонить</button>'
+      + '  </div>'
+      + '</div>';
+  }
+
+  function analysisReport() {
+    var state = Store.get();
+    var report = DEMO_DATA.analysisReport;
+    var decisions = state.upload.decisions;
+    var accepted = report.vague.concat(report.missing).filter(function (s) {
+      return decisions[s.id] === 'accepted';
+    });
+
+    return ''
+      + '<div class="card stack">'
+      + '  <div class="card__head"><div class="card__title"><h2>Демонстрационный разбор резюме</h2>'
+      + '  <small>Образец отчёта на подготовленном примере</small></div>' + UI.demoBadge('Образец') + '</div>'
+      + note('demo', '<div>Это разбор демонстрационного резюме из комплекта макета. Ваш файл не читался. '
+        + 'Ложные работодатели, навыки и достижения не добавляются.</div>')
+      + '  <h3>Сильные стороны</h3>'
+      + '  <ul>' + report.strengths.map(function (s) { return '<li>' + esc(s) + '</li>'; }).join('') + '</ul>'
+      + '  <h3>Неясные формулировки</h3>'
+      + report.vague.map(function (s) { return suggestionBlock(s, decisions[s.id]); }).join('')
+      + '  <h3>Недостающая информация</h3>'
+      + report.missing.map(function (s) { return suggestionBlock(s, decisions[s.id]); }).join('')
+      + '</div>'
+      + '<div class="card stack">'
+      + '  <div class="card__head"><div class="card__title"><h2>Демонстрационная версия резюме</h2>'
+      + '  <small>Принятые предложения применяются к образцу</small></div></div>'
+      + (accepted.length
+          ? '<ul class="list">' + accepted.map(function (s) {
+              return '<li><b>' + esc(s.title) + '</b><div class="diff-new">' + esc(s.after) + '</div></li>';
+            }).join('') + '</ul>'
+          : '<p class="muted">Ни одно предложение пока не принято. Нажмите «Принять», чтобы увидеть изменение в образце.</p>')
+      + '  <div class="btn-row">'
+      + '    <button type="button" class="btn btn--primary" data-act="upload:save">Сохранить как версию резюме</button>'
+      + '    <a class="btn" href="#/vacancy/new">Перейти к вакансии</a>'
+      + '  </div>'
+      + '</div>';
+  }
+
+  /* ---------------- Список резюме и карточка ---------------- */
+
+  function resumes() {
+    var state = Store.get();
+    if (state.scenario === 'loading') return pageHead('Мои резюме') + UI.skeletonBlock();
+    if (state.scenario === 'error') return pageHead('Мои резюме') + UI.errorBlock();
+
+    if (!state.resumes.length) {
+      return pageHead('Мои резюме')
+        + UI.emptyState('Резюме пока нет',
+            'Соберите резюме в мастере или загрузите готовый файл, чтобы посмотреть демонстрационный разбор.',
+            'Создать резюме', 'go:#/resume/new')
+        + '<div class="btn-row" style="margin-top:16px;justify-content:center">'
+        + '<button type="button" class="btn" data-act="go:#/resume/upload">Загрузить файл</button></div>';
+    }
+
+    var rows = state.resumes.map(function (r) {
+      return ''
+        + '<li><div class="row-item">'
+        + '  <div class="row-item__main">'
+        + '    <div class="row-item__title">' + esc(r.title) + ' '
+        + (r.demo ? UI.demoBadge('Демо-данные') : '') + '</div>'
+        + '    <div class="row-item__meta">Версия ' + r.rev + ' · изменено ' + esc(r.updatedAt)
+        + ' · ' + (r.source === 'uploaded' ? 'из файла' : 'создано в мастере') + '</div>'
+        + '  </div>'
+        + '  <div class="btn-row">'
+        + '    <button type="button" class="btn btn--sm" data-act="go:#/resume/' + esc(r.id) + '">Открыть</button>'
+        + '    <button type="button" class="btn btn--sm" data-act="resume:rename" data-id="' + esc(r.id) + '">Переименовать</button>'
+        + '    <button type="button" class="btn btn--sm btn--danger" data-act="resume:delete" data-id="' + esc(r.id) + '">Удалить</button>'
+        + '  </div>'
+        + '</div></li>';
+    }).join('');
+
+    return ''
+      + pageHead('Мои резюме', 'Версии резюме, которые можно использовать в подготовке к вакансии.')
+      + '<div class="btn-row" style="margin-bottom:16px">'
+      + '  <a class="btn btn--primary" href="#/resume/new">Создать резюме</a>'
+      + '  <a class="btn" href="#/resume/upload">Загрузить готовое</a>'
+      + '</div>'
+      + '<ul class="list">' + rows + '</ul>';
+  }
+
+  function resumeCard(id) {
+    var resume = Store.resumeById(id);
+    if (!resume) {
+      return pageHead('Резюме не найдено')
+        + UI.emptyState('Такой версии резюме нет', 'Возможно, она была удалена в этом сеансе макета.',
+            'К списку резюме', 'go:#/resumes');
+    }
+    return ''
+      + pageHead(resume.title, 'Версия ' + resume.rev + ' · изменено ' + resume.updatedAt)
+      + (resume.fileNameShown ? note('info', '<div>' + esc(resume.fileNameShown) + '</div>') : '')
+      + '<div class="card">' + previewCard(resume, false) + '</div>'
+      + '<div class="card stack">'
+      + '  <h2>Действия</h2>'
+      + '  <div class="btn-row">'
+      + '    <button type="button" class="btn" data-act="resume:tweak" data-id="' + esc(resume.id) + '">'
+      + '      Внести демонстрационную правку</button>'
+      + '    <button type="button" class="btn" data-act="resume:rename" data-id="' + esc(resume.id) + '">Переименовать</button>'
+      + '    <button type="button" class="btn btn--primary" data-act="resume:use" data-id="' + esc(resume.id) + '">'
+      + '      Использовать для подготовки</button>'
+      + '    <button type="button" class="btn" data-act="stub:export">Экспорт в PDF</button>'
+      + '  </div>'
+      + '  <p class="faint" style="font-size:13px">«Внести правку» повышает версию резюме — так можно проверить, '
+      + '  как подготовка помечается как устаревшая.</p>'
+      + '</div>';
+  }
+
+  /* ---------------- Вакансии ---------------- */
+
+  function vacancies() {
+    var state = Store.get();
+    if (state.scenario === 'loading') return pageHead('Вакансии и подготовка') + UI.skeletonBlock();
+    if (state.scenario === 'error') return pageHead('Вакансии и подготовка') + UI.errorBlock();
+    if (state.scenario === 'limit') return pageHead('Вакансии и подготовка') + UI.limitBlock();
+
+    if (!state.preps.length) {
+      return pageHead('Вакансии и подготовка')
+        + UI.emptyState('Подготовок пока нет',
+            'Добавьте вакансию и выберите резюме — макет свяжет их в одну подготовку.',
+            'Добавить вакансию', 'go:#/vacancy/new');
+    }
+
+    var rows = state.preps.map(function (p) {
+      var vacancy = Store.vacancyById(p.vacancyId);
+      var resume = Store.resumeById(p.resumeId);
+      return ''
+        + '<li><div class="row-item">'
+        + '  <div class="row-item__main">'
+        + '    <div class="row-item__title">' + esc(vacancy ? vacancy.title : 'Вакансия удалена') + ' '
+        + (p.stale ? '<span class="tag tag--alert">Исходники изменились</span>' : '') + '</div>'
+        + '    <div class="row-item__meta">' + esc(vacancy ? vacancy.company : '—')
+        + ' · резюме: ' + esc(resume ? resume.title : 'не выбрано') + '</div>'
+        + '  </div>'
+        + '  <div class="btn-row">'
+        + '    <button type="button" class="btn btn--sm" data-act="go:#/prep/' + esc(p.id) + '/match">Сопоставление</button>'
+        + '    <button type="button" class="btn btn--sm" data-act="go:#/prep/' + esc(p.id) + '/questions">Вопросы</button>'
+        + '    <button type="button" class="btn btn--sm btn--danger" data-act="prep:delete" data-id="' + esc(p.id) + '">Удалить</button>'
+        + '  </div>'
+        + '</div></li>';
+    }).join('');
+
+    return ''
+      + pageHead('Вакансии и подготовка', 'Каждая подготовка связывает вакансию, версию резюме, сопоставление и вопросы.')
+      + '<div class="btn-row" style="margin-bottom:16px"><a class="btn btn--primary" href="#/vacancy/new">Добавить вакансию</a></div>'
+      + '<ul class="list">' + rows + '</ul>';
+  }
+
+  function vacancyNew() {
+    var state = Store.get();
+    var draft = state.vacancyDraft;
+    var resumeOptions = [{ value: '', label: 'Выберите резюме' }].concat(
+      state.resumes.map(function (r) { return { value: r.id, label: r.title }; }));
+
+    var ready = draft.title && draft.text && draft.resumeId;
+
+    return ''
+      + pageHead('Добавление вакансии', 'Вставьте текст вакансии и выберите резюме для сопоставления.')
+      + '<div class="card stack">'
+      + '  <h2>Импорт по ссылке</h2>'
+      + UI.field({ id: 'vac-url', label: 'Ссылка на вакансию', model: 'vacancyDraft.url',
+          value: draft.url || '', placeholder: 'https://hh.ru/vacancy/...' })
+      + '  <div class="btn-row"><button type="button" class="btn" data-act="stub:import">Импортировать по ссылке</button></div>'
+      + note('alert', '<div><strong>Получение вакансии по ссылке не реализовано.</strong> Макет не ходит в сеть. '
+        + 'Вставьте текст вручную или откройте подготовленный пример.</div>')
+      + '  <div class="btn-row"><button type="button" class="btn" data-act="vacancy:example">Открыть пример вакансии</button></div>'
+      + '</div>'
+      + '<div class="card stack">'
+      + '  <h2>Текст вакансии</h2>'
+      + '  <div class="grid-2">'
+      + UI.field({ id: 'vac-title', label: 'Должность', model: 'vacancyDraft.title', value: draft.title, required: true })
+      + UI.field({ id: 'vac-company', label: 'Компания', model: 'vacancyDraft.company', value: draft.company })
+      + '  </div>'
+      + UI.field({ id: 'vac-text', label: 'Описание и требования', model: 'vacancyDraft.text', type: 'textarea',
+          value: draft.text, required: true, rows: 8,
+          hint: 'Текст остаётся в браузере. Демонстрационное сопоставление построено на подготовленном примере.' })
+      + UI.select({ id: 'vac-resume', label: 'Резюме для сопоставления', model: 'vacancyDraft.resumeId',
+          value: draft.resumeId, options: resumeOptions, act: 'rerender' })
+      + '</div>'
+      + '<div class="card stack">'
+      + '  <h2>Предпросмотр подготовки</h2>'
+      + (ready
+          ? '<ul class="list">'
+            + '<li><b>Вакансия:</b> ' + esc(draft.title) + (draft.company ? ' — ' + esc(draft.company) : '') + '</li>'
+            + '<li><b>Резюме:</b> ' + esc((Store.resumeById(draft.resumeId) || {}).title || '') + '</li>'
+            + '<li><b>Источник требований:</b> вставленный текст (в демо используется подготовленный разбор)</li>'
+            + '</ul>'
+          : note('info', '<div>Чтобы собрать подготовку, укажите должность, вставьте текст вакансии и выберите резюме.</div>'))
+      + '  <div class="btn-row">'
+      + '    <button type="button" class="btn btn--primary" data-act="vacancy:create"'
+      + (ready ? '' : ' aria-disabled="true" disabled') + '>Создать подготовку</button>'
+      + '    <a class="btn" href="#/vacancies">Отмена</a>'
+      + '  </div>'
+      + '</div>';
+  }
+
+  return {
+    pageHead: pageHead,
+    prepTitle: prepTitle,
+    staleBanner: staleBanner,
+    nextStep: nextStep,
+    previewCard: previewCard,
+    splitLines: splitLines,
+    start: start,
+    auth: auth,
+    onboarding: onboarding,
+    overview: overview,
+    resumeWizard: resumeWizard,
+    upload: upload,
+    resumes: resumes,
+    resumeCard: resumeCard,
+    vacancies: vacancies,
+    vacancyNew: vacancyNew
+  };
+})();
+
+</script>
+<script>
+/* ==== screens-prep.js ==== */
+/* ============================================================
+   Экраны: сопоставление, вопросы, тренировочные интервью,
+   помощник на собеседовании, тарифы, история, настройки, данные.
+   ============================================================ */
+
+var ScreensPrep = (function () {
+  'use strict';
+
+  var esc = UI.esc;
+  var escLines = UI.escLines;
+  var note = UI.note;
+  var pageHead = ScreensCore.pageHead;
+  var staleBanner = ScreensCore.staleBanner;
+
+  var STATUS_LABEL = {
+    confirmed: { text: 'Подтверждено', cls: 'tag--ok' },
+    unclear: { text: 'Нужно уточнить', cls: 'tag--info' },
+    missing: { text: 'Не указано в резюме', cls: 'tag--alert' }
+  };
+
+  function needPrep(prep, action) {
+    return pageHead(action)
+      + UI.emptyState('Подготовка не выбрана',
+          'Сначала добавьте вакансию и выберите резюме — макет свяжет их в одну подготовку.',
+          'Добавить вакансию', 'go:#/vacancy/new');
+  }
+
+  function sourcesBar(prep) {
+    var resume = Store.resumeById(prep.resumeId);
+    var vacancy = Store.vacancyById(prep.vacancyId);
+    return ''
+      + '<div class="toolbar">'
+      + '  <span><b>Вакансия:</b> ' + esc(vacancy ? vacancy.title + ' · ' + vacancy.company : 'не выбрана') + '</span>'
+      + '  <span><b>Резюме:</b> ' + esc(resume ? resume.title : 'не выбрано') + '</span>'
+      + '</div>';
+  }
+
+  /* ---------------- Сопоставление ---------------- */
+
+  function match(prepId) {
+    var state = Store.get();
+    var prep = Store.prepById(prepId) || Store.activePrep();
+    if (!prep) return needPrep(prep, 'Сопоставление резюме с вакансией');
+    if (state.scenario === 'loading') return pageHead('Сопоставление') + UI.skeletonBlock();
+    if (state.scenario === 'error') return pageHead('Сопоставление') + UI.errorBlock();
+
+    var vacancy = Store.vacancyById(prep.vacancyId);
+    var requirements = (vacancy && vacancy.requirements) || DEMO_DATA.vacancy.requirements;
+
+    var counts = { confirmed: 0, unclear: 0, missing: 0 };
+    requirements.forEach(function (r) { counts[r.status] += 1; });
+
+    var open = state.openRequirement || '';
+    var items = requirements.map(function (r) {
+      var label = STATUS_LABEL[r.status];
+      var expanded = open === r.id;
+      return ''
+        + '<div class="req-item">'
+        + '  <button type="button" class="req-item__head" data-act="req:toggle" data-id="' + esc(r.id) + '"'
+        + '    aria-expanded="' + (expanded ? 'true' : 'false') + '">'
+        + '    <span class="tag ' + label.cls + '">' + esc(label.text) + '</span>'
+        + '    <span class="req-item__text">' + esc(r.text) + '</span>'
+        + '    <span class="req-item__chev" aria-hidden="true">' + (expanded ? '▲' : '▼') + '</span>'
+        + '  </button>'
+        + (expanded
+            ? '<div class="req-item__body stack-sm">'
+              + '<p><b>Что нашли в резюме:</b> ' + esc(r.evidence) + '</p>'
+              + '<p><b>Как подготовиться:</b> ' + esc(r.advice) + '</p>'
+              + '</div>'
+            : '')
+        + '</div>';
+    }).join('');
+
+    return ''
+      + pageHead('Сопоставление резюме с вакансией',
+          'Требования вакансии и то, что подтверждается демонстрационным резюме.')
+      + sourcesBar(prep)
+      + staleBanner(prep)
+      + note('demo', '<div><strong>Это образец отчёта.</strong> Разбор построен на подготовленном комплекте данных '
+        + 'и не является анализом введённого вами текста.</div>')
+      + '<div class="card stack">'
+      + '  <div class="summary-counts">'
+      + '    <div class="count-box"><b>' + counts.confirmed + '</b><span>подтверждено резюме</span></div>'
+      + '    <div class="count-box"><b>' + counts.unclear + '</b><span>нужно уточнить</span></div>'
+      + '    <div class="count-box"><b>' + counts.missing + '</b><span>не указано в резюме</span></div>'
+      + '  </div>'
+      + '  <p class="faint" style="font-size:13px">Общий процент соответствия не показывается: он не отражает '
+      + '  вероятность приглашения и мешает разобрать конкретные пункты.</p>'
+      + '</div>'
+      + '<div class="card"><div class="card__head"><div class="card__title"><h2>Требования вакансии</h2>'
+      + '<small>Нажмите на требование, чтобы раскрыть объяснение</small></div></div>' + items + '</div>'
+      + '<div class="card"><div class="btn-row">'
+      + '  <a class="btn" href="#/resumes">Улучшить резюме</a>'
+      + '  <button type="button" class="btn btn--primary" data-act="go:#/prep/' + esc(prep.id) + '/questions">Перейти к вопросам</button>'
+      + '  <button type="button" class="btn" data-act="prep:change-sources" data-id="' + esc(prep.id) + '">Изменить исходники</button>'
+      + '</div></div>';
+  }
+
+  /* ---------------- Вопросы ---------------- */
+
+  function questions(prepId) {
+    var state = Store.get();
+    var prep = Store.prepById(prepId) || Store.activePrep();
+    if (!prep) return needPrep(prep, 'Вопросы для подготовки');
+    if (state.scenario === 'loading') return pageHead('Вопросы для подготовки') + UI.skeletonBlock();
+    if (state.scenario === 'error') return pageHead('Вопросы для подготовки') + UI.errorBlock();
+
+    var filterTopic = state.qFilterTopic || 'all';
+    var filterReady = state.qFilterReady || 'all';
+    var openHints = state.qOpenHints || {};
+
+    var topics = ['all'];
+    DEMO_DATA.questions.forEach(function (q) {
+      if (topics.indexOf(q.topic) < 0) topics.push(q.topic);
+    });
+
+    var visible = DEMO_DATA.questions.filter(function (q) {
+      if (filterTopic !== 'all' && q.topic !== filterTopic) return false;
+      if (filterReady === 'ready' && !prep.ready[q.id]) return false;
+      if (filterReady === 'todo' && prep.ready[q.id]) return false;
+      return true;
+    });
+
+    var readyCount = DEMO_DATA.questions.filter(function (q) { return prep.ready[q.id]; }).length;
+
+    var items = visible.map(function (q) {
+      var isReady = !!prep.ready[q.id];
+      var hintOpen = !!openHints[q.id];
+      return ''
+        + '<div class="q-item">'
+        + '  <div class="q-item__top">'
+        + '    <span class="tag">' + esc(q.topic) + '</span>'
+        + (isReady ? '<span class="tag tag--ok">Подготовлено</span>' : '')
+        + '  </div>'
+        + '  <div class="q-item__text">' + esc(q.text) + '</div>'
+        + '  <p class="muted" style="font-size:13.5px"><b>Почему релевантно:</b> ' + esc(q.why) + '</p>'
+        + UI.field({ id: 'ans-' + q.id, label: 'Ваш ответ', type: 'textarea',
+            model: 'preps.' + prepIndex(prep) + '.answers.' + q.id,
+            value: prep.answers[q.id] || '',
+            hint: 'Сохраняется только в памяти страницы на время сеанса макета.' })
+        + '  <div class="btn-row">'
+        + '    <button type="button" class="btn btn--sm" data-act="q:hint" data-id="' + esc(q.id) + '" '
+        + '      aria-expanded="' + (hintOpen ? 'true' : 'false') + '">'
+        + (hintOpen ? 'Скрыть ориентиры' : 'Показать ориентиры') + '</button>'
+        + '    <button type="button" class="btn btn--sm' + (isReady ? '' : ' btn--primary') + '" '
+        + '      data-act="q:ready" data-id="' + esc(q.id) + '">'
+        + (isReady ? 'Снять отметку' : 'Отметить «Подготовлено»') + '</button>'
+        + '  </div>'
+        + (hintOpen
+            ? '<div class="note note--info" style="margin-top:12px"><div><b>Ориентиры:</b> ' + esc(q.guidance) + '</div></div>'
+            : '')
+        + '</div>';
+    }).join('');
+
+    return ''
+      + pageHead('Вероятные вопросы для подготовки',
+          'Список подготовлен для демонстрации. Никаких обещаний, что спросят именно это.')
+      + sourcesBar(prep)
+      + staleBanner(prep)
+      + '<div class="toolbar">'
+      + '  <label for="q-topic">Тема</label>'
+      + '  <select id="q-topic" data-change-act="q:filter-topic">'
+      + topics.map(function (t) {
+          return '<option value="' + esc(t) + '"' + (t === filterTopic ? ' selected' : '') + '>'
+            + (t === 'all' ? 'Все темы' : esc(t)) + '</option>';
+        }).join('')
+      + '  </select>'
+      + '  <label for="q-ready">Готовность</label>'
+      + '  <select id="q-ready" data-change-act="q:filter-ready">'
+      + '    <option value="all"' + (filterReady === 'all' ? ' selected' : '') + '>Все</option>'
+      + '    <option value="ready"' + (filterReady === 'ready' ? ' selected' : '') + '>Подготовленные</option>'
+      + '    <option value="todo"' + (filterReady === 'todo' ? ' selected' : '') + '>Осталось разобрать</option>'
+      + '  </select>'
+      + '  <span class="muted">Подготовлено ' + readyCount + ' из ' + DEMO_DATA.questions.length + '</span>'
+      + '</div>'
+      + (items || UI.emptyState('Под фильтр ничего не попало', 'Измените тему или готовность.', 'Сбросить фильтры', 'q:filter-reset'))
+      + '<div class="card"><div class="btn-row">'
+      + '  <button type="button" class="btn btn--primary" data-act="go:#/prep/' + esc(prep.id) + '/interview">'
+      + '    Начать пробное интервью</button>'
+      + '  <button type="button" class="btn" data-act="go:#/prep/' + esc(prep.id) + '/match">Вернуться к сопоставлению</button>'
+      + '</div></div>';
+  }
+
+  function prepIndex(prep) {
+    var list = Store.get().preps;
+    for (var i = 0; i < list.length; i++) {
+      if (list[i].id === prep.id) return i;
+    }
+    return 0;
+  }
+
+  /* ---------------- Список тренировок ---------------- */
+
+  function interviews() {
+    var state = Store.get();
+    if (!Store.sectionAllowed('interviews')) return locked('Тренировочные интервью', 'training');
+    if (!state.preps.length) return needPrep(null, 'Тренировочные интервью');
+
+    var prep = Store.activePrep() || state.preps[0];
+    var options = state.preps.map(function (p) {
+      return { value: p.id, label: ScreensCore.prepTitle(p) };
+    });
+
+    return ''
+      + pageHead('Тренировочные интервью', 'Выберите подготовку и формат тренировки.')
+      + '<div class="card stack">'
+      + UI.select({ id: 'training-prep', label: 'Подготовка', value: prep.id, options: options, act: 'prep:select' })
+      + note('demo', '<div>Реплики интервьюера берутся из фиксированного сценария. Ответы не оцениваются ИИ.</div>')
+      + '</div>'
+      + '<div class="grid-2">'
+      + '  <div class="card stack">'
+      + '    <h2>Текстовое интервью</h2>'
+      + '    <p class="muted">Чат: вопрос, ваш ответ, следующий вопрос и демонстрационный итог.</p>'
+      + '    <div class="btn-row"><button type="button" class="btn btn--primary" data-act="go:#/prep/'
+      + esc(prep.id) + '/interview">Открыть чат</button></div>'
+      + '  </div>'
+      + '  <div class="card stack">'
+      + '    <h2>Голосовое интервью</h2>'
+      + '    <p class="muted">Симуляция разговора: статусы, расшифровка и завершение. Микрофон не запрашивается.</p>'
+      + '    <div class="btn-row"><button type="button" class="btn" data-act="go:#/prep/'
+      + esc(prep.id) + '/voice">Открыть голосовой экран</button></div>'
+      + '  </div>'
+      + '</div>'
+      + '<div class="card stack"><h2>Прошлые тренировки</h2>'
+      + (state.history.filter(function (h) { return /интервью/i.test(h.what); }).length
+          ? '<ul class="list">' + state.history.filter(function (h) { return /интервью/i.test(h.what); })
+              .map(function (h) {
+                return '<li><div class="row-item"><div class="row-item__main">'
+                  + '<div class="row-item__title">' + esc(h.what) + '</div>'
+                  + '<div class="row-item__meta">' + esc(h.when) + '</div></div>'
+                  + '<button type="button" class="btn btn--sm" data-act="go:' + esc(h.route) + '">Открыть</button>'
+                  + '</div></li>';
+              }).join('') + '</ul>'
+          : '<p class="muted">Тренировок пока не было.</p>')
+      + '</div>';
+  }
+
+  /* ---------------- Текстовое интервью ---------------- */
+
+  function ensureChat(prep) {
+    if (!prep.chat) {
+      prep.chat = { started: false, index: 0, messages: [], pending: false, finished: false, failed: false, draft: '' };
+    }
+    return prep.chat;
+  }
+
+  function interview(prepId) {
+    var state = Store.get();
+    if (!Store.sectionAllowed('interviews')) return locked('Текстовое пробное интервью', 'training');
+    var prep = Store.prepById(prepId) || Store.activePrep();
+    if (!prep) return needPrep(prep, 'Текстовое пробное интервью');
+    var chat = ensureChat(prep);
+
+    if (!chat.started) {
+      return ''
+        + pageHead('Текстовое пробное интервью', 'Настройка формата перед началом.')
+        + ScreensCore.staleBanner(prep)
+        + '<div class="card stack">'
+        + sourcesBar(prep)
+        + '  <h2>Формат</h2>'
+        + '  <p class="muted">Пять вопросов из подготовленного сценария: опыт, процессы, SQL, постановки и кейс.</p>'
+        + note('demo', '<div><strong>Реплики интервьюера — фиксированный сценарий.</strong> Ваши ответы видны в '
+          + 'переписке, но не анализируются: настоящей оценки ответа нет.</div>')
+        + '  <div class="btn-row"><button type="button" class="btn btn--primary" data-act="chat:start">Начать интервью</button>'
+        + '  <button type="button" class="btn" data-act="go:#/prep/' + esc(prep.id) + '/questions">Сначала разобрать вопросы</button></div>'
+        + '</div>';
+    }
+
+    if (chat.finished) return interviewSummary(prep);
+
+    var messages = chat.messages.map(function (m) {
+      var cls = m.who === 'user' ? 'msg msg--user' : (m.who === 'system' ? 'msg msg--sys' : 'msg');
+      var who = m.who === 'user' ? 'Вы' : (m.who === 'system' ? 'Макет' : 'Интервьюер (демо-сценарий)');
+      return '<div class="' + cls + '"><span class="msg__who">' + esc(who) + '</span>'
+        + '<div class="msg__body">' + escLines(m.text) + '</div></div>';
+    }).join('');
+
+    var pending = chat.pending
+      ? '<div class="msg"><span class="msg__who">Интервьюер (демо-сценарий)</span>'
+        + '<div class="msg__body"><span class="dots" aria-label="Готовится следующая реплика">'
+        + '<span></span><span></span><span></span></span></div></div>'
+      : '';
+
+    var failedBlock = chat.failed
+      ? note('alert', '<div><strong>Демонстрационная ошибка отправки.</strong> Так выглядит состояние, когда реплика '
+          + 'не прошла. <button type="button" class="btn btn--sm" style="margin-top:8px" data-act="chat:retry">Повторить</button></div>')
+      : '';
+
+    return ''
+      + pageHead('Текстовое пробное интервью', 'Вопрос ' + Math.min(chat.index + 1, DEMO_DATA.interviewScript.length)
+          + ' из ' + DEMO_DATA.interviewScript.length)
+      + sourcesBar(prep)
+      + '<div class="card stack">'
+      + '  <div class="chat" id="chat-log" role="log" aria-live="polite">' + messages + pending + '</div>'
+      + failedBlock
+      + UI.field({ id: 'chat-input', label: 'Ваш ответ', type: 'textarea', model: 'chatDraft',
+          value: chat.draft, placeholder: 'Напишите ответ так, как сказали бы вслух',
+          hint: 'Текст остаётся в браузере и сбрасывается после перезагрузки.' })
+      + '  <div class="btn-row btn-row--between">'
+      + '    <div class="btn-row">'
+      + '      <button type="button" class="btn btn--danger" data-act="chat:exit">Завершить и выйти</button>'
+      + '      <button type="button" class="btn btn--quiet btn--sm" data-act="chat:fail">Показать ошибку отправки (демо)</button>'
+      + '    </div>'
+      + '    <button type="button" class="btn btn--primary" data-act="chat:send"' + (chat.pending ? ' disabled' : '') + '>'
+      + '      Отправить ответ</button>'
+      + '  </div>'
+      + '</div>';
+  }
+
+  function interviewSummary(prep) {
+    var s = DEMO_DATA.interviewSummary;
+    var answers = prep.chat.messages.filter(function (m) { return m.who === 'user'; });
+    return ''
+      + pageHead('Итог пробного интервью', 'Демонстрационный отчёт по завершённой тренировке.')
+      + note('demo', '<div><strong>Отчёт заранее подготовлен.</strong> Он не составлен по вашим ответам: настоящей '
+        + 'оценки в макете нет. Ваши ' + answers.length + ' ответ(ов) остались только в переписке этого сеанса.</div>')
+      + '<div class="card stack">'
+      + '  <h2>Примеры сильных ответов</h2>'
+      + '  <ul>' + s.strong.map(function (t) { return '<li>' + esc(t) + '</li>'; }).join('') + '</ul>'
+      + '  <h2>Темы для повторения</h2>'
+      + '  <ul>' + s.repeat.map(function (t) { return '<li>' + esc(t) + '</li>'; }).join('') + '</ul>'
+      + '  <h2>Рекомендации</h2>'
+      + '  <ul>' + s.advice.map(function (t) { return '<li>' + esc(t) + '</li>'; }).join('') + '</ul>'
+      + '</div>'
+      + '<div class="card"><div class="btn-row">'
+      + '  <button type="button" class="btn btn--primary" data-act="chat:restart">Повторить тренировку</button>'
+      + '  <button type="button" class="btn" data-act="go:#/prep/' + esc(prep.id) + '/voice">Попробовать голосом</button>'
+      + '  <button type="button" class="btn" data-act="go:#/prep/' + esc(prep.id) + '/questions">Вернуться к вопросам</button>'
+      + '</div></div>';
+  }
+
+  /* ---------------- Голосовое интервью ---------------- */
+
+  function ensureVoice(prep) {
+    if (!prep.voice) {
+      prep.voice = { status: 'idle', line: 0, finished: false };
+    }
+    return prep.voice;
+  }
+
+  var VOICE_STATUS = {
+    idle: { label: 'Не начато', hint: 'Нажмите «Начать разговор», чтобы запустить демонстрационный сценарий.' },
+    listening: { label: 'Слушаю', hint: 'Так выглядел бы экран, пока говорит кандидат. Микрофон не используется.' },
+    thinking: { label: 'Готовлю ответ', hint: 'Пауза перед следующей репликой сценария.' },
+    speaking: { label: 'Отвечаю', hint: 'Реплика интервьюера из фиксированного сценария. Синтез речи не включён.' },
+    paused: { label: 'Пауза', hint: 'Разговор приостановлен.' },
+    lost: { label: 'Связь потеряна', hint: 'Демонстрация состояния обрыва связи.' }
+  };
+
+  function voice(prepId) {
+    var state = Store.get();
+    if (!Store.sectionAllowed('interviews')) return locked('Голосовое пробное интервью', 'training');
+    var prep = Store.prepById(prepId) || Store.activePrep();
+    if (!prep) return needPrep(prep, 'Голосовое пробное интервью');
+    var v = ensureVoice(prep);
+
+    if (v.finished) {
+      return ''
+        + pageHead('Итог голосовой тренировки', 'Демонстрационный итог.')
+        + note('demo', '<div>Звук не записывался, расшифровка взята из сценария макета.</div>')
+        + '<div class="card stack">'
+        + '  <h2>Что было в сценарии</h2>'
+        + '  <ul>' + DEMO_DATA.voiceScript.map(function (l) {
+              return '<li><b>' + esc(l.who) + ':</b> ' + esc(l.text) + '</li>';
+            }).join('') + '</ul>'
+        + '  <h2>На что обратить внимание</h2>'
+        + '  <ul>' + DEMO_DATA.interviewSummary.advice.map(function (t) { return '<li>' + esc(t) + '</li>'; }).join('') + '</ul>'
+        + '</div>'
+        + '<div class="card"><div class="btn-row">'
+        + '  <button type="button" class="btn btn--primary" data-act="voice:restart">Пройти заново</button>'
+        + '  <button type="button" class="btn" data-act="prep:open" data-id="' + esc(prep.id) + '">Вернуться в подготовку</button>'
+        + '</div></div>';
+    }
+
+    var status = VOICE_STATUS[v.status];
+    var lines = DEMO_DATA.voiceScript.slice(0, v.line).map(function (l) {
+      return '<div class="transcript__line"><b>' + esc(l.who) + '</b>' + esc(l.text) + '</div>';
+    }).join('');
+
+    var orbCls = 'voice-orb'
+      + (v.status === 'listening' || v.status === 'speaking' ? ' voice-orb--live' : '')
+      + (v.status === 'lost' ? ' voice-orb--err' : '');
+
+    return ''
+      + pageHead('Голосовое пробное интервью', 'Симуляция разговора без обращения к микрофону.')
+      + sourcesBar(prep)
+      + note('alert', '<div><strong>Только симуляция.</strong> Разрешение на микрофон не запрашивается, звук не '
+        + 'записывается, синтез речи не используется. Индикаторы и расшифровка — из фиксированного сценария.</div>')
+      + '<div class="card stack">'
+      + '  <div class="voice-stage">'
+      + '    <div class="' + orbCls + '">' + esc(status.label) + '</div>'
+      + '    <p class="muted" role="status" aria-live="polite">' + esc(status.hint) + '</p>'
+      + '  </div>'
+      + '  <div class="btn-row">'
+      + (v.status === 'idle'
+          ? '<button type="button" class="btn btn--primary" data-act="voice:start">Начать разговор</button>'
+          : '<button type="button" class="btn btn--primary" data-act="voice:next">Следующая реплика</button>')
+      + '    <button type="button" class="btn" data-act="voice:pause"' + (v.status === 'idle' ? ' disabled' : '') + '>'
+      + (v.status === 'paused' ? 'Продолжить' : 'Пауза') + '</button>'
+      + '    <button type="button" class="btn" data-act="voice:mic">Микрофон (заглушка)</button>'
+      + '    <button type="button" class="btn btn--danger" data-act="voice:finish"' + (v.status === 'idle' ? ' disabled' : '') + '>'
+      + '      Завершить</button>'
+      + '  </div>'
+      + '  <div class="toolbar">'
+      + '    <label for="voice-scenario">Демо-сценарий состояния</label>'
+      + '    <select id="voice-scenario" data-change-act="voice:set-status">'
+      + Object.keys(VOICE_STATUS).map(function (key) {
+          return '<option value="' + key + '"' + (key === v.status ? ' selected' : '') + '>'
+            + esc(VOICE_STATUS[key].label) + '</option>';
+        }).join('')
+      + '    </select>'
+      + '  </div>'
+      + '  <h2>Расшифровка</h2>'
+      + '  <div class="transcript">' + (lines || '<p class="muted">Расшифровка появится после начала разговора.</p>') + '</div>'
+      + '</div>';
+  }
+
+  /* ---------------- Помощник на собеседовании ---------------- */
+
+  function assistant() {
+    var state = Store.get();
+    if (!Store.sectionAllowed('assistant')) return locked('Помощник на собеседовании', 'assistant');
+
+    var a = state.assistant;
+    var prepOptions = state.preps.length
+      ? state.preps.map(function (p) { return { value: p.id, label: ScreensCore.prepTitle(p) }; })
+      : [{ value: '', label: 'Подготовок пока нет' }];
+
+    var statusText = {
+      disconnected: 'Не подключён',
+      connecting: 'Подключение',
+      connected: 'Подключён',
+      failed: 'Ошибка подключения',
+      ended: 'Сессия завершена'
+    }[a.status];
+
+    var statusTag = {
+      disconnected: 'tag',
+      connecting: 'tag tag--info',
+      connected: 'tag tag--ok',
+      failed: 'tag tag--alert',
+      ended: 'tag'
+    }[a.status];
+
+    var hint = DEMO_DATA.assistantHints[a.hintIndex];
+
+    return ''
+      + pageHead('Помощник на собеседовании',
+          'Отдельный компонент, который по замыслу работает во время реального интервью.')
+      + note('alert', '<div><strong>Функции пока нет.</strong> Формат файла, операционные системы, способ установки и '
+        + 'протокол соединения не определены. В макете показан только предполагаемый порядок работы: '
+        + 'ничего не скачивается, звук и экран не захватываются, подсказки не генерируются.</div>')
+      + '<div class="card stack">'
+      + '  <h2>Зачем нужен отдельный компонент</h2>'
+      + '  <p class="muted">Собеседование обычно идёт в стороннем приложении для видеозвонков. Веб-страница не имеет '
+      + '  доступа к чужому окну, поэтому по замыслу владельца потребуется отдельный компонент на компьютере '
+      + '  пользователя. Как именно он будет устроен — открытый вопрос.</p>'
+      + '</div>'
+      + '<div class="card stack">'
+      + '  <h2>Подготовка для сессии</h2>'
+      + UI.select({ id: 'assistant-prep', label: 'Резюме и вакансия', value: a.prepId || '',
+          options: prepOptions, act: 'assistant:prep' })
+      + (state.preps.length ? '' : note('info', '<div>Сначала добавьте вакансию и резюме в разделе «Вакансии и подготовка».</div>'))
+      + '</div>'
+      + '<div class="card stack">'
+      + '  <h2>Порядок работы</h2>'
+      + '  <ol>'
+      + '    <li>Скачать компонент на компьютер.</li>'
+      + '    <li>Подключить его к аккаунту.</li>'
+      + '    <li>Выбрать подготовку — резюме и вакансию.</li>'
+      + '    <li>Начать сессию, согласованную со всеми участниками разговора.</li>'
+      + '  </ol>'
+      + '  <p class="faint" style="font-size:13px">Это схема будущего опыта, а не инструкция по установке.</p>'
+      + '  <div class="btn-row">'
+      + '    <button type="button" class="btn btn--primary" data-act="assistant:download">Скачать помощник</button>'
+      + '    <button type="button" class="btn" data-act="assistant:connect">Подключить (демо-статусы)</button>'
+      + '    <button type="button" class="btn" data-act="assistant:hints">Посмотреть пример подсказок</button>'
+      + '  </div>'
+      + '</div>'
+      + '<div class="card stack">'
+      + '  <div class="card__head" style="margin-bottom:0"><div class="card__title"><h2>Состояние подключения</h2>'
+      + '  <small>Демонстрационные статусы, реального соединения нет</small></div>'
+      + '  <span class="' + statusTag + '">' + esc(statusText) + '</span></div>'
+      + '  <div class="btn-row">'
+      + ['disconnected', 'connecting', 'connected', 'failed', 'ended'].map(function (key) {
+          return '<button type="button" class="btn btn--sm" data-act="assistant:status" data-status="' + key + '">'
+            + esc({ disconnected: 'Не подключён', connecting: 'Подключение', connected: 'Подключён',
+                    failed: 'Ошибка подключения', ended: 'Сессия завершена' }[key]) + '</button>';
+        }).join('')
+      + '  </div>'
+      + '</div>'
+      + (a.hintsOpen
+          ? '<div class="card stack">'
+            + '  <div class="card__head" style="margin-bottom:0"><div class="card__title">'
+            + '    <h2>Пример подсказок</h2><small>Заранее подготовленные реплики, не результат распознавания</small></div>'
+            + '    <div class="btn-row">'
+            + '      <button type="button" class="btn btn--sm" data-act="assistant:hints-toggle">Свернуть</button>'
+            + '      <button type="button" class="btn btn--sm" data-act="assistant:hints-close" aria-label="Закрыть панель подсказок">Закрыть</button>'
+            + '    </div>'
+            + '  </div>'
+            + note('demo', '<div>Ни звук, ни экран не считываются. Ниже — фиксированный пример того, как могла бы '
+              + 'выглядеть подсказка.</div>')
+            + '  <div class="msg msg--sys" style="max-width:100%"><div class="msg__body">' + esc(hint.heard) + '</div></div>'
+            + '  <div class="card" style="background:var(--surface-2)">'
+            + '    <p><b>Направление ответа:</b> ' + esc(hint.hint) + '</p>'
+            + '    <p class="muted" style="font-size:13.5px"><b>Напоминание:</b> ' + esc(hint.remind) + '</p>'
+            + '  </div>'
+            + '  <div class="btn-row">'
+            + '    <button type="button" class="btn btn--sm" data-act="assistant:hint-prev">Предыдущий пример</button>'
+            + '    <button type="button" class="btn btn--sm" data-act="assistant:hint-next">Следующий пример</button>'
+            + '    <span class="muted" style="align-self:center">Пример ' + (a.hintIndex + 1) + ' из '
+            + DEMO_DATA.assistantHints.length + '</span>'
+            + '  </div>'
+            + '</div>'
+          : '')
+      + '<div class="card stack">'
+      + '  <h2>Правила и согласие участников</h2>'
+      + note('alert', '<div>Многие работодатели запрещают посторонние подсказки на собеседовании, а запись разговора '
+        + 'без согласия участников может нарушать закон и правила площадки. Использование такого помощника — '
+        + 'ответственность пользователя. Макет не обещает, что окно помощника невидимо при демонстрации экрана '
+        + 'или незаметно для собеседника: это нерешённый технический и правовой вопрос.</div>')
+      + '</div>';
+  }
+
+  /* ---------------- Тарифы ---------------- */
+
+  function locked(title, requiredPlan) {
+    var plan = Store.planById(requiredPlan);
+    return ''
+      + pageHead(title)
+      + '<div class="card stack">'
+      + note('demo', '<div><strong>Раздел недоступен на текущем демо-уровне.</strong> По задумке он входит в уровень '
+        + '«' + esc(plan.name) + '». Здесь показано, как выглядит объяснение заблокированного действия.</div>')
+      + '  <p class="muted">Функцию можно изучить в макете, переключив демо-уровень. Покупка недоступна: '
+      + '  тарифы, цены и лимиты ещё не утверждены, а платежи не подключены.</p>'
+      + '  <div class="btn-row">'
+      + '    <button type="button" class="btn btn--primary" data-act="plan:set" data-plan="' + esc(requiredPlan) + '">'
+      + '      Переключить демо-уровень на «' + esc(plan.name) + '»</button>'
+      + '    <a class="btn" href="#/plans">Открыть тарифы</a>'
+      + '  </div>'
+      + '</div>';
+  }
+
+  function plans() {
+    var state = Store.get();
+    var cards = DEMO_DATA.plans.map(function (p) {
+      var active = state.plan === p.id;
+      return ''
+        + '<div class="plan' + (active ? ' plan--active' : '') + '">'
+        + '  <h3>' + esc(p.name) + '</h3>'
+        + '  <div class="plan__price">' + esc(p.price) + '</div>'
+        + '  <p class="muted" style="font-size:13px">' + esc(p.limits) + '</p>'
+        + '  <ul>' + p.features.map(function (f) { return '<li>' + esc(f) + '</li>'; }).join('') + '</ul>'
+        + '  <div class="btn-row" style="margin-top:16px">'
+        + (active
+            ? '<span class="tag tag--ok">Текущий демо-уровень</span>'
+            : '<button type="button" class="btn" data-act="plan:set" data-plan="' + esc(p.id) + '">Выбрать в демо</button>')
+        + '    <button type="button" class="btn btn--sm" data-act="stub:pay">Оплатить</button>'
+        + '  </div>'
+        + '</div>';
+    }).join('');
+
+    var current = Store.planById(state.plan);
+
+    return ''
+      + pageHead('Тарифы и лимиты', 'Временные названия и группировка. Тарифная сетка не утверждена.')
+      + note('demo', '<div><strong>Цены и лимиты не определены.</strong> Названия уровней рабочие. Оплата — заглушка: '
+        + 'банковских полей и платёжных сервисов в макете нет.</div>')
+      + '<div class="plans">' + cards + '</div>'
+      + '<div class="card stack">'
+      + '  <h2>Что доступно на уровне «' + esc(current.name) + '»</h2>'
+      + '  <ul>'
+      + '    <li>Мои резюме — доступно</li>'
+      + '    <li>Вакансии и подготовка — доступно</li>'
+      + '    <li>Тренировочные интервью — ' + (Store.sectionAllowed('interviews') ? 'доступно' : 'недоступно на этом уровне') + '</li>'
+      + '    <li>Помощник на собеседовании — ' + (Store.sectionAllowed('assistant') ? 'доступно' : 'недоступно на этом уровне') + '</li>'
+      + '  </ul>'
+      + '  <div class="btn-row">'
+      + '    <button type="button" class="btn" data-act="demo:scenario-limit">Показать состояние «лимит исчерпан»</button>'
+      + '  </div>'
+      + '</div>';
+  }
+
+  /* ---------------- История ---------------- */
+
+  function history() {
+    var state = Store.get();
+    if (!state.history.length) {
+      return pageHead('История')
+        + UI.emptyState('История пуста', 'Здесь появятся подготовки и тренировки этого сеанса макета.',
+            'К обзору', 'go:#/overview');
+    }
+    var rows = state.history.map(function (h) {
+      return ''
+        + '<li><div class="row-item">'
+        + '  <div class="row-item__main">'
+        + '    <div class="row-item__title">' + esc(h.what) + '</div>'
+        + '    <div class="row-item__meta">' + esc(h.when) + '</div>'
+        + '  </div>'
+        + '  <button type="button" class="btn btn--sm" data-act="go:' + esc(h.route) + '">Открыть результат</button>'
+        + '</div></li>';
+    }).join('');
+    return ''
+      + pageHead('История', 'Подготовки и тренировки этого сеанса.')
+      + note('info', '<div>История хранится в памяти страницы и очищается после перезагрузки.</div>')
+      + '<ul class="list">' + rows + '</ul>';
+  }
+
+  /* ---------------- Настройки и данные ---------------- */
+
+  function settings() {
+    var state = Store.get();
+    var s = state.settings;
+    function toggle(key, title, text) {
+      return ''
+        + '<label class="switch">'
+        + '  <input type="checkbox" data-toggle="' + key + '"' + (s[key] ? ' checked' : '') + '>'
+        + '  <span class="switch__text">' + esc(title) + '<small>' + esc(text) + '</small></span>'
+        + '</label>';
+    }
+    return ''
+      + pageHead('Настройки и данные', 'Переключатели работают локально: настоящих уведомлений макет не отправляет.')
+      + '<div class="card stack">'
+      + '  <h2>Профиль</h2>'
+      + UI.field({ id: 'set-name', label: 'Имя', model: '', value: DEMO_DATA.candidate.name,
+          hint: 'Демонстрационное значение. Вымышленный профиль из комплекта макета.' })
+      + UI.field({ id: 'set-city', label: 'Город', model: '', value: DEMO_DATA.candidate.city })
+      + '  <div class="btn-row"><button type="button" class="btn" data-act="stub:profile-save">Сохранить профиль</button></div>'
+      + '</div>'
+      + '<div class="card stack">'
+      + '  <h2>Уведомления</h2>'
+      + note('info', '<div>Ни письма, ни push-уведомления не отправляются: почтовый сервис не подключён.</div>')
+      + toggle('emailUpdates', 'Письма о новых возможностях', 'Заглушка переключателя')
+      + toggle('weeklyDigest', 'Еженедельная сводка по подготовке', 'Заглушка переключателя')
+      + toggle('practiceReminders', 'Напоминания о тренировках', 'Заглушка переключателя')
+      + '</div>'
+      + '<div class="card stack">'
+      + '  <h2>Оформление</h2>'
+      + '  <div class="btn-row">'
+      + '    <button type="button" class="btn" data-act="theme:toggle">'
+      + (state.theme === 'dark' ? 'Светлая тема' : 'Тёмная тема') + '</button>'
+      + '  </div>'
+      + '  <p class="faint" style="font-size:13px">Тема и выбранный демо-сценарий — единственное, что макет '
+      + '  сохраняет в localStorage.</p>'
+      + '</div>'
+      + '<div class="card stack">'
+      + '  <h2>Мои данные</h2>'
+      + '  <p class="muted">Что предполагалось бы хранить в готовом продукте:</p>'
+      + '  <ul>'
+      + '    <li>Версии резюме и их содержимое.</li>'
+      + '    <li>Добавленные вакансии и связанные подготовки.</li>'
+      + '    <li>Ответы на вопросы и переписку тренировочных интервью.</li>'
+      + '    <li>Настройки аккаунта и историю действий.</li>'
+      + '  </ul>'
+      + note('alert', '<div>Сейчас ничего из этого не хранится: данные живут в памяти вкладки и исчезают '
+        + 'после перезагрузки. Текст ниже — черновик формулировок, а не готовая политика конфиденциальности.</div>')
+      + '  <div class="btn-row">'
+      + '    <button type="button" class="btn" data-act="data:clear-answers">Удалить ответы на вопросы</button>'
+      + '    <button type="button" class="btn" data-act="data:clear-history">Очистить историю</button>'
+      + '    <button type="button" class="btn btn--danger" data-act="data:reset">Сбросить демо полностью</button>'
+      + '  </div>'
+      + '</div>'
+      + '<div class="card stack">'
+      + '  <h2>Черновик о приватности</h2>'
+      + '  <p class="muted">Прототип не отправляет введённый текст и выбранные файлы на сервер, не подключает '
+      + '  аналитику и внешние сервисы. Формулировки будут переписаны юристом до запуска: это рабочий черновик.</p>'
+      + '</div>';
+  }
+
+  return {
+    match: match,
+    questions: questions,
+    interviews: interviews,
+    interview: interview,
+    voice: voice,
+    assistant: assistant,
+    plans: plans,
+    history: history,
+    settings: settings,
+    locked: locked,
+    ensureChat: ensureChat,
+    ensureVoice: ensureVoice
+  };
+})();
+
+</script>
+<script>
+/* ==== app.js ==== */
+/* ============================================================
+   Маршрутизация, отрисовка оболочки и обработка действий.
+   Никаких сетевых запросов: макет работает полностью локально.
+   ============================================================ */
+
+(function () {
+  'use strict';
+
+  var esc = UI.esc;
+  var root = document.getElementById('app');
+
+  var NAV = [
+    { section: 'overview', href: '#/overview', label: 'Обзор' },
+    { section: 'resumes', href: '#/resumes', label: 'Мои резюме' },
+    { section: 'vacancies', href: '#/vacancies', label: 'Вакансии и подготовка' },
+    { section: 'interviews', href: '#/interviews', label: 'Тренировочные интервью' },
+    { section: 'assistant', href: '#/assistant', label: 'Помощник на собеседовании' },
+    { section: 'plans', href: '#/plans', label: 'Тарифы и лимиты' },
+    { section: 'settings', href: '#/settings', label: 'Настройки и данные' }
+  ];
+
+  var PUBLIC_ROUTES = ['start', 'auth', 'onboarding'];
+
+  /* ---------------- Работа с путями состояния ---------------- */
+
+  function setPath(path, value) {
+    var parts = path.split('.');
+    var target = Store.get();
+    for (var i = 0; i < parts.length - 1; i++) {
+      if (target[parts[i]] === undefined || target[parts[i]] === null) return;
+      target = target[parts[i]];
+    }
+    target[parts[parts.length - 1]] = value;
+  }
+
+  /* ---------------- Разбор маршрута ---------------- */
+
+  function parseRoute() {
+    var hash = window.location.hash.replace(/^#\/?/, '');
+    var parts = hash.split('/').filter(function (p) { return p.length > 0; });
+    if (!parts.length) return { name: 'start', parts: [] };
+    return { name: parts[0], parts: parts };
+  }
+
+  var KNOWN = ['start', 'auth', 'onboarding', 'overview', 'resumes', 'resume', 'vacancies',
+    'vacancy', 'prep', 'interviews', 'assistant', 'plans', 'history', 'settings'];
+
+  /* ---------------- Отрисовка ---------------- */
+
+  function screenFor(route) {
+    var parts = route.parts;
+    switch (route.name) {
+      case 'start': return ScreensCore.start();
+      case 'auth': return ScreensCore.auth(parts[1] || 'login');
+      case 'onboarding': return ScreensCore.onboarding();
+      case 'overview': return ScreensCore.overview();
+      case 'resumes': return ScreensCore.resumes();
+      case 'resume':
+        if (parts[1] === 'new') return ScreensCore.resumeWizard();
+        if (parts[1] === 'upload') return ScreensCore.upload();
+        return ScreensCore.resumeCard(parts[1]);
+      case 'vacancies': return ScreensCore.vacancies();
+      case 'vacancy': return ScreensCore.vacancyNew();
+      case 'prep': {
+        var prepId = parts[1];
+        var view = parts[2] || 'match';
+        if (view === 'questions') return ScreensPrep.questions(prepId);
+        if (view === 'interview') return ScreensPrep.interview(prepId);
+        if (view === 'voice') return ScreensPrep.voice(prepId);
+        return ScreensPrep.match(prepId);
+      }
+      case 'interviews': return ScreensPrep.interviews();
+      case 'assistant': return ScreensPrep.assistant();
+      case 'plans': return ScreensPrep.plans();
+      case 'history': return ScreensPrep.history();
+      case 'settings': return ScreensPrep.settings();
+      default: return '';
+    }
+  }
+
+  function sectionForRoute(name) {
+    if (name === 'resume') return 'resumes';
+    if (name === 'vacancy') return 'vacancies';
+    if (name === 'prep') return 'vacancies';
+    if (name === 'history') return 'settings';
+    return name;
+  }
+
+  function sidebar(activeSection) {
+    var links = NAV.map(function (item) {
+      var allowed = Store.sectionAllowed(item.section);
+      return '<a class="navlink" href="' + item.href + '"'
+        + (item.section === activeSection ? ' aria-current="page"' : '') + '>'
+        + '<span>' + esc(item.label) + '</span>'
+        + (allowed ? '' : '<span class="navlink__lock">по тарифу</span>')
+        + '</a>';
+    }).join('');
+
+    return ''
+      + '<nav class="sidebar" aria-label="Основная навигация">'
+      + '  <div class="sidebar__brand">'
+      + '    <b>Карьерный помощник</b>'
+      + '    <span class="tag tag--demo">Демо-макет</span>'
+      + '  </div>'
+      + '  <div class="sidebar__nav">' + links + '</div>'
+      + '  <div class="sidebar__foot">'
+      + '    <a class="navlink" href="#/history"><span>История</span></a>'
+      + '    <a class="navlink" href="#/start"><span>Выйти из демо</span></a>'
+      + '  </div>'
+      + '</nav>';
+  }
+
+  function topbar() {
+    var state = Store.get();
+    var prep = Store.activePrep();
+    var ctx = prep
+      ? '<b>' + esc(ScreensCore.prepTitle(prep)) + '</b>'
+        + '<button type="button" class="btn btn--sm" data-act="prep:change-sources" data-id="'
+        + esc(prep.id) + '">Заменить исходники</button>'
+      : '<span class="muted">Подготовка не выбрана</span>';
+
+    return ''
+      + '<div class="topbar">'
+      + '  <button type="button" class="btn btn--sm menu-btn" data-act="nav:toggle" aria-label="Открыть меню">☰</button>'
+      + '  <div class="topbar__ctx">' + ctx + '</div>'
+      + '  <span class="tag tag--demo">'
+      + '    <span class="badge-full">Демо — ИИ и платежи не подключены</span>'
+      + '    <span class="badge-short">Демо</span>'
+      + '  </span>'
+      + '  <button type="button" class="btn btn--sm" data-act="theme:toggle" aria-label="Переключить тему">'
+      + (state.theme === 'dark' ? '☀' : '☾') + '</button>'
+      + '</div>';
+  }
+
+  function demoPanel() {
+    var state = Store.get();
+    var open = state.demoPanelOpen;
+    var options = [
+      { value: 'empty', label: 'Пусто' },
+      { value: 'filled', label: 'Заполнено' },
+      { value: 'loading', label: 'Загрузка' },
+      { value: 'error', label: 'Ошибка' },
+      { value: 'limit', label: 'Лимит' }
+    ];
+    return ''
+      + '<aside class="demo-panel' + (open ? '' : ' demo-panel--collapsed') + '" aria-label="Состояния демо">'
+      + '  <button type="button" class="demo-panel__head" data-act="demopanel:toggle" aria-expanded="'
+      + (open ? 'true' : 'false') + '">'
+      + '    <span>Состояния демо</span><span aria-hidden="true">' + (open ? '▾' : '▴') + '</span>'
+      + '  </button>'
+      + '  <div class="demo-panel__body">'
+      + '    <label class="field" for="demo-scenario"><span class="field__label">Сценарий</span>'
+      + '      <select id="demo-scenario" data-change-act="demo:scenario">'
+      + options.map(function (o) {
+          return '<option value="' + o.value + '"' + (o.value === state.scenario ? ' selected' : '') + '>'
+            + esc(o.label) + '</option>';
+        }).join('')
+      + '      </select></label>'
+      + '    <label class="field" for="demo-plan"><span class="field__label">Демо-тариф</span>'
+      + '      <select id="demo-plan" data-change-act="demo:plan">'
+      + DEMO_DATA.plans.map(function (p) {
+          return '<option value="' + esc(p.id) + '"' + (p.id === state.plan ? ' selected' : '') + '>'
+            + esc(p.name) + '</option>';
+        }).join('')
+      + '      </select></label>'
+      + '    <button type="button" class="btn btn--sm btn--block" data-act="data:reset">Сбросить демо</button>'
+      + '    <p style="margin-top:8px">Панель влияет только на демонстрацию и не является частью продукта.</p>'
+      + '  </div>'
+      + '</aside>';
+  }
+
+  function render() {
+    var state = Store.get();
+    var route = parseRoute();
+
+    document.documentElement.setAttribute('data-theme', state.theme);
+
+    if (KNOWN.indexOf(route.name) < 0) {
+      window.location.hash = '#/overview';
+      return;
+    }
+
+    var focusId = document.activeElement ? document.activeElement.id : null;
+    var selection = null;
+    if (document.activeElement && typeof document.activeElement.selectionStart === 'number') {
+      selection = document.activeElement.selectionStart;
+    }
+    var chatLog = document.getElementById('chat-log');
+    var chatAtBottom = chatLog ? true : false;
+
+    var html;
+    if (PUBLIC_ROUTES.indexOf(route.name) >= 0) {
+      html = screenFor(route);
+    } else {
+      var section = sectionForRoute(route.name);
+      var content = Store.sectionAllowed(section) || section === 'settings' || section === 'plans'
+        ? screenFor(route)
+        : ScreensPrep.locked(navLabel(section), section === 'assistant' ? 'assistant' : 'training');
+      html = ''
+        + '<div class="shell">'
+        + sidebar(section)
+        + '  <div class="main">' + topbar()
+        + '    <main class="content" id="main" tabindex="-1">' + content + '</main>'
+        + '  </div>'
+        + '</div>'
+        + (document.body.getAttribute('data-nav') === 'open'
+            ? '<button type="button" class="nav-scrim" data-act="nav:close" aria-label="Закрыть меню"></button>' : '')
+        + demoPanel();
+    }
+
+    root.innerHTML = html + UI.renderModal(state.modal) + UI.renderToasts(state.toasts);
+
+    if (state.modal) UI.trapFocus(root);
+    if (focusId && !state.modal) {
+      var node = document.getElementById(focusId);
+      if (node && typeof node.focus === 'function') {
+        node.focus();
+        if (selection !== null && typeof node.setSelectionRange === 'function') {
+          try { node.setSelectionRange(selection, selection); } catch (e) { /* не текстовое поле */ }
+        }
+      }
+    }
+    var newLog = document.getElementById('chat-log');
+    if (newLog && chatAtBottom) newLog.scrollTop = newLog.scrollHeight;
+    bindFileInput();
+  }
+
+  function navLabel(section) {
+    for (var i = 0; i < NAV.length; i++) {
+      if (NAV[i].section === section) return NAV[i].label;
+    }
+    return 'Раздел';
+  }
+
+  /* ---------------- Локальный выбор файла ---------------- */
+
+  function bindFileInput() {
+    var input = document.getElementById('file-input');
+    var zone = document.getElementById('dropzone');
+    if (!input) return;
+
+    input.addEventListener('change', function () {
+      if (input.files && input.files[0]) {
+        Store.update(function (s) { s.upload.fileName = input.files[0].name; });
+        UI.toast('Файл выбран локально. Он не отправляется и не читается макетом.');
+      }
+    });
+
+    if (!zone) return;
+    ['dragenter', 'dragover'].forEach(function (type) {
+      zone.addEventListener(type, function (event) {
+        event.preventDefault();
+        zone.classList.add('dropzone--over');
+      });
+    });
+    ['dragleave', 'drop'].forEach(function (type) {
+      zone.addEventListener(type, function (event) {
+        event.preventDefault();
+        zone.classList.remove('dropzone--over');
+      });
+    });
+    zone.addEventListener('drop', function (event) {
+      var files = event.dataTransfer && event.dataTransfer.files;
+      if (files && files[0]) {
+        Store.update(function (s) { s.upload.fileName = files[0].name; });
+        UI.toast('Файл выбран локально. Он не отправляется и не читается макетом.');
+      }
+    });
+  }
+
+  /* ---------------- Действия ---------------- */
+
+  function go(hash) {
+    if (window.location.hash === hash) render();
+    else window.location.hash = hash;
+  }
+
+  function dispatch(act, data, element) {
+    var state = Store.get();
+
+    if (act.indexOf('go:') === 0) {
+      var target = act.slice(3);
+      if (data.prep) state.activePrepId = data.prep;
+      go(target);
+      return;
+    }
+
+    switch (act) {
+      /* -------- Оболочка -------- */
+      case 'nav:toggle':
+        document.body.setAttribute('data-nav',
+          document.body.getAttribute('data-nav') === 'open' ? 'closed' : 'open');
+        render();
+        return;
+      case 'nav:close':
+        document.body.setAttribute('data-nav', 'closed');
+        render();
+        return;
+      case 'theme:toggle':
+        Store.setPref('theme', state.theme === 'dark' ? 'light' : 'dark');
+        return;
+      case 'demopanel:toggle':
+        Store.setPref('demoPanelOpen', !state.demoPanelOpen);
+        return;
+      case 'rerender':
+        Store.notify();
+        return;
+
+      /* -------- Диалоги -------- */
+      case 'modal:backdrop':
+        if (element && element.classList.contains('modal-backdrop')) UI.closeModal();
+        return;
+      case 'modal:close':
+        UI.closeModal();
+        return;
+      case 'modal:confirm': {
+        var modal = state.modal;
+        UI.closeModal();
+        if (modal && modal.confirmAct) dispatch(modal.confirmAct, modal.confirmData || {});
+        return;
+      }
+
+      /* -------- Демо-режим -------- */
+      case 'demo:example':
+        Store.applyScenario('filled');
+        go('#/overview');
+        UI.toast('Открыт пример заполненного демо.');
+        return;
+      case 'demo:scenario-empty':
+        Store.applyScenario('empty');
+        UI.toast('Показано пустое состояние.');
+        return;
+      case 'demo:scenario-filled':
+        Store.applyScenario('filled');
+        UI.toast('Показано заполненное состояние.');
+        return;
+      case 'demo:scenario-limit':
+        Store.get().scenario = 'limit';
+        Store.setPref('scenario', 'limit');
+        go('#/vacancies');
+        return;
+      case 'data:reset':
+        Store.resetDemo();
+        UI.toast('Демо сброшено к исходному состоянию.');
+        return;
+      case 'data:clear-answers':
+        UI.confirm({
+          title: 'Удалить ответы на вопросы?',
+          body: '<p>Ответы, введённые в этом сеансе, будут удалены из памяти страницы. Действие нельзя отменить.</p>',
+          act: 'data:clear-answers-confirm', confirmLabel: 'Удалить', danger: true
+        });
+        return;
+      case 'data:clear-answers-confirm':
+        Store.update(function (s) {
+          s.preps.forEach(function (p) { p.answers = {}; p.ready = {}; });
+        });
+        UI.toast('Ответы удалены.');
+        return;
+      case 'data:clear-history':
+        UI.confirm({
+          title: 'Очистить историю?',
+          body: '<p>Записи истории этого сеанса будут удалены.</p>',
+          act: 'data:clear-history-confirm', confirmLabel: 'Очистить', danger: true
+        });
+        return;
+      case 'data:clear-history-confirm':
+        Store.update(function (s) { s.history = []; });
+        UI.toast('История очищена.');
+        return;
+
+      /* -------- Мастер резюме -------- */
+      case 'builder:goto':
+        Store.update(function (s) { s.builder.step = Number(data.step); s.builder.errors = {}; });
+        return;
+      case 'builder:prev':
+        Store.update(function (s) { if (s.builder.step > 0) s.builder.step -= 1; });
+        return;
+      case 'builder:next': {
+        var b = state.builder;
+        var errors = {};
+        if (b.step === 0 && !String(b.data.profession).trim()) {
+          errors.profession = 'Укажите желаемую профессию — это обязательное поле.';
+        }
+        if (b.step === 1) {
+          if (!b.data.experience.length) {
+            errors.experience = 'Добавьте хотя бы одно место работы или вернитесь и опишите опыт позже.';
+          } else {
+            b.data.experience.forEach(function (item, index) {
+              if (!String(item.role).trim()) errors['exp' + index] = 'Укажите должность.';
+            });
+          }
+        }
+        if (b.step === 2 && !String(b.data.skills).trim()) {
+          errors.skills = 'Перечислите хотя бы один навык.';
+        }
+        Store.update(function (s) {
+          s.builder.errors = errors;
+          if (!Object.keys(errors).length && s.builder.step < 4) s.builder.step += 1;
+        });
+        if (Object.keys(errors).length) UI.toast('Проверьте обязательные поля.');
+        return;
+      }
+      case 'builder:exp-add':
+        Store.update(function (s) {
+          s.builder.data.experience.push({ role: '', company: '', period: '', details: '' });
+        });
+        return;
+      case 'builder:exp-remove':
+        Store.update(function (s) { s.builder.data.experience.splice(Number(data.index), 1); });
+        return;
+      case 'builder:edu-add':
+        Store.update(function (s) {
+          s.builder.data.education.push({ place: '', program: '', period: '' });
+        });
+        return;
+      case 'builder:edu-remove':
+        Store.update(function (s) { s.builder.data.education.splice(Number(data.index), 1); });
+        return;
+      case 'builder:build':
+        Store.update(function (s) { s.builder.built = 'loading'; });
+        window.setTimeout(function () {
+          Store.update(function (s) { s.builder.built = true; });
+          UI.toast('Демонстрационная сборка завершена.');
+        }, 900);
+        return;
+      case 'builder:edit':
+        Store.update(function (s) { s.builder.built = null; s.builder.step = 0; });
+        return;
+      case 'builder:save': {
+        var data2 = state.builder.data;
+        var resume = {
+          id: Store.uid('res'),
+          title: (data2.profession || 'Резюме') + ' — из мастера',
+          source: 'created',
+          demo: false,
+          rev: 1,
+          updatedAt: Store.nowLabel(),
+          profession: data2.profession,
+          wishes: data2.wishes,
+          summary: data2.summary,
+          experience: Store.clone(data2.experience),
+          skills: ScreensCore.splitLines(data2.skills),
+          achievements: ScreensCore.splitLines(data2.achievements),
+          education: Store.clone(data2.education)
+        };
+        Store.update(function (s) {
+          s.resumes.unshift(resume);
+          s.builder = Store.emptyBuilder();
+          s.vacancyDraft.resumeId = resume.id;
+          Store.addHistory('Резюме собрано в мастере', '#/resume/' + resume.id, null);
+        });
+        UI.toast('Резюме сохранено в этом сеансе макета.');
+        go('#/vacancy/new');
+        return;
+      }
+
+      /* -------- Загрузка резюме -------- */
+      case 'upload:pick': {
+        var input = document.getElementById('file-input');
+        if (input) input.click();
+        return;
+      }
+      case 'upload:clear':
+        Store.update(function (s) { s.upload.fileName = ''; });
+        UI.toast('Выбор файла удалён.');
+        return;
+      case 'upload:show-analysis':
+        Store.update(function (s) { s.upload.analysisShown = true; });
+        UI.toast('Открыт демонстрационный отчёт на подготовленном примере.');
+        return;
+      case 'upload:save': {
+        var accepted = Object.keys(state.upload.decisions).filter(function (k) {
+          return state.upload.decisions[k] === 'accepted';
+        });
+        var copy = Store.clone(DEMO_DATA.resumeUploaded);
+        copy.id = Store.uid('res');
+        copy.title = 'Резюме из файла — версия ' + (accepted.length ? 'с правками' : 'без правок');
+        copy.updatedAt = Store.nowLabel();
+        Store.update(function (s) {
+          s.resumes.unshift(copy);
+          Store.addHistory('Сохранена версия резюме после разбора', '#/resume/' + copy.id, null);
+        });
+        UI.toast('Версия сохранена в списке резюме.');
+        go('#/resumes');
+        return;
+      }
+      case 'sug:accept':
+        Store.update(function (s) { s.upload.decisions[data.id] = 'accepted'; });
+        return;
+      case 'sug:reject':
+        Store.update(function (s) { s.upload.decisions[data.id] = 'rejected'; });
+        return;
+
+      /* -------- Резюме -------- */
+      case 'resume:rename': {
+        var r = Store.resumeById(data.id);
+        if (!r) return;
+        state.renameDraft = r.title;
+        state.renameId = r.id;
+        UI.openModal({
+          title: 'Переименовать резюме',
+          body: UI.field({ id: 'rename-input', label: 'Название', model: 'renameDraft', value: r.title }),
+          confirmAct: 'resume:rename-confirm', confirmLabel: 'Сохранить'
+        });
+        return;
+      }
+      case 'resume:rename-confirm':
+        Store.update(function (s) {
+          var target = Store.resumeById(s.renameId);
+          if (target && String(s.renameDraft).trim()) target.title = String(s.renameDraft).trim();
+        });
+        UI.toast('Название обновлено.');
+        return;
+      case 'resume:delete': {
+        var res = Store.resumeById(data.id);
+        if (!res) return;
+        UI.confirm({
+          title: 'Удалить резюме?',
+          body: '<p>Версия «' + esc(res.title) + '» будет удалена из этого сеанса макета. '
+            + 'Связанные подготовки останутся, но будут отмечены как требующие новых исходников.</p>',
+          act: 'resume:delete-confirm', data: { id: res.id }, confirmLabel: 'Удалить', danger: true
+        });
+        return;
+      }
+      case 'resume:delete-confirm':
+        Store.update(function (s) {
+          s.resumes = s.resumes.filter(function (item) { return item.id !== data.id; });
+          s.preps.forEach(function (p) {
+            if (p.resumeId === data.id) {
+              p.stale = true;
+              p.staleReason = 'Резюме, на котором был построен отчёт, удалено.';
+            }
+          });
+        });
+        UI.toast('Резюме удалено.');
+        return;
+      case 'resume:tweak': {
+        var target2 = Store.resumeById(data.id);
+        if (!target2) return;
+        Store.update(function () {
+          target2.summary = (target2.summary || '') + ' Уточнение внесено в макете ' + Store.nowLabel() + '.';
+          Store.bumpResume(target2, 'Резюме изменено после демонстрационного анализа.');
+        });
+        UI.toast('Версия резюме повышена. Связанные подготовки отмечены как устаревшие.');
+        return;
+      }
+      case 'resume:use':
+        Store.update(function (s) { s.vacancyDraft.resumeId = data.id; });
+        go('#/vacancy/new');
+        return;
+
+      /* -------- Вакансии и подготовки -------- */
+      case 'vacancy:example':
+        Store.update(function (s) {
+          s.vacancyDraft.title = DEMO_DATA.vacancy.title;
+          s.vacancyDraft.company = DEMO_DATA.vacancy.company;
+          s.vacancyDraft.text = DEMO_DATA.vacancy.text;
+          if (!s.vacancyDraft.resumeId && s.resumes.length) s.vacancyDraft.resumeId = s.resumes[0].id;
+        });
+        UI.toast('Подставлен пример вакансии из комплекта макета.');
+        return;
+      case 'vacancy:create': {
+        var draft = state.vacancyDraft;
+        if (!draft.title || !draft.text || !draft.resumeId) {
+          UI.toast('Заполните должность, текст вакансии и выберите резюме.');
+          return;
+        }
+        var vacancy = {
+          id: Store.uid('vac'),
+          demo: true,
+          rev: 1,
+          title: draft.title,
+          company: draft.company || 'Компания не указана',
+          location: '',
+          text: draft.text,
+          requirements: Store.clone(DEMO_DATA.vacancy.requirements)
+        };
+        var prep;
+        Store.update(function (s) {
+          s.vacancies.unshift(vacancy);
+          prep = Store.createPrep(draft.resumeId, vacancy.id);
+          Store.addHistory('Создана подготовка по вакансии', '#/prep/' + prep.id + '/match', prep.id);
+          s.vacancyDraft = { title: '', company: '', text: '', resumeId: '', url: '' };
+        });
+        UI.toast('Подготовка создана. Сопоставление — демонстрационное.');
+        go('#/prep/' + prep.id + '/match');
+        return;
+      }
+      case 'prep:open':
+        Store.update(function (s) { s.activePrepId = data.id; });
+        go('#/prep/' + data.id + '/match');
+        return;
+      case 'prep:select':
+        Store.update(function (s) { s.activePrepId = data.value; });
+        return;
+      case 'prep:rebuild': {
+        var prep2 = Store.prepById(data.id);
+        if (!prep2) return;
+        Store.update(function () { Store.rebuildPrep(prep2); });
+        UI.toast('Демонстрационный отчёт пересобран для текущих исходников.');
+        return;
+      }
+      case 'prep:delete':
+        UI.confirm({
+          title: 'Удалить подготовку?',
+          body: '<p>Связанные вопросы, ответы и переписка тренировки будут удалены из этого сеанса.</p>',
+          act: 'prep:delete-confirm', data: { id: data.id }, confirmLabel: 'Удалить', danger: true
+        });
+        return;
+      case 'prep:delete-confirm':
+        Store.update(function (s) {
+          s.preps = s.preps.filter(function (p) { return p.id !== data.id; });
+          if (s.activePrepId === data.id) s.activePrepId = s.preps.length ? s.preps[0].id : null;
+        });
+        UI.toast('Подготовка удалена.');
+        return;
+      case 'prep:change-sources': {
+        var prep3 = Store.prepById(data.id) || Store.activePrep();
+        if (!prep3) return;
+        state.sourcesPrepId = prep3.id;
+        UI.openModal({
+          title: 'Изменить исходники подготовки',
+          body: sourcesModalBody(prep3),
+          closeLabel: 'Готово'
+        });
+        return;
+      }
+      case 'prep:set-resume': {
+        var prep4 = Store.prepById(state.sourcesPrepId);
+        if (!prep4 || prep4.resumeId === data.value) return;
+        Store.update(function () {
+          prep4.resumeId = data.value;
+          prep4.stale = true;
+          prep4.staleReason = 'Выбрано другое резюме после демонстрационного анализа.';
+          Store.get().modal.body = sourcesModalBody(prep4);
+        });
+        UI.toast('Резюме заменено. Прежний отчёт помечен как устаревший.');
+        return;
+      }
+      case 'prep:set-vacancy': {
+        var prep5 = Store.prepById(state.sourcesPrepId);
+        if (!prep5 || prep5.vacancyId === data.value) return;
+        Store.update(function () {
+          prep5.vacancyId = data.value;
+          prep5.stale = true;
+          prep5.staleReason = 'Выбрана другая вакансия после демонстрационного анализа.';
+          Store.get().modal.body = sourcesModalBody(prep5);
+        });
+        UI.toast('Вакансия заменена. Прежний отчёт помечен как устаревший.');
+        return;
+      }
+
+      /* -------- Сопоставление и вопросы -------- */
+      case 'req:toggle':
+        Store.update(function (s) {
+          s.openRequirement = s.openRequirement === data.id ? '' : data.id;
+        });
+        return;
+      case 'q:hint':
+        Store.update(function (s) {
+          s.qOpenHints = s.qOpenHints || {};
+          s.qOpenHints[data.id] = !s.qOpenHints[data.id];
+        });
+        return;
+      case 'q:ready': {
+        var prep6 = Store.activePrep();
+        if (!prep6) return;
+        Store.update(function () { prep6.ready[data.id] = !prep6.ready[data.id]; });
+        return;
+      }
+      case 'q:filter-topic':
+        Store.update(function (s) { s.qFilterTopic = data.value; });
+        return;
+      case 'q:filter-ready':
+        Store.update(function (s) { s.qFilterReady = data.value; });
+        return;
+      case 'q:filter-reset':
+        Store.update(function (s) { s.qFilterTopic = 'all'; s.qFilterReady = 'all'; });
+        return;
+
+      /* -------- Текстовое интервью -------- */
+      case 'chat:start': {
+        var prep7 = Store.activePrep();
+        if (!prep7) return;
+        Store.update(function () {
+          var chat = ScreensPrep.ensureChat(prep7);
+          chat.started = true;
+          chat.index = 0;
+          chat.finished = false;
+          chat.failed = false;
+          chat.messages = [
+            { who: 'system', text: 'Демонстрационный сценарий из ' + DEMO_DATA.interviewScript.length
+              + ' вопросов. Ответы не оцениваются.' },
+            { who: 'bot', text: DEMO_DATA.interviewScript[0].ask }
+          ];
+        });
+        return;
+      }
+      case 'chat:fail': {
+        var prep8 = Store.activePrep();
+        if (!prep8 || !prep8.chat) return;
+        Store.update(function () { prep8.chat.failed = true; prep8.chat.pending = false; });
+        return;
+      }
+      case 'chat:retry': {
+        var prep9 = Store.activePrep();
+        if (!prep9 || !prep9.chat) return;
+        Store.update(function () { prep9.chat.failed = false; });
+        UI.toast('Демонстрационная отправка повторена.');
+        return;
+      }
+      case 'chat:send': {
+        var prep10 = Store.activePrep();
+        if (!prep10 || !prep10.chat) return;
+        var chat = prep10.chat;
+        if (!String(chat.draft || '').trim()) {
+          UI.toast('Введите ответ, чтобы отправить его в переписку.');
+          return;
+        }
+        Store.update(function () {
+          chat.messages.push({ who: 'user', text: chat.draft });
+          chat.draft = '';
+          chat.failed = false;
+          chat.pending = true;
+        });
+        window.setTimeout(function () {
+          Store.update(function () {
+            chat.pending = false;
+            var current = DEMO_DATA.interviewScript[chat.index];
+            if (current) chat.messages.push({ who: 'bot', text: current.react });
+            chat.index += 1;
+            var next = DEMO_DATA.interviewScript[chat.index];
+            if (next) {
+              chat.messages.push({ who: 'bot', text: next.ask });
+            } else {
+              chat.messages.push({ who: 'system', text: 'Сценарий закончился. Можно завершить интервью и открыть итог.' });
+            }
+          });
+        }, 800);
+        return;
+      }
+      case 'chat:exit':
+        UI.confirm({
+          title: 'Завершить интервью?',
+          body: '<p>Переписка останется в этом сеансе, откроется демонстрационный итог.</p>',
+          act: 'chat:finish', confirmLabel: 'Завершить'
+        });
+        return;
+      case 'chat:finish': {
+        var prep11 = Store.activePrep();
+        if (!prep11 || !prep11.chat) return;
+        Store.update(function () {
+          prep11.chat.finished = true;
+          Store.addHistory('Текстовое пробное интервью', '#/prep/' + prep11.id + '/interview', prep11.id);
+        });
+        return;
+      }
+      case 'chat:restart': {
+        var prep12 = Store.activePrep();
+        if (!prep12) return;
+        Store.update(function () { prep12.chat = null; });
+        dispatch('chat:start', {});
+        return;
+      }
+
+      /* -------- Голосовое интервью -------- */
+      case 'voice:start': {
+        var prep13 = Store.activePrep();
+        if (!prep13) return;
+        Store.update(function () {
+          var v = ScreensPrep.ensureVoice(prep13);
+          v.status = 'speaking';
+          v.line = 1;
+          v.finished = false;
+        });
+        return;
+      }
+      case 'voice:next': {
+        var prep14 = Store.activePrep();
+        if (!prep14 || !prep14.voice) return;
+        Store.update(function () {
+          var v = prep14.voice;
+          if (v.line < DEMO_DATA.voiceScript.length) {
+            v.line += 1;
+            v.status = DEMO_DATA.voiceScript[v.line - 1].who === 'Интервьюер' ? 'speaking' : 'listening';
+          } else {
+            v.status = 'thinking';
+            UI.toast('Сценарий разговора закончился. Можно завершить тренировку.');
+          }
+        });
+        return;
+      }
+      case 'voice:pause': {
+        var prep15 = Store.activePrep();
+        if (!prep15 || !prep15.voice) return;
+        Store.update(function () {
+          var v = prep15.voice;
+          v.status = v.status === 'paused' ? 'listening' : 'paused';
+        });
+        return;
+      }
+      case 'voice:mic':
+        UI.openModal({
+          title: 'Микрофон не используется',
+          body: '<p>Макет не запрашивает разрешение на микрофон, не записывает звук и не распознаёт речь. '
+            + 'Кнопка показывает, где в готовом продукте находилось бы управление микрофоном.</p>'
+        });
+        return;
+      case 'voice:set-status': {
+        var prep16 = Store.activePrep();
+        if (!prep16) return;
+        Store.update(function () {
+          var v = ScreensPrep.ensureVoice(prep16);
+          v.status = data.value;
+          if (v.line === 0 && data.value !== 'idle') v.line = 1;
+        });
+        return;
+      }
+      case 'voice:finish':
+        UI.confirm({
+          title: 'Завершить голосовую тренировку?',
+          body: '<p>Откроется демонстрационный итог. Звук не записывался.</p>',
+          act: 'voice:finish-confirm', confirmLabel: 'Завершить'
+        });
+        return;
+      case 'voice:finish-confirm': {
+        var prep17 = Store.activePrep();
+        if (!prep17 || !prep17.voice) return;
+        Store.update(function () {
+          prep17.voice.finished = true;
+          Store.addHistory('Голосовое пробное интервью', '#/prep/' + prep17.id + '/voice', prep17.id);
+        });
+        return;
+      }
+      case 'voice:restart': {
+        var prep18 = Store.activePrep();
+        if (!prep18) return;
+        Store.update(function () { prep18.voice = null; });
+        return;
+      }
+
+      /* -------- Помощник на собеседовании -------- */
+      case 'assistant:download':
+        UI.openModal({
+          title: 'Компонент ещё не доступен',
+          body: '<p>Демонстрационный интерфейс. Скачиваемый помощник не готов: формат файла, поддерживаемые '
+            + 'операционные системы и способ подключения не определены.</p>'
+            + '<p>Макет намеренно не отдаёт пустой или фиктивный файл.</p>'
+        });
+        return;
+      case 'assistant:connect':
+        Store.update(function (s) { s.assistant.status = 'connecting'; });
+        window.setTimeout(function () {
+          Store.update(function (s) { s.assistant.status = 'connected'; });
+          UI.toast('Демонстрационный статус: «Подключён». Настоящего соединения нет.');
+        }, 900);
+        return;
+      case 'assistant:status':
+        Store.update(function (s) { s.assistant.status = data.status; });
+        return;
+      case 'assistant:hints':
+        Store.update(function (s) { s.assistant.hintsOpen = true; });
+        return;
+      case 'assistant:hints-toggle':
+      case 'assistant:hints-close':
+        Store.update(function (s) { s.assistant.hintsOpen = false; });
+        return;
+      case 'assistant:hint-next':
+        Store.update(function (s) {
+          s.assistant.hintIndex = (s.assistant.hintIndex + 1) % DEMO_DATA.assistantHints.length;
+        });
+        return;
+      case 'assistant:hint-prev':
+        Store.update(function (s) {
+          s.assistant.hintIndex = (s.assistant.hintIndex - 1 + DEMO_DATA.assistantHints.length)
+            % DEMO_DATA.assistantHints.length;
+        });
+        return;
+      case 'assistant:prep':
+        Store.update(function (s) { s.assistant.prepId = data.value; s.activePrepId = data.value; });
+        return;
+
+      /* -------- Тарифы -------- */
+      case 'plan:set':
+        Store.setPref('plan', data.plan);
+        UI.toast('Демо-уровень переключён на «' + Store.planById(data.plan).name + '».');
+        return;
+      case 'demo:plan':
+        Store.setPref('plan', data.value);
+        return;
+      case 'demo:scenario':
+        if (data.value === 'loading' || data.value === 'error' || data.value === 'limit') {
+          Store.get().scenario = data.value;
+          Store.setPref('scenario', data.value);
+        } else {
+          Store.applyScenario(data.value);
+        }
+        return;
+
+      /* -------- Заглушки -------- */
+      case 'stub:export':
+        UI.openModal({
+          title: 'Экспорт не реализован',
+          body: '<p>Макет не создаёт PDF и не скачивает файлы. В готовом продукте здесь была бы выгрузка резюме.</p>'
+        });
+        return;
+      case 'stub:import':
+        UI.openModal({
+          title: 'Импорт по ссылке не реализован',
+          body: '<p>Прототип не обращается в сеть и не может получить вакансию по ссылке. '
+            + 'Вставьте текст вакансии вручную или откройте подготовленный пример.</p>'
+        });
+        return;
+      case 'stub:pay':
+        UI.openModal({
+          title: 'Оплата недоступна',
+          body: '<p>Платежи не подключены: банковских полей и платёжных сервисов в макете нет. '
+            + 'Цены и лимиты пока не определены, поэтому купить уровень нельзя — его можно только '
+            + 'посмотреть в демонстрационном режиме.</p>'
+        });
+        return;
+      case 'stub:profile-save':
+        UI.toast('Профиль не сохраняется: макет не хранит персональные данные.');
+        return;
+
+      default:
+        return;
+    }
+  }
+
+  function sourcesModalBody(prep) {
+    var state = Store.get();
+    var resumeOptions = state.resumes.map(function (r) { return { value: r.id, label: r.title }; });
+    var vacancyOptions = state.vacancies.map(function (v) { return { value: v.id, label: v.title + ' — ' + v.company }; });
+    return ''
+      + '<p class="muted">Если заменить резюме или вакансию, прежний демонстрационный отчёт будет помечен '
+      + 'как относящийся к предыдущей версии.</p>'
+      + UI.select({ id: 'src-resume', label: 'Резюме', value: prep.resumeId,
+          options: resumeOptions.length ? resumeOptions : [{ value: '', label: 'Резюме нет' }],
+          act: 'prep:set-resume' })
+      + UI.select({ id: 'src-vacancy', label: 'Вакансия', value: prep.vacancyId,
+          options: vacancyOptions.length ? vacancyOptions : [{ value: '', label: 'Вакансий нет' }],
+          act: 'prep:set-vacancy' });
+  }
+
+  /* ---------------- Обработчики событий ---------------- */
+
+  document.addEventListener('click', function (event) {
+    var element = event.target.closest('[data-act]');
+    if (!element) return;
+    var act = element.getAttribute('data-act');
+    if (act === 'modal:backdrop' && event.target !== element) return;
+    if (element.tagName === 'A') return;
+    if (element.hasAttribute('disabled') || element.getAttribute('aria-disabled') === 'true') return;
+    event.preventDefault();
+    dispatch(act, {
+      id: element.getAttribute('data-id'),
+      index: element.getAttribute('data-index'),
+      step: element.getAttribute('data-step'),
+      plan: element.getAttribute('data-plan'),
+      prep: element.getAttribute('data-prep'),
+      status: element.getAttribute('data-status')
+    }, element);
+  });
+
+  /* Ввод текста не вызывает перерисовку: фокус и каретка остаются на месте. */
+  document.addEventListener('input', function (event) {
+    var element = event.target;
+    var model = element.getAttribute && element.getAttribute('data-model');
+    if (!model) return;
+    if (model === 'chatDraft') {
+      var prep = Store.activePrep();
+      if (prep && prep.chat) prep.chat.draft = element.value;
+      return;
+    }
+    setPath(model, element.value);
+  });
+
+  document.addEventListener('change', function (event) {
+    var element = event.target;
+    if (element.getAttribute && element.getAttribute('data-toggle')) {
+      var key = element.getAttribute('data-toggle');
+      Store.update(function (s) { s.settings[key] = element.checked; });
+      UI.toast('Переключатель изменён локально: уведомления не отправляются.');
+      return;
+    }
+    var act = element.getAttribute && element.getAttribute('data-change-act');
+    if (!act) return;
+    var model = element.getAttribute('data-model');
+    if (model) setPath(model, element.value);
+    dispatch(act, { value: element.value }, element);
+  });
+
+  document.addEventListener('keydown', function (event) {
+    if (event.key === 'Escape' && Store.get().modal) {
+      UI.closeModal();
+    }
+  });
+
+  window.addEventListener('hashchange', function () {
+    document.body.setAttribute('data-nav', 'closed');
+    render();
+    var main = document.getElementById('main');
+    if (main) main.scrollIntoView({ block: 'start' });
+  });
+
+  Store.subscribe(render);
+
+  /* ---------------- Запуск ---------------- */
+
+  if (!window.location.hash) window.location.hash = '#/start';
+  render();
+  window.setTimeout(function () {
+    UI.toast('Демо-макет: введённые данные хранятся только в этой вкладке и сбрасываются после перезагрузки.');
+  }, 600);
+})();
+
+</script>
+</body>
+</html>
