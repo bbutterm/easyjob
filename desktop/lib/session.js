@@ -33,7 +33,9 @@ function create(options) {
   let lastText = '';
   let lastQuestion = '';
   let startedAt = 0;
-  const stats = { frames: 0, requests: 0, hints: 0, errors: 0 };
+  let aborter = null;
+  let lastDropped = [];
+  const stats = { frames: 0, requests: 0, hints: 0, errors: 0, retries: 0 };
 
   /* Подготовка приходит из веб-сервиса: резюме, вакансия, требования,
      слабые места. В прототипе может быть передана вручную. */
@@ -65,7 +67,10 @@ function create(options) {
       readMode: cfg.readMode,
       provider: cfg.provider,
       elapsedSec: startedAt ? Math.round((Date.now() - startedAt) / 1000) : 0,
-      stats: Object.assign({}, stats)
+      stats: Object.assign({}, stats),
+      /* Что не поместилось в бюджет контекста. Пользователь должен это
+         видеть: иначе модель молча отвечает по неполным данным. */
+      dropped: lastDropped.slice()
     }, extra || {});
     onStatus(payload);
     return payload;
@@ -87,6 +92,10 @@ function create(options) {
   function stop() {
     running = false;
     if (timer) { clearInterval(timer); timer = null; }
+    /* Незавершённый запрос отменяется: ответ на остановленную сессию
+       не нужен, а платить за него не за что. */
+    if (aborter) { try { aborter.abort(); } catch (e) { /* уже завершён */ } aborter = null; }
+    lastDropped = [];
     store.clearSession();
     store.clearMoment();
     lastText = '';
@@ -174,6 +183,7 @@ function create(options) {
 
       stats.hints += 1;
       onHint({
+        truncated: lastDropped.length > 0,
         question: question,
         direction: parsedHint.value.direction || '',
         remind: parsedHint.value.remind || '',
@@ -193,6 +203,7 @@ function create(options) {
   /* Выполнение одной задачи через общий слой. */
   async function run(taskId) {
     const built = store.build();
+    lastDropped = built.report.dropped.slice();
     const request = AiRequest.build(taskId, built.context, {
       provider: cfg.provider,
       model: cfg.model,
@@ -200,10 +211,14 @@ function create(options) {
       endpoint: cfg.endpoint || undefined
     });
     stats.requests += 1;
-    return Providers.execute(request, {
+    if (!aborter && typeof AbortController === 'function') aborter = new AbortController();
+    const result = await Providers.execute(request, {
       apiKey: settings.getApiKey(),
-      endpoint: cfg.endpoint || undefined
+      endpoint: cfg.endpoint || undefined,
+      signal: aborter ? aborter.signal : undefined
     });
+    if (result && result.attempts > 1) stats.retries += result.attempts - 1;
+    return result;
   }
 
   /* Что нового появилось на экране по сравнению с прошлым кадром. */

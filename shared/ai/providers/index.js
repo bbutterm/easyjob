@@ -24,33 +24,101 @@ function adapter(id) {
   return ADAPTERS[id] || mock;
 }
 
+/* Коды, при которых имеет смысл повторить запрос. Остальные ошибки
+   означают неверный запрос или ключ — повтор их не исправит. */
+var RETRIABLE = [408, 409, 425, 429, 500, 502, 503, 504, 529];
+
+var DEFAULT_TIMEOUT_MS = 30000;
+var DEFAULT_RETRIES = 2;
+
+function wait(ms) {
+  return new Promise(function (resolve) { setTimeout(resolve, ms); });
+}
+
+/* Пауза перед повтором: сервис может назвать её сам заголовком
+   retry-after, иначе растёт по степени двойки. */
+function retryDelay(attempt, response) {
+  if (response && response.headers && typeof response.headers.get === 'function') {
+    var header = response.headers.get('retry-after');
+    var seconds = Number(header);
+    if (header && !isNaN(seconds) && seconds >= 0) return Math.min(seconds * 1000, 60000);
+  }
+  return Math.min(500 * Math.pow(2, attempt), 8000);
+}
+
 /* execute — единственное место, где происходит сетевой вызов.
    fetchImpl передаётся снаружи, чтобы код оставался проверяемым
-   и не тянул зависимости в браузерную часть. */
+   и не тянул зависимости в браузерную часть.
+
+   Запрос ограничен по времени и повторяется при временных отказах:
+   без этого цикл помощника встаёт при первом же 429 или зависании. */
 async function execute(request, runtime, fetchImpl) {
   var impl = adapter(request.provider);
 
   if (impl.run) return impl.run(request, runtime);
 
-  var wire = impl.toWire(request, runtime || {});
+  var rt = runtime || {};
+  var wire = impl.toWire(request, rt);
   var doFetch = fetchImpl || (typeof fetch === 'function' ? fetch : null);
   if (!doFetch) return { ok: false, error: 'Нет реализации fetch для запроса' };
 
-  var response;
-  try {
-    response = await doFetch(wire.url, {
-      method: wire.method,
-      headers: wire.headers,
-      body: JSON.stringify(wire.body)
-    });
-  } catch (e) {
-    return { ok: false, error: 'Сеть недоступна: ' + e.message };
+  var timeoutMs = rt.timeoutMs || DEFAULT_TIMEOUT_MS;
+  var maxRetries = rt.retries === undefined ? DEFAULT_RETRIES : rt.retries;
+
+  var response = null;
+  var lastError = '';
+  var attempts = 0;
+
+  for (var attempt = 0; attempt <= maxRetries; attempt++) {
+    attempts = attempt + 1;
+    var controller = typeof AbortController === 'function' ? new AbortController() : null;
+    /* Внешняя отмена: сессия остановлена, ответ уже не нужен. */
+    if (controller && rt.signal && typeof rt.signal.addEventListener === 'function') {
+      rt.signal.addEventListener('abort', function () { controller.abort(); }, { once: true });
+    }
+    var timer = controller ? setTimeout(function () { controller.abort(); }, timeoutMs) : null;
+
+    try {
+      response = await doFetch(wire.url, {
+        method: wire.method,
+        headers: wire.headers,
+        body: JSON.stringify(wire.body),
+        signal: controller ? controller.signal : undefined
+      });
+      lastError = '';
+    } catch (e) {
+      response = null;
+      var aborted = e && (e.name === 'AbortError' || /abort/i.test(e.message || ''));
+      if (aborted && rt.signal && rt.signal.aborted) {
+        return { ok: false, aborted: true, error: 'Запрос отменён.' };
+      }
+      lastError = aborted
+        ? 'Превышено время ожидания ответа ('
+          + (timeoutMs >= 1000 ? Math.round(timeoutMs / 1000) + ' с' : timeoutMs + ' мс') + ')'
+        : 'Сеть недоступна: ' + e.message;
+    } finally {
+      if (timer) clearTimeout(timer);
+    }
+
+    var shouldRetry = !response
+      ? true
+      : (!response.ok && RETRIABLE.indexOf(response.status) >= 0);
+
+    if (!shouldRetry) break;
+    if (attempt === maxRetries) break;
+    await wait(retryDelay(attempt, response));
+  }
+
+  if (!response) {
+    return { ok: false, error: lastError || 'Запрос не выполнен', attempts: attempts };
   }
 
   /* Потоковый ответ приходит событиями Server-Sent Events, а не одним
      объектом JSON: разбирать его через response.json() нельзя. */
   if (response.ok && wire.body && wire.body.stream) {
-    return readStream(response, impl, request);
+    var streamed = await readStream(response, impl, request);
+    streamed.attempts = attempts;
+    return streamed;
   }
 
   var json;
@@ -62,10 +130,13 @@ async function execute(request, runtime, fetchImpl) {
 
   if (!response.ok) {
     var parsed = impl.fromWire(json);
-    return { ok: false, status: response.status,
+    return { ok: false, status: response.status, attempts: attempts,
+      retriable: RETRIABLE.indexOf(response.status) >= 0,
       error: parsed.error || ('Ошибка сервиса, код ' + response.status) };
   }
-  return impl.fromWire(json);
+  var result = impl.fromWire(json);
+  result.attempts = attempts;
+  return result;
 }
 
 /* Сборка текста из потока событий.
@@ -126,4 +197,5 @@ async function readStream(response, impl, request) {
   return { ok: true, text: text.trim(), stopReason: stopReason, usage: null };
 }
 
-module.exports = { adapter: adapter, execute: execute, ids: Object.keys(ADAPTERS) };
+module.exports = { adapter: adapter, execute: execute, ids: Object.keys(ADAPTERS),
+  RETRIABLE: RETRIABLE };

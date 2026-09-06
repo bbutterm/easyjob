@@ -238,8 +238,13 @@
 
   window.assistant.on('session:status', function (s) {
     log('[' + s.state + '] ' + s.text + ' — кадров: ' + s.stats.frames
-      + ', запросов: ' + s.stats.requests + ', подсказок: ' + s.stats.hints,
+      + ', запросов: ' + s.stats.requests + ', подсказок: ' + s.stats.hints
+      + (s.stats.retries ? ', повторов: ' + s.stats.retries : ''),
       s.state === 'error' ? 'err' : null);
+    if (s.dropped && s.dropped.length) {
+      log('Не поместилось в контекст: ' + s.dropped.join('; ')
+        + '. Подсказка построена по неполным данным.', 'warn');
+    }
   });
 
   window.assistant.on('session:hint', function (h) {

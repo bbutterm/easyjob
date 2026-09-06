@@ -234,6 +234,59 @@ ok('Нечувствительные поля в логе сохранены', A
   ]));
   ok('Обрыв по лимиту длины помечается', truncated.ok === true && truncated.truncated === true);
 
+  /* ---- Устойчивость сети ---- */
+  function headers(map) { return { get: function (k) { return map[k] || null; } }; }
+  function jsonResponse(status, body, head) {
+    return Promise.resolve({
+      ok: status >= 200 && status < 300,
+      status: status,
+      headers: headers(head || {}),
+      json: function () { return Promise.resolve(body); }
+    });
+  }
+  var netReq = R.build('match.requirements', built.context, { provider: 'anthropic' });
+
+  var calls = 0;
+  var retried = await P.execute(netReq, { apiKey: 'x', retries: 2 }, function () {
+    calls += 1;
+    if (calls < 3) return jsonResponse(429, {}, { 'retry-after': '0' });
+    return jsonResponse(200, { content: [{ type: 'text', text: 'готово' }], stop_reason: 'end_turn' });
+  });
+  ok('Временный отказ повторяется и запрос доходит', retried.ok && calls === 3,
+    'попыток: ' + retried.attempts);
+
+  calls = 0;
+  var notRetried = await P.execute(netReq, { apiKey: 'x', retries: 3 }, function () {
+    calls += 1;
+    return jsonResponse(401, { error: { message: 'Неверный ключ' } });
+  });
+  ok('Ошибка ключа не повторяется', calls === 1 && notRetried.retriable === false);
+
+  calls = 0;
+  var timedOut = await P.execute(netReq, { apiKey: 'x', retries: 1, timeoutMs: 60 }, function (url, opts) {
+    calls += 1;
+    return new Promise(function (resolve, reject) {
+      opts.signal.addEventListener('abort', function () {
+        var e = new Error('aborted'); e.name = 'AbortError'; reject(e);
+      });
+    });
+  });
+  ok('Зависший запрос обрывается по таймауту', !timedOut.ok && /время ожидания/.test(timedOut.error));
+  ok('После таймаута выполняется повтор', calls === 2, calls + ' попыток');
+
+  var ac = new AbortController();
+  var cancelPromise = P.execute(netReq, { apiKey: 'x', retries: 3, signal: ac.signal },
+    function (url, opts) {
+      return new Promise(function (resolve, reject) {
+        opts.signal.addEventListener('abort', function () {
+          var e = new Error('aborted'); e.name = 'AbortError'; reject(e);
+        });
+      });
+    });
+  ac.abort();
+  var cancelled = await cancelPromise;
+  ok('Отмена сессии прекращает запрос без повторов', cancelled.aborted === true);
+
   var failed = results.filter(function (r) { return !r.pass; });
   console.log('\nИтого: ' + (results.length - failed.length) + ' из ' + results.length + ' проверок пройдено.');
   process.exit(failed.length ? 1 : 0);

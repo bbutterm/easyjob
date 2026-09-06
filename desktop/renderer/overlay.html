@@ -133,7 +133,8 @@
   window.assistant.on('session:hint', function (h) {
     el('question').textContent = h.question || '—';
     el('direction').textContent = (h.demo ? '[заглушка] ' : '') + (h.direction || '');
-    el('remind').textContent = h.remind ? 'Помнить: ' + h.remind : '';
+    el('remind').textContent = (h.truncated ? 'Данные урезаны по объёму. ' : '')
+      + (h.remind ? 'Помнить: ' + h.remind : '');
     el('avoid').textContent = h.avoid ? 'Не стоит: ' + h.avoid : '';
   });
 
