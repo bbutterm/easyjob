@@ -324,6 +324,76 @@ const VACANCY_TEXT = 'Ищем повара в ресторан.\n\nТребов
   process.env.AI_PROVIDER = prevProvider;
   polApp.server.close();
 
+  /* ---- Часть C: seq, идемпотентность, CAS, память, владение, удаление ---- */
+  const cApp = createApp({ dbFile: ':memory:', freePrepsPerDay: 100, secure: false, retention: false,
+    rateLimit: { perMinute: 10000, expensivePerMinute: 10000, sessionsPerHour: 1000 } });
+  await new Promise(function (r) { cApp.server.listen(0, '127.0.0.1', r); });
+  const cbase = 'http://127.0.0.1:' + cApp.server.address().port;
+  const cc = client(cbase);
+  const cr = await cc.call('POST', '/api/resumes', { title: 'Р', data: RESUME });
+  const cv = await cc.call('POST', '/api/vacancies', { title: 'Повар', rawText: VACANCY_TEXT });
+  const cp = await cc.call('POST', '/api/preps', { resumeId: cr.data.id, vacancyId: cv.data.id });
+  const ci = await cc.call('POST', '/api/preps/' + cp.data.id + '/interviews');
+  const ciid = ci.data.interviewId;
+  ok('C: реплика интервьюера получает устойчивый seq', ci.data.turn.seq === 1);
+
+  const dbC = require('../server/lib/db.js');
+  const cme = await cc.call('GET', '/api/me');
+  const sidC = cme.data && cme.data.session ? cme.data.session.id : '';
+  const ct1 = await cc.call('POST', '/api/interviews/' + ciid + '/turns', { text: 'Ответ один', clientTurnId: 'c1' });
+  const ct1again = await cc.call('POST', '/api/interviews/' + ciid + '/turns', { text: 'Ответ один', clientTurnId: 'c1' });
+  const afterDup = dbC.interviews.get(sidC, ciid);
+  ok('C: повтор с тем же clientTurnId не создаёт дубля и отдаёт прежний ответ',
+    ct1.status === 200 && ct1again.status === 200 && ct1again.data.duplicate === true
+    && afterDup && afterDup.turns.filter(function (t) { return t.clientTurnId === 'c1'; }).length === 1,
+    afterDup ? afterDup.turns.length + ' реплик' : 'нет доступа к интервью (' + sidC + ')');
+  const badCid = await cc.call('POST', '/api/interviews/' + ciid + '/turns', { text: 'x', clientTurnId: 'a.b' });
+  ok('C: недопустимый clientTurnId отклоняется', badCid.status === 400);
+
+  /* Две вкладки одновременно: обе реплики должны сохраниться. */
+  const [pa, pb] = await Promise.all([
+    cc.call('POST', '/api/interviews/' + ciid + '/turns', { text: 'Вкладка А', clientTurnId: 'ta' }),
+    cc.call('POST', '/api/interviews/' + ciid + '/turns', { text: 'Вкладка Б', clientTurnId: 'tb' })
+  ]);
+  const afterPar = dbC.interviews.get(sidC, ciid);
+  ok('C: параллельные реплики не теряются (CAS)', pa.status === 200 && pb.status === 200
+    && afterPar.turns.some(function (t) { return t.text === 'Вкладка А'; }) && afterPar.turns.some(function (t) { return t.text === 'Вкладка Б'; }));
+  ok('C: seq строго возрастает без пропусков',
+    afterPar.turns.every(function (t, i) { return t.seq === i + 1; }));
+
+  /* Память: публикация с CAS. */
+  const CM = require('../server/lib/context-memory.js');
+  const mem0 = await cc.call('GET', '/api/interviews/' + ciid + '/memory');
+  ok('C: памяти пока нет — версия 0', mem0.status === 200 && mem0.data.memoryVersion === 0 && mem0.data.status === 'none');
+  const v = CM.validate({ facts: [{ factId: 'f1', value: 'Опыт на горячем цехе', status: 'user_said', sourceRef: { kind: 'turn', seq: 2 }, quote: 'Ответ один' }],
+    askedTopics: ['опыт'] }, afterPar.turns);
+  ok('C: проверка ссылок принимает верную память', v.ok && v.memory.facts.length === 1, v.errors.join('; '));
+  const pub1 = CM.publish(sidC, ciid, 0, v.memory, { resumeRev: 1, vacancyRev: 1 }, 2);
+  const pub1b = CM.publish(sidC, ciid, 0, v.memory, { resumeRev: 1, vacancyRev: 1 }, 2);
+  ok('C: первая публикация создаёт память, повтор с той же версией — конфликт', pub1.ok && pub1.memoryVersion === 1 && pub1b.ok === false && pub1b.conflict);
+  const pub2 = CM.publish(sidC, ciid, 1, v.memory, { resumeRev: 1, vacancyRev: 1 }, 3);
+  const pub2stale = CM.publish(sidC, ciid, 1, v.memory, { resumeRev: 1, vacancyRev: 1 }, 3);
+  ok('C: CAS пропускает только ожидаемую версию', pub2.ok && pub2.memoryVersion === 2 && !pub2stale.ok);
+  const mem1 = await cc.call('GET', '/api/interviews/' + ciid + '/memory');
+  ok('C: память читается владельцем с версией и покрытием', mem1.data.memoryVersion === 2 && mem1.data.coveredThroughSeq === 3
+    && mem1.data.memory.facts[0].sourceRef.seq === 2);
+
+  /* Владение: чужая сессия не видит ни интервью, ни память. */
+  const stranger = client(cbase);
+  await stranger.call('GET', '/api/health');
+  const foreignMem = await stranger.call('GET', '/api/interviews/' + ciid + '/memory');
+  ok('C: память не пересекает владельцев', foreignMem.status === 404 && CM.read('s_чужой', ciid) === null);
+
+  /* Устаревание: правка резюме помечает память, не удаляя её. */
+  await cc.call('PUT', '/api/resumes/' + cr.data.id, { data: Object.assign({}, RESUME, { summary: 'Правка.' }) });
+  const memStale = await cc.call('GET', '/api/interviews/' + ciid + '/memory');
+  ok('C: после правки резюме память помечена устаревшей, но сохранена', memStale.data.status === 'stale' && memStale.data.memory.facts.length === 1);
+
+  /* Удаление: DELETE /api/me убирает память вместе со всем. */
+  await cc.call('DELETE', '/api/me');
+  ok('C: удаление данных пользователя удаляет и память', CM.read(sidC, ciid) === null && dbC.interviews.get(sidC, ciid) === null);
+  cApp.server.close();
+
   /* ---- Обмен ключа GigaChat на токен ---- */
   const GigaChatAuth = require('../server/lib/gigachat-auth.js');
   GigaChatAuth.reset();

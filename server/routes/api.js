@@ -150,7 +150,12 @@ function register(r) {
       sendJson(res, 200, db.resumes.rename(sid, params.id, title));
       return;
     }
-    sendJson(res, 200, db.resumes.update(sid, params.id, title, body.data));
+    const updated = db.resumes.update(sid, params.id, title, body.data);
+    /* Память интервью по подготовкам с этим резюме устарела, но не удаляется:
+       активное интервью продолжает работать на прежней версии с пометкой. */
+    db.preps.list(sid).filter(function (p) { return p.resumeId === params.id; })
+      .forEach(function (p) { db.contextMemory.markStaleForPrep(sid, p.id); });
+    sendJson(res, 200, updated);
   });
 
   r.del('/api/resumes/:id', function ({ res, params, ctx }) {
@@ -311,19 +316,32 @@ function register(r) {
     if (interview.finished) throw new HttpError(409, 'Интервью завершено');
     const prep = db.preps.get(sid, interview.prepId);
     const text = str(body.text, 4000, 'text', true);
-    interview.turns.push({ role: 'candidate', text, ts: Date.now() });
-    db.interviews.setTurns(sid, interview.id, interview.turns);
+    /* Идемпотентно: повтор с тем же clientTurnId не создаёт дубля;
+       CAS по версии защищает от потери реплики из второй вкладки. */
+    const clientTurnId = body.clientTurnId ? safeId(body.clientTurnId, null) : null;
+    if (body.clientTurnId && !clientTurnId) throw new HttpError(400, 'Недопустимый clientTurnId');
+    const appended = db.interviews.appendTurn(sid, interview.id, { role: 'candidate', text, clientTurnId });
+    if (appended.duplicate) {
+      /* Реплика уже есть: отдаём последний ответ интервьюера, если он был. */
+      const after = appended.interview.turns.filter(function (t) { return t.seq > appended.turn.seq && t.role === 'interviewer'; });
+      if (after.length) {
+        sendJson(res, 200, { interviewId: interview.id, turn: { role: 'interviewer', text: after[0].text, seq: after[0].seq },
+          turns: appended.interview.turns.length, duplicate: true });
+        return;
+      }
+    }
+    const fresh = appended.interview;
 
     const wantsStream = String(req.headers.accept || '').indexOf('text/event-stream') >= 0;
     if (!wantsStream) {
-      sendJson(res, 200, await interviewerTurn(sid, prep, interview, null));
+      sendJson(res, 200, await interviewerTurn(sid, prep, fresh, null));
       return;
     }
     res.writeHead(200, { 'content-type': 'text/event-stream; charset=utf-8', 'cache-control': 'no-store',
       connection: 'keep-alive' });
     const send = function (event, data) { res.write('event: ' + event + '\ndata: ' + JSON.stringify(data) + '\n\n'); };
     try {
-      const result = await interviewerTurn(sid, prep, interview, function (delta) { send('delta', { text: delta }); });
+      const result = await interviewerTurn(sid, prep, fresh, function (delta) { send('delta', { text: delta }); });
       send('done', result);
     } catch (e) {
       send('error', { error: e.message });
@@ -340,6 +358,16 @@ function register(r) {
     if (interview.finished) throw new HttpError(409, 'Интервью завершено');
     const prep = db.preps.get(sid, interview.prepId);
     sendJson(res, 200, await interviewerTurn(sid, prep, interview, null));
+  });
+
+  /* Память интервью: реестр фактов с источниками. Только своя. */
+  r.get('/api/interviews/:id/memory', function ({ res, params, ctx }) {
+    const sid = ctx.session.id;
+    const interview = db.interviews.get(sid, params.id);
+    if (!interview) throw new HttpError(404, 'Интервью не найдено');
+    const memory = db.contextMemory.get(sid, interview.id);
+    sendJson(res, 200, memory || { interviewId: interview.id, memoryVersion: 0, status: 'none', memory: null,
+      coveredThroughSeq: 0, sourceRevisions: {} });
   });
 
   r.post('/api/interviews/:id/finish', async function ({ res, params, ctx }) {
@@ -362,10 +390,9 @@ function register(r) {
       { streaming: !!onDelta, onDelta });
     if (!result.ok) throw new HttpError(result.overflow ? 422 : 502, result.error, result.overflow ? { overflow: true, sizing: result.sizing } : null);
     const text = str(result.text, 2000, 'turn', true);
-    interview.turns.push({ role: 'interviewer', text, ts: Date.now() });
-    db.interviews.setTurns(sid, interview.id, interview.turns);
-    return { interviewId: interview.id, turn: { role: 'interviewer', text }, turns: interview.turns.length,
-      mock: result.mock, dropped: result.dropped };
+    const appended = db.interviews.appendTurn(sid, interview.id, { role: 'interviewer', text });
+    return { interviewId: interview.id, turn: { role: 'interviewer', text, seq: appended.turn.seq },
+      turns: appended.interview.turns.length, mock: result.mock, dropped: result.dropped, sizing: result.sizing };
   }
 }
 

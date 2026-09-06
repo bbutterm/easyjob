@@ -72,6 +72,18 @@ CREATE TABLE IF NOT EXISTS interviews (
   updated_at INTEGER NOT NULL
 );
 CREATE INDEX IF NOT EXISTS interviews_prep ON interviews(prep_id);
+CREATE TABLE IF NOT EXISTS context_memory (
+  interview_id TEXT PRIMARY KEY,
+  session_id TEXT NOT NULL,
+  memory_version INTEGER NOT NULL DEFAULT 0,
+  status TEXT NOT NULL DEFAULT 'valid',
+  source_revisions TEXT NOT NULL DEFAULT '{}',
+  covered_through_seq INTEGER NOT NULL DEFAULT 0,
+  memory TEXT NOT NULL DEFAULT '{}',
+  created_at INTEGER NOT NULL,
+  updated_at INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS context_memory_session ON context_memory(session_id);
 CREATE TABLE IF NOT EXISTS usage (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   session_id TEXT NOT NULL,
@@ -97,6 +109,10 @@ function open(file) {
   const cols = db.prepare('PRAGMA table_info(sessions)').all().map(function (c) { return c.name; });
   if (cols.indexOf('ip_hash') < 0) db.exec('ALTER TABLE sessions ADD COLUMN ip_hash TEXT');
   db.exec('CREATE INDEX IF NOT EXISTS sessions_ip ON sessions(ip_hash)');
+  /* Версия интервью для CAS: две вкладки не затирают реплики друг друга. */
+  const icols = db.prepare('PRAGMA table_info(interviews)').all().map(function (c) { return c.name; });
+  if (icols.indexOf('version') < 0) db.exec('ALTER TABLE interviews ADD COLUMN version INTEGER NOT NULL DEFAULT 0');
+  if (icols.indexOf('compacting') < 0) db.exec('ALTER TABLE interviews ADD COLUMN compacting INTEGER NOT NULL DEFAULT 0');
   /* Учёт по попыткам: запрос, фаза, статус расхода, число попыток, стоимость. */
   const ucols = db.prepare('PRAGMA table_info(usage)').all().map(function (c) { return c.name; });
   [['request_id', 'TEXT'], ['phase', "TEXT DEFAULT 'main'"], ['usage_status', "TEXT DEFAULT 'reported'"],
@@ -149,6 +165,7 @@ const sessions = {
     try {
       const resumes = db.prepare('DELETE FROM resumes WHERE session_id = ?').run(sid).changes;
       db.prepare('DELETE FROM vacancies WHERE session_id = ?').run(sid);
+      db.prepare('DELETE FROM context_memory WHERE session_id = ?').run(sid);
       db.prepare('DELETE FROM interviews WHERE session_id = ?').run(sid);
       const preps = db.prepare('DELETE FROM preps WHERE session_id = ?').run(sid).changes;
       db.prepare('DELETE FROM sessions WHERE id = ?').run(sid);
@@ -176,6 +193,7 @@ const sessions = {
       stale.forEach(function (sid) {
         resumesRemoved += db.prepare('DELETE FROM resumes WHERE session_id = ?').run(sid).changes;
         db.prepare('DELETE FROM vacancies WHERE session_id = ?').run(sid);
+        db.prepare('DELETE FROM context_memory WHERE session_id = ?').run(sid);
         db.prepare('DELETE FROM interviews WHERE session_id = ?').run(sid);
         prepsRemoved += db.prepare('DELETE FROM preps WHERE session_id = ?').run(sid).changes;
         db.prepare('DELETE FROM sessions WHERE id = ?').run(sid);
@@ -315,6 +333,8 @@ const preps = {
     return preps.get(sid, pid);
   },
   remove(sid, pid) {
+    db.prepare(`DELETE FROM context_memory WHERE session_id = ? AND interview_id IN
+      (SELECT id FROM interviews WHERE prep_id = ? AND session_id = ?)`).run(sid, pid, sid);
     db.prepare('DELETE FROM interviews WHERE prep_id = ? AND session_id = ?').run(pid, sid);
     return db.prepare('DELETE FROM preps WHERE id = ? AND session_id = ?').run(pid, sid).changes > 0;
   },
@@ -334,11 +354,21 @@ const preps = {
 
 /* ---- Интервью ---- */
 
+/* Реплики получают устойчивый порядковый номер seq. Старые записи без
+   seq нумеруются по позиции при чтении — это стабильно, потому что
+   массив только дописывается. */
+function withSeq(turns) {
+  return (turns || []).map(function (t, i) {
+    return Object.assign({}, t, { seq: typeof t.seq === 'number' ? t.seq : i + 1 });
+  });
+}
+
 function rowToInterview(row) {
   if (!row) return null;
   return {
-    id: row.id, prepId: row.prep_id, turns: parse(row.turns, []), summary: parse(row.summary, null),
-    finished: row.finished === 1, createdAt: row.created_at, updatedAt: row.updated_at
+    id: row.id, prepId: row.prep_id, turns: withSeq(parse(row.turns, [])), summary: parse(row.summary, null),
+    finished: row.finished === 1, version: row.version || 0, compacting: row.compacting === 1,
+    createdAt: row.created_at, updatedAt: row.updated_at
   };
 }
 
@@ -357,13 +387,102 @@ const interviews = {
     return rowToInterview(db.prepare('SELECT * FROM interviews WHERE prep_id = ? AND session_id = ? ORDER BY created_at DESC LIMIT 1').get(pid, sid));
   },
   setTurns(sid, iid, turns) {
-    db.prepare('UPDATE interviews SET turns = ?, updated_at = ? WHERE id = ? AND session_id = ?')
+    db.prepare('UPDATE interviews SET turns = ?, version = version + 1, updated_at = ? WHERE id = ? AND session_id = ?')
       .run(JSON.stringify(turns), now(), iid, sid);
+  },
+  /* Добавить реплику идемпотентно и без потери обновления.
+       clientTurnId — идентификатор от клиента: повторная отправка той же
+                      реплики (обрыв сети, вторая вкладка) не создаёт дубля;
+       CAS по version — если между чтением и записью интервью изменилось,
+                      читаем заново и повторяем.
+     Возвращает { interview, turn, duplicate }. */
+  appendTurn(sid, iid, turn) {
+    for (let attempt = 0; attempt < 5; attempt++) {
+      const current = interviews.get(sid, iid);
+      if (!current) return null;
+      if (turn.clientTurnId) {
+        const existing = current.turns.find(function (t) { return t.clientTurnId === turn.clientTurnId; });
+        if (existing) return { interview: current, turn: existing, duplicate: true };
+      }
+      const nextSeq = current.turns.length ? current.turns[current.turns.length - 1].seq + 1 : 1;
+      const stored = { seq: nextSeq, role: turn.role, text: turn.text, ts: turn.ts || now() };
+      if (turn.clientTurnId) stored.clientTurnId = turn.clientTurnId;
+      const turns = current.turns.concat([stored]);
+      const res = db.prepare(`UPDATE interviews SET turns = ?, version = version + 1, updated_at = ?
+        WHERE id = ? AND session_id = ? AND version = ?`)
+        .run(JSON.stringify(turns), now(), iid, sid, current.version);
+      if (res.changes === 1) {
+        return { interview: Object.assign({}, current, { turns, version: current.version + 1 }), turn: stored, duplicate: false };
+      }
+      /* Кто-то успел записать раньше — повторяем с новой версией. */
+    }
+    throw new Error('Не удалось добавить реплику: интервью меняется слишком часто');
+  },
+  /* Флаг «идёт сжатие»: один compaction на интервью одновременно. */
+  tryLockCompaction(sid, iid) {
+    return db.prepare('UPDATE interviews SET compacting = 1 WHERE id = ? AND session_id = ? AND compacting = 0')
+      .run(iid, sid).changes === 1;
+  },
+  unlockCompaction(sid, iid) {
+    db.prepare('UPDATE interviews SET compacting = 0 WHERE id = ? AND session_id = ?').run(iid, sid);
   },
   finish(sid, iid, summary) {
     db.prepare('UPDATE interviews SET summary = ?, finished = 1, updated_at = ? WHERE id = ? AND session_id = ?')
       .run(JSON.stringify(summary), now(), iid, sid);
     return interviews.get(sid, iid);
+  }
+};
+
+/* ---- Память интервью ----
+   Отдельно от итога interviews.summary. Публикуется атомарно с CAS по
+   memory_version: неудачное сжатие не портит прежнюю валидную память. */
+
+function rowToMemory(row) {
+  if (!row) return null;
+  return {
+    interviewId: row.interview_id, memoryVersion: row.memory_version, status: row.status,
+    sourceRevisions: parse(row.source_revisions, {}), coveredThroughSeq: row.covered_through_seq,
+    memory: parse(row.memory, {}), createdAt: row.created_at, updatedAt: row.updated_at
+  };
+}
+
+const contextMemory = {
+  get(sid, iid) {
+    return rowToMemory(db.prepare('SELECT * FROM context_memory WHERE interview_id = ? AND session_id = ?').get(iid, sid));
+  },
+  /* CAS: expectedVersion — версия, которую читал вызывающий. 0 — записи ещё нет. */
+  publish(sid, iid, expectedVersion, payload) {
+    const t = now();
+    if (expectedVersion === 0) {
+      try {
+        db.prepare(`INSERT INTO context_memory (interview_id, session_id, memory_version, status, source_revisions,
+            covered_through_seq, memory, created_at, updated_at) VALUES (?, ?, 1, 'valid', ?, ?, ?, ?, ?)`)
+          .run(iid, sid, JSON.stringify(payload.sourceRevisions || {}), payload.coveredThroughSeq || 0,
+            JSON.stringify(payload.memory || {}), t, t);
+        return { ok: true, memoryVersion: 1 };
+      } catch (e) {
+        return { ok: false, conflict: true };
+      }
+    }
+    const res = db.prepare(`UPDATE context_memory SET memory_version = memory_version + 1, status = 'valid',
+        source_revisions = ?, covered_through_seq = ?, memory = ?, updated_at = ?
+      WHERE interview_id = ? AND session_id = ? AND memory_version = ?`)
+      .run(JSON.stringify(payload.sourceRevisions || {}), payload.coveredThroughSeq || 0,
+        JSON.stringify(payload.memory || {}), t, iid, sid, expectedVersion);
+    return res.changes === 1 ? { ok: true, memoryVersion: expectedVersion + 1 } : { ok: false, conflict: true };
+  },
+  /* Изменение исходников делает память устаревшей, но не удаляет её:
+     активное интервью продолжается на старой версии с явной пометкой. */
+  markStale(sid, iid) {
+    db.prepare("UPDATE context_memory SET status = 'stale', updated_at = ? WHERE interview_id = ? AND session_id = ?")
+      .run(now(), iid, sid);
+  },
+  markStaleForPrep(sid, pid) {
+    db.prepare(`UPDATE context_memory SET status = 'stale', updated_at = ? WHERE session_id = ? AND interview_id IN
+      (SELECT id FROM interviews WHERE prep_id = ? AND session_id = ?)`).run(now(), sid, pid, sid);
+  },
+  remove(sid, iid) {
+    return db.prepare('DELETE FROM context_memory WHERE interview_id = ? AND session_id = ?').run(iid, sid).changes;
   }
 };
 
@@ -413,4 +532,4 @@ const usage = {
   }
 };
 
-module.exports = { open, close, closeIf, id, sessions, resumes, vacancies, preps, interviews, usage };
+module.exports = { open, close, closeIf, id, sessions, resumes, vacancies, preps, interviews, contextMemory, usage };

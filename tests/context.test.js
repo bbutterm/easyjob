@@ -84,6 +84,32 @@ const fit4 = R.fit('interview.summary', st4, { provider: 'groq' });
 ok('Итог видит ранние реплики (окно 40)', fit4.ok && fit4.request.userText.indexOf('Реплика 0 ') >= 0
   && fit4.request.userText.indexOf('Реплика 29') >= 0);
 
+/* ---- Память интервью: проверка формы и ссылок ---- */
+const CM = require('../server/lib/context-memory.js');
+const turns = [{ seq: 1, role: 'interviewer', text: 'Расскажите об опыте' },
+  { seq: 2, role: 'candidate', text: 'Я работал в 2019 году, не в 2020' },
+  { seq: 3, role: 'candidate', text: 'Поправлюсь: в 2020 году' }];
+const good = CM.validate({ facts: [
+  { factId: 'year', value: '2019', status: 'user_said', sourceRef: { kind: 'turn', seq: 2 }, quote: '2019' },
+  { factId: 'year2', value: '2020', status: 'user_said', sourceRef: { kind: 'turn', seq: 3 }, supersedes: 'year' },
+  { factId: 'doc', value: 'Горячий цех', status: 'in_document', sourceRef: { kind: 'document', field: 'resume.experience' } }
+], contradictions: [{ text: 'год: 2019 → 2020', seqs: [2, 3] }] }, turns);
+ok('Память: исправление хранится как факт с supersedes, прежний не удаляется', good.ok && good.memory.facts.length === 3
+  && good.memory.facts[1].supersedes === 'year');
+const merged = CM.merge(null, good.memory);
+ok('Память: после слияния замещённый факт скрыт из действующих, но остаётся', CM.activeFacts(merged).length === 2
+  && merged.facts.length === 3 && merged.facts[0].supersededBy === 'year2');
+const bad = CM.validate({ facts: [
+  { factId: 'x', value: 'что-то', status: 'confirmed', sourceRef: { kind: 'turn', seq: 99 } },
+  { factId: 'y', value: 'цитата', status: 'user_said', sourceRef: { kind: 'turn', seq: 2 }, quote: 'этого не было' },
+  { factId: 'z', value: 'без источника', status: 'confirmed' },
+  { factId: '__proto__', value: 'плохой id', status: 'unknown' }
+] }, turns);
+ok('Память: ссылка на несуществующую реплику, чужая цитата, статус без источника и плохой id отклоняются',
+  !bad.ok && bad.memory.facts.length === 0 && bad.errors.length === 4, bad.errors.join(' | '));
+ok('Память: существование ссылки не делает факт подтверждённым — статус берётся из записи, не выдумывается',
+  good.memory.facts[0].status === 'user_said');
+
 /* Переполнение не доходит до провайдера. */
 (async function () {
   let fetched = false;
