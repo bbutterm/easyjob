@@ -142,6 +142,7 @@ function open(file) {
      на которых построена подготовка. Активное интервью идёт на снимке, а
      не на текущей версии резюме — подмена версии незаметно запрещена. */
   const pcols = db.prepare('PRAGMA table_info(preps)').all().map(function (c) { return c.name; });
+  if (pcols.indexOf('answers_rev') < 0) db.exec('ALTER TABLE preps ADD COLUMN answers_rev INTEGER NOT NULL DEFAULT 0');
   if (pcols.indexOf('snapshot') < 0) db.exec('ALTER TABLE preps ADD COLUMN snapshot TEXT');
   /* Обратная связь на ответы: по questionId, с источником и отпечатком ответа. */
   if (pcols.indexOf('feedback') < 0) db.exec("ALTER TABLE preps ADD COLUMN feedback TEXT NOT NULL DEFAULT '{}'");
@@ -417,7 +418,7 @@ function rowToPrep(row) {
     profession: row.profession || '',
     match: parse(row.match, null), questions: parse(row.questions, null),
     answers: parse(row.answers, {}), ready: parse(row.ready, {}),
-    card: parse(row.card, null), snapshot: parse(row.snapshot, null), feedback: parse(row.feedback, {}),
+    answersRev: row.answers_rev, card: parse(row.card, null), snapshot: parse(row.snapshot, null), feedback: parse(row.feedback, {}),
     sources: parse(row.sources, {}),
     createdAt: row.created_at, updatedAt: row.updated_at
   };
@@ -446,11 +447,19 @@ const preps = {
       if (fields[key] !== undefined) { sets.push(key + ' = ?'); values.push(JSON.stringify(fields[key])); }
     });
     if (!sets.length) return preps.get(sid, pid);
+    if (fields.answers !== undefined) {
+      sets.push('answers_rev = answers_rev + CASE WHEN answers <> ? THEN 1 ELSE 0 END');
+      values.push(JSON.stringify(fields.answers));
+    }
     sets.push('updated_at = ?'); values.push(now());
     values.push(pid, sid);
     const stmt = db.prepare('UPDATE preps SET ' + sets.join(', ') + ' WHERE id = ? AND session_id = ?');
     stmt.run.apply(stmt, values);
     return preps.get(sid, pid);
+  },
+  setFeedbackIfCurrent(sid, pid, answersRev, feedback) {
+    return db.prepare('UPDATE preps SET feedback = ?, updated_at = ? WHERE id = ? AND session_id = ? AND answers_rev = ?')
+      .run(JSON.stringify(feedback), now(), pid, sid, answersRev).changes > 0;
   },
   /* Снимок пишется один раз для версий, на которых построена подготовка;
      повторная запись для тех же версий не меняет его. */

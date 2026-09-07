@@ -292,7 +292,7 @@
     {
       id: 'match.requirements',
       title: 'Сопоставить резюме с требованиями',
-      uses: ['policy.*', 'profession.name', 'resume.experience', 'resume.skills',
+      uses: ['resume.rawText', 'policy.*', 'profession.name', 'resume.experience', 'resume.skills',
         'resume.achievements', 'vacancy.requirements'],
       output: 'json',
       outputShape: '{ items: [{requirementId, status: confirmed|unclear|missing, evidence, advice}] }',
@@ -302,7 +302,7 @@
     {
       id: 'questions.generate',
       title: 'Вероятные вопросы для подготовки',
-      uses: ['policy.*', 'profession.*', 'prep.weakSpots', 'vacancy.requirements',
+      uses: ['resume.rawText', 'policy.*', 'profession.*', 'prep.weakSpots', 'vacancy.requirements',
         'resume.experience', 'user.experienceYears'],
       output: 'json',
       outputShape: '{ questions: [{id, topic, text, why, guidance}] }',
@@ -319,7 +319,7 @@
     {
       id: 'interview.turn',
       title: 'Реплика интервьюера в тренировке',
-      uses: ['policy.*', 'session.mode', 'session.stage', 'session.turns', 'session.turnsSummary',
+      uses: ['resume.rawText', 'policy.*', 'session.mode', 'session.stage', 'session.turns', 'session.turnsSummary',
         'session.askedTopics', 'session.memory', 'prep.questions', 'prep.weakSpots', 'prep.evidence',
         'profession.name'],
       output: 'text',
@@ -329,7 +329,7 @@
     {
       id: 'interview.summary',
       title: 'Итог тренировочного интервью',
-      uses: ['policy.*', 'session.turns', 'session.turnsSummary', 'session.memory', 'prep.weakSpots',
+      uses: ['resume.rawText', 'policy.*', 'session.turns', 'session.turnsSummary', 'session.memory', 'prep.weakSpots',
         'prep.evidence', 'profession.name'],
       output: 'json',
       outputShape: '{ strong: string[], repeat: string[], advice: string[] }',
@@ -338,11 +338,13 @@
     {
       id: 'prep.card',
       title: 'Карточка подготовки к интервью',
-      uses: ['policy.*', 'profession.name', 'prep.weakSpots', 'prep.questions', 'prep.answers',
+      uses: ['resume.rawText', 'policy.*', 'profession.name', 'prep.weakSpots', 'prep.questions', 'prep.answers',
         'vacancy.requirements', 'resume.experience'],
       output: 'json',
       outputShape: '{ opening: string, strongPoints: string[], risky: [{topic, howToAnswer}], '
-        + 'askThem: string[], reminders: string[] }',
+        + 'askThem: string[], reminders: string[] }. Все поля обязательны, без дополнительных полей. '
+        + 'opening: 1–2000 символов; массивы: до 10 элементов (пустые допустимы при отсутствии фактов); '
+        + 'строки массивов: 1–600 символов; topic: 1–300; howToAnswer: 1–1000. Строки не могут быть пустыми.',
       note: 'Краткая шпаргалка, которую человек читает перед разговором. Опирается на его '
         + 'собственные ответы: формулировки не выдумываются за него. Открывается на телефоне '
         + 'или втором экране и не требует чтения экрана и записи звука.'
@@ -372,7 +374,7 @@
     {
       id: 'assistant.hint',
       title: 'Подсказка во время согласованного интервью',
-      uses: ['policy.maxWords', 'policy.language', 'screen.detectedQuestion', 'prep.weakSpots',
+      uses: ['resume.rawText', 'policy.maxWords', 'policy.language', 'screen.detectedQuestion', 'prep.weakSpots',
         'prep.evidence', 'resume.experience', 'resume.skills', 'vacancy.requirements', 'profession.name',
         'session.askedTopics', 'session.memory'],
       output: 'json',

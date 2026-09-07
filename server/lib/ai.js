@@ -201,6 +201,9 @@ function buildStore(taskId, parts, sid) {
   /* Задачи интервью идут на снимке подготовки; остальные (разбор, обзор,
      сопоставление) — на текущих документах, потому что они их и пересобирают. */
   let resume = parts.resume ? parts.resume.data : {};
+  info.resumeTextRev = parts.resume ? parts.resume.rev : null;
+  info.resumeTextTruncated = !!(resume.rawText && resume.rawText.length > 2400
+    && ['interview.turn', 'interview.summary', 'assistant.hint'].includes(taskId));
   let requirements = (vacancy && vacancy.requirements) || null;
   let vacancyBrief = vacancy ? { title: vacancy.title, company: vacancy.company } : undefined;
   if (isInterview) {
@@ -229,7 +232,13 @@ function buildStore(taskId, parts, sid) {
     skills: resume.skills || [],
     achievements: resume.achievements || [],
     education: resume.education || [],
-    rawResumeText: resume.rawText || undefined,
+    // Uploaded text is a current source, independent of the pinned structured
+    // profile and optional memory. Routes load it with the authenticated sid.
+    rawResumeText: parts.resume && typeof parts.resume.data.rawText === 'string'
+      ? (taskId === 'interview.turn' || taskId === 'interview.summary' || taskId === 'assistant.hint'
+        ? (parts.resume.data.rawText.length > 2400
+          ? parts.resume.data.rawText.slice(0, 2399) + '…' : parts.resume.data.rawText) : parts.resume.data.rawText)
+      : undefined,
     vacancy: vacancyBrief,
     vacancyRawText: vacancy && !isInterview ? vacancy.rawText : undefined,
     requirements: requirements || undefined,
@@ -407,6 +416,11 @@ async function run(sessionId, taskId, parts, options) {
     provider: c.provider, model: c.model, locale: c.locale,
     endpoint: c.endpoint || undefined, streaming: opts.streaming,
     maxOutputTokens: c.maxOutputTokens,
+    // Required source text may be bounded for live tasks, but never dropped.
+    policyOverrides: { all: { required: ContextPolicy.policyFor(taskId).required.concat(
+      ['resume.review', 'match.requirements', 'questions.generate', 'prep.card',
+        'interview.turn', 'interview.summary', 'assistant.hint'].includes(taskId)
+        ? ['preparation.rawResumeText'] : []) } },
     thinkingKnownOff: process.env.AI_THINKING_OFF === '1'
   });
   const pre = stage === 'pre_interview';
@@ -487,7 +501,8 @@ async function run(sessionId, taskId, parts, options) {
     let parsed;
     try { parsed = { ok: true, value: JSON.parse(String(result.text || '').trim()) }; } catch (_) { parsed = { ok: false }; }
     if (!parsed.ok || result.truncated || ['length', 'max_tokens'].indexOf(result.stopReason) >= 0
-      || (taskId === 'resume.review' && !validReview(parsed.value))) {
+      || (taskId === 'resume.review' && !validReview(parsed.value))
+      || (taskId === 'prep.card' && !validPrepCard(parsed.value))) {
       result = Object.assign({}, result, { ok: false, code: 'malformed_response',
         error: 'Модель вернула неполный или некорректный структурированный ответ. Повторите запрос.' });
     } else {
@@ -514,6 +529,18 @@ async function run(sessionId, taskId, parts, options) {
     source: { provider: c.provider, model: request.model, stage },
     mock: result.mock === true, dropped: built.report.dropped, usage: result.usage, requestId,
     sizing: request.sizing, context: contextInfo };
+}
+
+function validPrepCard(value) {
+  const object = v => !!v && typeof v === 'object' && !Array.isArray(v);
+  const text = (v, max) => typeof v === 'string' && v.trim().length > 0 && v.length <= max;
+  const list = (v, check) => Array.isArray(v) && v.length <= 10 && v.every(check);
+  const keys = ['opening', 'strongPoints', 'risky', 'askThem', 'reminders'];
+  return object(value) && Object.keys(value).every(k => keys.includes(k))
+    && text(value.opening, 2000)
+    && ['strongPoints', 'askThem', 'reminders'].every(k => list(value[k], v => text(v, 600)))
+    && list(value.risky, v => object(v) && Object.keys(v).every(k => ['topic', 'howToAnswer'].includes(k))
+      && text(v.topic, 300) && text(v.howToAnswer, 1000));
 }
 
 function validReview(value) {

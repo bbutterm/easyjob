@@ -64,7 +64,7 @@ assert.equal(Routing.load({ ...env, AI_TASK_ROUTES_JSON: '{"prep.card":"live"}' 
   const oldExecute = Providers.execute; const oldEnv = { ...process.env };
   try {
     process.env.AI_PROVIDER = 'mock'; delete process.env.AI_PROFILES_JSON; delete process.env.AI_TASK_ROUTES_JSON; delete process.env.AI_STAGE_ROUTES_JSON;
-    Providers.execute = async () => ({ ok: true, text: '{}', usage: { input: 17, output: 4 } });
+    Providers.execute = async () => ({ ok: true, text: JSON.stringify({ opening: 'Synthetic opening', strongPoints: [], risky: [], askThem: [], reminders: [] }), usage: { input: 17, output: 4 } });
     assert.equal((await ai.run(sa.id, 'prep.card', { resume: { data: { rawText: 'private content' } } })).ok, true);
     Providers.execute = async () => ({ ok: true, text: 'invalid private json' });
     assert.equal((await ai.run(sa.id, 'prep.card', {})).ok, false);

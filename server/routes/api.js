@@ -460,14 +460,19 @@ function register(r) {
         throw new HttpError(502, 'Модель вернула пустую обратную связь. Повторите запрос.', { code: 'malformed_response' });
       }
       const current = db.preps.get(sid, prep.id);
-      const currentAnswer = String((current.answers || {})[questionId] || '').trim();
+      if (!current || current.answersRev !== prep.answersRev) {
+        throw new HttpError(409, 'Ответ изменился во время разбора. Повторите запрос.', { code: 'stale_answer' });
+      }
       const entry = Object.assign(clean, {
-        answerText: currentAnswer.slice(0, 4000),
+        answerText: answer.slice(0, 4000),
         source: Object.assign({ mode: result.mock ? 'mock' : 'real', createdAt: Date.now() }, result.source || {})
       });
       const feedback = Object.assign({}, current.feedback || {});
       feedback[questionId] = entry;
-      const saved = db.preps.set(sid, prep.id, { feedback });
+      if (!db.preps.setFeedbackIfCurrent(sid, prep.id, prep.answersRev, feedback)) {
+        throw new HttpError(409, 'Ответ изменился во время разбора. Повторите запрос.', { code: 'stale_answer' });
+      }
+      const saved = db.preps.get(sid, prep.id);
       sendJson(res, 200, { questionId, feedback: entry, mock: result.mock, source: entry.source, state: prepView(sid, saved).state });
     } finally { feedbacks.delete(key); }
   });
