@@ -16,6 +16,8 @@ var Capabilities = require('../capabilities.js');
 var ADAPTERS = {
   anthropic: anthropic,
   openai: openai,
+  openrouter: openai,
+  cerebras: openai,
   /* Локальные и совместимые сервисы используют тот же формат запроса,
      что и OpenAI, но с другим адресом и часто без ключа. */
   openai_compatible: openai,
@@ -80,6 +82,15 @@ function retryDelay(attempt, response) {
   return Math.min(500 * Math.pow(2, attempt), 8000);
 }
 
+// Usage may arrive even in a refusal/error or in a usage-only SSE event.
+function wireUsage(json) {
+  if (!json) return null;
+  var u = json.usage || (json.message && json.message.usage);
+  if (u) return { input: u.prompt_tokens ?? u.input_tokens, output: u.completion_tokens ?? u.output_tokens };
+  if (json.usageMetadata) return { input: json.usageMetadata.promptTokenCount, output: json.usageMetadata.candidatesTokenCount };
+  return null;
+}
+
 /* execute — единственное место, где происходит сетевой вызов.
    fetchImpl передаётся снаружи, чтобы код оставался проверяемым
    и не тянул зависимости в браузерную часть.
@@ -93,6 +104,7 @@ function timeoutText(ms) {
 /* Один вызов = одна или несколько попыток. Каждая попытка возвращает
    запись для учёта: длительность, исход, известен ли расход. */
 async function execute(request, runtime, fetchImpl) {
+  if (runtime && runtime.signal && runtime.signal.aborted) return { ok: false, error: 'Запрос отменён', aborted: true };
   var impl = adapter(request.provider);
   if (!impl) {
     return { ok: false, error: 'Неизвестный провайдер модели: ' + request.provider,
@@ -122,6 +134,7 @@ async function execute(request, runtime, fetchImpl) {
   var timer = null;
 
   for (var attempt = 0; attempt <= maxRetries; attempt++) {
+    if (rt.signal && rt.signal.aborted) return { ok: false, error: 'Запрос отменён', aborted: true, attempts: attempts };
     attempts = attempt + 1;
     var started = Date.now();
     controller = typeof AbortController === 'function' ? new AbortController() : null;
@@ -149,7 +162,8 @@ async function execute(request, runtime, fetchImpl) {
         attemptLog.push({ attempt: attempts, ok: false, ms: Date.now() - started, outcome: 'cancelled', usageStatus: 'unknown' });
         return { ok: false, aborted: true, error: 'Запрос отменён.', attempts: attempts, attemptLog: attemptLog };
       }
-      lastError = aborted ? timeoutText(timeoutMs) : 'Сеть недоступна: ' + e.message;
+      /* Текст исключения не передаётся дальше: в нём бывают адреса и ключи. */
+      lastError = aborted ? timeoutText(timeoutMs) : 'Сеть недоступна';
       attemptLog.push({ attempt: attempts, ok: false, ms: Date.now() - started,
         outcome: aborted ? 'timeout' : 'network', usageStatus: 'unknown' });
     }
@@ -165,6 +179,13 @@ async function execute(request, runtime, fetchImpl) {
     }
     if (!shouldRetry) break;
     if (attempt === maxRetries) break;
+    if (typeof rt.onAttemptFailure === 'function') {
+      var failedUsage = null;
+      try { var failedBody = response && await response.json();
+        failedUsage = wireUsage(failedBody);
+      } catch (_) { /* No provider usage available. */ }
+      rt.onAttemptFailure({ ok: false, usage: failedUsage, ms: Date.now() - started });
+    }
     await wait(retryDelay(attempt, response));
   }
 
@@ -209,12 +230,17 @@ async function execute(request, runtime, fetchImpl) {
   }
 
   if (!response.ok) {
-    var parsed = impl.fromWire(json);
-    return finish({ ok: false, status: response.status,
+    /* Сообщение сервиса в ответ не копируется: оно может содержать
+       фрагменты запроса или ключа. Код ответа достаточен для диагностики. */
+    return finish({ ok: false, status: response.status, usage: wireUsage(json),
       retriable: RETRIABLE.indexOf(response.status) >= 0,
-      error: parsed.error || ('Ошибка сервиса, код ' + response.status) }, 'http_' + response.status);
+      error: 'Ошибка сервиса, код ' + response.status }, 'http_' + response.status);
   }
-  return finish(impl.fromWire(json), 'ok');
+  var result = impl.fromWire(json);
+  if (!result.usage) result.usage = wireUsage(json);
+  /* Текст ошибки сервиса не пробрасывается: там бывают фрагменты запроса. */
+  if (!result.ok) result.error = 'Ошибка ответа сервиса';
+  return finish(result, result.ok ? 'ok' : 'bad_response');
 }
 
 /* Сборка текста из потока событий.
@@ -262,9 +288,15 @@ async function readStream(response, impl, request, signal, timeoutMs) {
         var event;
         try { event = JSON.parse(payload); } catch (e) { continue; }
 
+        /* Расход из событий собирает адаптер (streamUsage); у адаптеров без
+           него — общий разбор поля usage. */
+        if (!impl.streamUsage) {
+          var eventUsage = wireUsage(event);
+          if (eventUsage) usage = mergeUsage(usage, eventUsage);
+        }
         if (event.type === 'error' || event.error) {
           return { ok: false,
-            error: (event.error && event.error.message) || 'Ошибка в потоке ответа' };
+            text: text, usage: usage, error: 'Ошибка в потоке ответа' };
         }
         var delta = impl.streamDelta ? impl.streamDelta(event) : '';
         if (delta) {
@@ -282,11 +314,11 @@ async function readStream(response, impl, request, signal, timeoutMs) {
       }
     }
   } catch (e) {
-    return { ok: false, error: 'Поток ответа прервался: ' + e.message, partialText: text.trim() };
+    return { ok: false, error: 'Поток ответа прервался: ' + e.message, text: text.trim(), partialText: text.trim(), usage: usage };
   }
 
   if (stopReason === 'refusal') {
-    return { ok: false, refused: true, error: 'Запрос отклонён моделью', usage: usage };
+    return { ok: false, refused: true, error: 'Запрос отклонён моделью', text: text.trim(), usage: usage };
   }
   if (stopReason === 'max_tokens' || stopReason === 'length') {
     return { ok: true, text: text.trim(), stopReason: stopReason, truncated: true, usage: usage };
@@ -295,7 +327,7 @@ async function readStream(response, impl, request, signal, timeoutMs) {
 }
 
 function mergeUsage(current, part) {
-  var out = current ? Object.assign({}, current) : { input: 0, output: 0, cacheRead: 0 };
+  var out = current ? Object.assign({}, current) : { input: 0, output: 0 };
   ['input', 'output', 'cacheRead', 'cacheWrite', 'reasoning'].forEach(function (key) {
     if (part[key] !== undefined && part[key] !== null) out[key] = Number(part[key]) || 0;
   });

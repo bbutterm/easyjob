@@ -307,7 +307,7 @@ const VACANCY_TEXT = 'Ищем повара в ресторан.\n\nТребов
   ok('Расход заглушки помечен как «не применимо», а не ноль-по-умолчанию',
     pv.status === 201 && allUsage.length > 0 && allUsage.every(function (r) { return r.usageUnknown === 0; }));
   const usageRow = dbP.usage.summary(1);
-  ok('В сводке есть фаза и число попыток', usageRow.byTask[0].phase === 'main' && usageRow.byTask[0].attempts >= 1);
+  ok('В сводке есть фаза и число попыток', usageRow.byPhase.some(function (p) { return p.phase === 'main'; }) && usageRow.byTask[0].attempts >= 1);
 
   /* Закрытый провайдер отклоняется политикой. */
   const prevProvider = process.env.AI_PROVIDER;
@@ -554,7 +554,7 @@ const VACANCY_TEXT = 'Ищем повара в ресторан.\n\nТребов
   mockAdapter.run = realRun;
   const memE3 = await ec.call('GET', '/api/interviews/' + eiid + '/memory');
   ok('E: неразборчивый ответ модели оставляет прежнюю память нетронутой',
-    cmpBad.data.ran && cmpBad.data.ok === false && /разобрать/.test(cmpBad.data.error)
+    cmpBad.data.ran && cmpBad.data.ok === false && /неполный|разобрать/.test(cmpBad.data.error)
     && memE3.data.memoryVersion === 2 && memE3.data.memory.facts.length === memE2.data.memory.facts.length, JSON.stringify(cmpBad.data));
   /* Ссылки на чужие реплики и цитаты не из реплики отбрасываются, остальное публикуется. */
   mockAdapter.run = function (request) {

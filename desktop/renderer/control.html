@@ -99,6 +99,10 @@
   <div class="log" id="log"></div>
 </div>
 
+<div id="stt-slot"></div>
+<div class="card"><h2>Подсказка по транскрипту</h2><p id="audio-hint" aria-live="polite"></p></div>
+<script src="../../shared/stt/index.js"></script>
+<script src="../../shared/stt/widget.js"></script>
 <script>
   var el = function (id) { return document.getElementById(id); };
   var selectedSource = null;
@@ -266,6 +270,26 @@
     log('Подсказка' + (h.demo ? ' (заглушка)' : '') + ': ' + h.direction, 'ok');
   });
 
+  var speechWidget;
+  window.assistant.audio.config().then(function (config) {
+    speechWidget = SttWidget({ config: config,
+      beforeCapture: async function () {
+        var permission = await window.assistant.audio.authorize(true);
+        if (!permission.ok) throw new Error('Нет согласия');
+      },
+      onCancel: function () { window.assistant.audio.stop(); el('audio-hint').textContent = ''; },
+      onSend: async function (text) {
+        var prep = el('prep').value.trim() ? JSON.parse(el('prep').value) : null;
+        var result = await window.assistant.audio.hint({ text: text, consent: true, prep: prep });
+        if (!result.ok) throw new Error('Запрос недоступен');
+      }
+    });
+    el('stt-slot').appendChild(speechWidget.element);
+  });
+  window.assistant.on('audio:hint', function (hint) {
+    el('audio-hint').textContent = (hint.demo ? 'Заглушка: ' : '') + hint.direction;
+  });
+  window.addEventListener('pagehide', function () { if (speechWidget) speechWidget.dispose(); });
   refreshButtons();
 </script>
 </body>

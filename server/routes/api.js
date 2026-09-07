@@ -6,6 +6,16 @@
 const db = require('../lib/db.js');
 const ai = require('../lib/ai.js');
 const Compact = require('../lib/context-compact.js');
+
+/* Ошибка задачи модели → HTTP: переполнение контекста 422, таймаут 504,
+   отмена 499, остальное 502. Код ошибки всегда в теле ответа. */
+function aiError(result) {
+  const status = result.overflow || result.code === 'context_limit' ? 422
+    : result.code === 'timeout' ? 504 : result.code === 'cancelled' ? 499 : 502;
+  const extra = { code: result.code || 'provider_failure' };
+  if (result.overflow) { extra.overflow = true; extra.sizing = result.sizing; }
+  return new HttpError(status, result.error, extra);
+}
 const { HttpError, sendJson } = require('../lib/router.js');
 const Professions = require('../../src/professions.js');
 
@@ -58,7 +68,7 @@ function prepView(sid, prep) {
 async function ensureRequirements(sid, vacancy) {
   if (vacancy.requirements && vacancy.requirements.length) return vacancy;
   const result = await ai.run(sid, 'vacancy.parse', { vacancy });
-  if (!result.ok) throw new HttpError(result.overflow ? 422 : 502, result.error, result.overflow ? { overflow: true, sizing: result.sizing } : null);
+  if (!result.ok) throw aiError(result);
   const reqs = Array.isArray(result.json.requirements) ? result.json.requirements : [];
   if (!reqs.length) throw new HttpError(422, 'В тексте вакансии не удалось выделить требования.');
   const cleaned = reqs.map(function (r, i) {
@@ -73,7 +83,7 @@ async function ensureRequirements(sid, vacancy) {
    требования, чтобы экран не зависел от изменения вакансии. */
 async function buildMatch(sid, prep, resume, vacancy) {
   const result = await ai.run(sid, 'match.requirements', { resume, vacancy, prep });
-  if (!result.ok) throw new HttpError(result.overflow ? 422 : 502, result.error, result.overflow ? { overflow: true, sizing: result.sizing } : null);
+  if (!result.ok) throw aiError(result);
   const byId = {};
   (vacancy.requirements || []).forEach(function (r) { byId[r.id] = r; });
   const items = (result.json.items || []).map(function (m) {
@@ -93,6 +103,7 @@ async function buildMatch(sid, prep, resume, vacancy) {
 }
 
 function register(r) {
+  const reviews = new Set();
   r.get('/api/health', function ({ res }) {
     sendJson(res, 200, { ok: true, ai: ai.describe(), context: ai.contextFlags(), time: Date.now() });
   });
@@ -100,6 +111,8 @@ function register(r) {
   r.get('/api/me', function ({ res, ctx }) {
     const sid = ctx.session.id;
     sendJson(res, 200, {
+      user: require('../lib/auth.js').publicUser(db.users.get(ctx.session.user_id || '')),
+      auth: { mode: 'local', demo: ctx.demoAuth },
       session: { id: sid, createdAt: ctx.session.created_at },
       ai: ai.describe(),
       limits: limitsFor(ctx.session, ctx),
@@ -120,6 +133,11 @@ function register(r) {
   });
 
   /* ---- Резюме ---- */
+
+  r.post('/api/resumes/extract', async function ({ res, body }) {
+    const rawText = await require('../lib/resume-extract.js').extract(body, require('../lib/request-scope.js').getStore()?.signal);
+    sendJson(res, 200, { rawText });
+  });
 
   r.post('/api/resumes', function ({ res, body, ctx }) {
     const sid = ctx.session.id;
@@ -168,10 +186,17 @@ function register(r) {
     const sid = ctx.session.id;
     const resume = db.resumes.get(sid, params.id);
     if (!resume) throw new HttpError(404, 'Резюме не найдено');
-    const result = await ai.run(sid, 'resume.review', { resume });
-    if (!result.ok) throw new HttpError(result.overflow ? 422 : 502, result.error, result.overflow ? { overflow: true, sizing: result.sizing } : null);
-    db.resumes.setReview(sid, resume.id, result.json);
-    sendJson(res, 200, { review: result.json, mock: result.mock, dropped: result.dropped });
+    const key = sid + ':' + resume.id;
+    if (reviews.has(key)) throw new HttpError(409, 'Разбор уже выполняется. Дождитесь ответа или отмените запрос.', { code: 'duplicate' });
+    reviews.add(key);
+    try {
+      const result = await ai.run(sid, 'resume.review', { resume });
+      if (!result.ok) throw aiError(result);
+      const current = db.resumes.get(sid, resume.id);
+      if (!current || current.rev !== resume.rev) throw new HttpError(409, 'Резюме изменилось во время разбора. Повторите запрос.');
+      db.resumes.setReview(sid, resume.id, result.json);
+      sendJson(res, 200, { review: result.json, mock: result.mock, source: result.source, dropped: result.dropped });
+    } finally { reviews.delete(key); }
   });
 
   /* ---- Вакансии ---- */
@@ -250,7 +275,7 @@ function register(r) {
     const resume = db.resumes.get(sid, prep.resumeId);
     const vacancy = db.vacancies.get(sid, prep.vacancyId);
     const result = await ai.run(sid, 'questions.generate', { resume, vacancy, prep });
-    if (!result.ok) throw new HttpError(result.overflow ? 422 : 502, result.error, result.overflow ? { overflow: true, sizing: result.sizing } : null);
+    if (!result.ok) throw aiError(result);
     const questions = (result.json.questions || []).map(function (q, i) {
       return { id: safeId(q.id, 'q' + (i + 1)), topic: str(q.topic, 60, 'topic') || 'Общее',
         text: str(q.text, 500, 'text', true), why: str(q.why, 500, 'why'), guidance: str(q.guidance, 800, 'guidance') };
@@ -287,7 +312,7 @@ function register(r) {
     const resume = db.resumes.get(sid, prep.resumeId);
     const vacancy = db.vacancies.get(sid, prep.vacancyId);
     const result = await ai.run(sid, 'prep.card', { resume, vacancy, prep, includeAnswers: true });
-    if (!result.ok) throw new HttpError(result.overflow ? 422 : 502, result.error, result.overflow ? { overflow: true, sizing: result.sizing } : null);
+    if (!result.ok) throw aiError(result);
     db.preps.set(sid, prep.id, { card: result.json });
     sendJson(res, 200, { card: result.json, mock: result.mock, dropped: result.dropped });
   });
@@ -340,14 +365,18 @@ function register(r) {
     }
     res.writeHead(200, { 'content-type': 'text/event-stream; charset=utf-8', 'cache-control': 'no-store',
       connection: 'keep-alive' });
-    const send = function (event, data) { res.write('event: ' + event + '\ndata: ' + JSON.stringify(data) + '\n\n'); };
+    const aborter = new AbortController();
+    const disconnected = function () { if (!res.writableEnded) aborter.abort(); };
+    res.on('close', disconnected);
+    const send = function (event, data) { if (res.destroyed) return; res.write('event: ' + event + '\ndata: ' + JSON.stringify(data) + '\n\n'); };
     try {
       const result = await interviewerTurn(sid, prep, fresh, function (delta) { send('delta', { text: delta }); },
-        function (text) { send('status', { text }); });
+        function (text) { send('status', { text }); }, aborter.signal);
       send('done', result);
     } catch (e) {
       send('error', { error: e.message });
     }
+    res.off('close', disconnected);
     res.end();
   });
 
@@ -394,22 +423,23 @@ function register(r) {
     const resume = db.resumes.get(sid, prep.resumeId);
     const vacancy = db.vacancies.get(sid, prep.vacancyId);
     const result = await ai.run(sid, 'interview.summary', { resume, vacancy, prep, interview });
-    if (!result.ok) throw new HttpError(result.overflow ? 422 : 502, result.error, result.overflow ? { overflow: true, sizing: result.sizing } : null);
+    if (!result.ok) throw aiError(result);
     const finished = db.interviews.finish(sid, interview.id, result.json);
     sendJson(res, 200, Object.assign({}, finished, { mock: result.mock, context: result.context }));
   });
 
-  async function interviewerTurn(sid, prep, interview, onDelta, onStatus) {
+  async function interviewerTurn(sid, prep, interview, onDelta, onStatus, signal) {
     const resume = db.resumes.get(sid, prep.resumeId);
     const vacancy = db.vacancies.get(sid, prep.vacancyId);
     /* Память обновляется до реплики, когда порог достигнут: реплика
        интервьюера тогда идёт уже на свежей памяти. Сбой сжатия реплику
        не блокирует — окно и свёртка работают как прежде. */
-    const compaction = await Compact.maybeRun(sid, prep, resume, vacancy, interview, { onStatus });
+    const compaction = await Compact.maybeRun(sid, prep, resume, vacancy, interview, { onStatus, signal });
     if (compaction.ran) prep = db.preps.get(sid, prep.id) || prep;
     const result = await ai.run(sid, 'interview.turn', { resume, vacancy, prep, interview },
-      { streaming: !!onDelta, onDelta });
-    if (!result.ok) throw new HttpError(result.overflow ? 422 : 502, result.error, result.overflow ? { overflow: true, sizing: result.sizing } : null);
+      { streaming: !!onDelta, onDelta, signal });
+    if (signal && signal.aborted) throw new HttpError(499, 'Запрос отменён', { code: 'cancelled' });
+    if (!result.ok) throw aiError(result);
     const text = str(result.text, 2000, 'turn', true);
     const appended = db.interviews.appendTurn(sid, interview.id, { role: 'interviewer', text });
     return { interviewId: interview.id, turn: { role: 'interviewer', text, seq: appended.turn.seq },

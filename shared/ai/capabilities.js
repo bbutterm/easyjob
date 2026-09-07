@@ -84,6 +84,30 @@
       ]
     },
 
+    openrouter: {
+      id: 'openrouter', title: 'OpenRouter',
+      endpoint: 'https://openrouter.ai/api/v1/chat/completions',
+      auth: { header: 'Authorization', scheme: 'Bearer' },
+      systemChannel: 'message_role', messageShape: 'roles_system_user_assistant',
+      jsonMode: 'response_format_json_object', maxTokensField: 'max_completion_tokens',
+      vision: false, streaming: true, promptCache: 'none', reasoning: 'model_specific',
+      defaultModel: '', dataRegion: 'global', verified: false,
+      notes: ['Трансграничная обработка. Модель задаётся явно; JSON зависит от модели.',
+        'Изображения отключены: возможности конкретной модели не подтверждены.']
+    },
+
+    cerebras: {
+      id: 'cerebras', title: 'Cerebras',
+      endpoint: 'https://api.cerebras.ai/v1/chat/completions',
+      auth: { header: 'Authorization', scheme: 'Bearer' },
+      systemChannel: 'message_role', messageShape: 'roles_system_user_assistant',
+      jsonMode: 'response_format_json_object', maxTokensField: 'max_completion_tokens',
+      vision: false, streaming: true, promptCache: 'none', reasoning: 'model_specific',
+      defaultModel: '', dataRegion: 'global', verified: false,
+      notes: ['Трансграничная обработка. Модель задаётся явно; JSON зависит от модели.',
+        'Изображения отключены: возможности конкретной модели не подтверждены.']
+    },
+
     gemini: {
       id: 'gemini',
       title: 'Google Gemini',

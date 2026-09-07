@@ -48,8 +48,11 @@
       inputCap: 4000, outputReserve: 900, outputReserveThinkingOff: 300, windowTurns: 2,
       required: [], dropFirst: ['moment.image']
     },
+    /* Обзор резюме получает исходный текст целиком: загруженное резюме в
+       40 тысяч знаков не выбрасывается — либо помещается, либо контролируемая
+       ошибка. Поэтому предел шире гипотезы из документа владельца. */
     'resume.review': {
-      inputCap: 12000, outputReserve: 2500, outputReserveThinkingOff: 2500, windowTurns: 0,
+      inputCap: 32000, outputReserve: 4000, outputReserveThinkingOff: 4000, windowTurns: 0,
       required: ['preparation.experience'], dropFirst: ['preparation.vacancyRawText', 'preparation.rawResumeText']
     },
     'match.requirements': {

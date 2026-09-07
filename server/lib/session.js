@@ -1,6 +1,4 @@
-/* Анонимная сессия по cookie. Вход по почте — позже, когда будет что
-   восстанавливать. Cookie подписана, чтобы нельзя было подставить чужой
-   идентификатор, зная его формат. */
+/* Signed HttpOnly sessions for anonymous guests and local accounts. */
 
 'use strict';
 
@@ -61,4 +59,4 @@ function clearCookieHeader(secure) {
   return COOKIE + '=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0' + (secure ? '; Secure' : '');
 }
 
-module.exports = { init, resolve, hashAddress, clearCookieHeader, COOKIE, sign, verify };
+module.exports = { init, resolve, hashAddress, clearCookieHeader, cookieHeader, COOKIE, sign, verify };

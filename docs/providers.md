@@ -224,3 +224,110 @@ AI_API_KEY=<ключ>
 3. Регистрация в `shared/ai/providers/index.js`.
 4. Проверки в `tests/shared.test.js` на форму запроса и разбор ответа.
 5. `node tools/gen-ai-docs.js` — таблица провайдеров в документации обновится сама.
+
+## Маршрутизация нескольких профилей
+
+Сервер выбирает профиль перед `AiRequest.build`, затем вызывает прежний
+`Providers.execute`. Desktop использует тот же resolver для `screen.extract` и
+`assistant.hint`; без маршрутов сохраняются настройки desktop. Ключи остаются в
+процессе выполнения запроса. Веб-клиент не получает карту профилей или секреты.
+
+| Задача (существующий ID) | Рекомендуемый профиль | Причина и компромисс |
+| --- | --- | --- |
+| `resume.review`, `resume.draft` | `structured` | Недорогая модель с устойчивым JSON для разбора/переформулировки резюме; проверять сохранение фактов |
+| `vacancy.parse` | `structured` | Быстрое извлечение требований, сложное рассуждение обычно избыточно |
+| `match.requirements`, `prep.card` | `reasoning` | Сильнее сопоставляет доказательства и пробелы; выше стоимость и задержка |
+| `questions.generate` | `questions` | Сильная, но экономичная модель; оценивать разнообразие и релевантность вопросов |
+| `interview.turn` | `fast` | Короткая задержка между репликами; меньше времени на рассуждение |
+| `assistant.hint` | `fast` | Минимальная измеренная задержка при приемлемом качестве подсказки |
+| `interview.summary`, `answer.feedback` | `reasoning` | Итоговая оценка требует более тщательного анализа |
+| `screen.extract` | `structured` | Текст после OCR; для изображений нужен существующий vision-провайдер |
+
+Это рекомендации по классам моделей, а не обещание цены/скорости конкретного ID.
+`resume.review` сейчас выдаёт анализ резюме, а `resume.draft` — структуру из мастера;
+отдельного серверного OCR/парсера файлов резюме нет. Существующие контракты не меняются.
+
+Поддерживаются `openrouter`, `cerebras`, `openai_compatible` и прежние провайдеры.
+Регистрация и ключи: [OpenRouter](https://openrouter.ai/),
+[кабинет Cerebras](https://cloud.cerebras.ai/).
+OpenRouter и Cerebras помечены `dataRegion: global`: данные уходят за рубеж,
+у OpenRouter обработчик также зависит от выбранной модели и настроек аккаунта.
+`mock` — локальная заглушка, без сети (`dataRegion: none`). У собственного
+`openai_compatible` фактическое размещение определяет оператор endpoint.
+Никогда не отправляйте токены в Telegram, чаты, issue или git.
+
+Адреса по умолчанию и схема chat-completions проверены по официальным справочникам:
+[OpenRouter](https://openrouter.ai/docs/api/api-reference/chat/send-chat-completion-request),
+[Cerebras](https://inference-docs.cerebras.ai/api-reference/chat-completions).
+OpenRouter: `https://openrouter.ai/api/v1/chat/completions`;
+Cerebras: `https://api.cerebras.ai/v1/chat/completions`.
+Оба используют Bearer, `messages`, `response_format: {type: "json_object"}` для JSON
+и `stream: true` для потока. По умолчанию лимит — `max_completion_tokens`;
+выбор модели должен учитывать поддержку JSON и streaming. Живые API в тестах не вызываются.
+Изображения у обоих отключены консервативно, поскольку возможности зависят от модели.
+Существующая проверка согласия и vision остаётся обязательной.
+
+### Точные переменные окружения
+
+Без новых переменных сохраняется одиночная конфигурация `AI_PROVIDER` (по умолчанию
+`mock`), `AI_MODEL`, `AI_API_KEY`, `AI_ENDPOINT`, `AI_TIMEOUT_MS` (60000),
+`AI_LOCALE` (`ru-RU`), `AI_AUTH_KEY`, `AI_SCOPE`, `AI_FOLDER_ID`.
+Дополнительно: `AI_MAX_TOKENS_FIELD` (`max_tokens` или `max_completion_tokens`),
+`AI_MAX_OUTPUT_TOKENS` (иначе прежний лимит задачи).
+
+- `AI_PROFILES_JSON`: объект «имя профиля → поля со ссылками на env».
+  Допустимые поля: `provider`, `model`, `endpoint`, `apiKey`, `timeoutMs`,
+  `maxTokensField`, `maxOutputTokens`. **Каждое значение — имя env, не секрет или литерал.**
+- `AI_DEFAULT_PROFILE`: профиль для любой задачи без маршрута. По умолчанию `legacy`,
+  зарезервированный профиль из прежних настроек.
+- `AI_TASK_ROUTES_JSON`: объект «существующий ID задачи → имя профиля».
+  Для отдельного timeout/лимита конкретной задачи создайте отдельный профиль,
+  ссылающийся на те же env модели/ключа и свои env лимитов.
+
+JSON должен быть объектом; неизвестные поля, провайдеры, задачи, профили, пустые env-ссылки,
+нецелые/неположительные лимиты отклоняются до сети. Для именованного сетевого профиля
+обязательны модель и ключ (у `openai_compatible` ключ необязателен).
+Endpoint — полный HTTP(S) URL без credentials, query и fragment.
+Неизвестная задача resolver использует default, но сам request builder по-прежнему
+принимает только задачи из каталога. Ошибка конфигурации не переключает на mock.
+
+Пример для защищённого окружения (все ID/ключи — placeholders, заменить вручную;
+JSON на одной строке совместим с существующим загрузчиком `.env`):
+
+```dotenv
+AI_PROVIDER=mock
+STRUCTURED_PROVIDER=openrouter
+STRUCTURED_MODEL=<structured-model-id>
+REASONING_PROVIDER=openrouter
+REASONING_MODEL=<reasoning-model-id>
+QUESTIONS_PROVIDER=openrouter
+QUESTIONS_MODEL=<questions-model-id>
+FAST_PROVIDER=cerebras
+FAST_MODEL=<fast-model-id>
+OPENROUTER_API_KEY=<openrouter-key>
+CEREBRAS_API_KEY=<cerebras-key>
+FAST_TIMEOUT_MS=10000
+FAST_MAX_TOKENS_FIELD=max_completion_tokens
+FAST_MAX_OUTPUT_TOKENS=1500
+AI_PROFILES_JSON={"structured":{"provider":"STRUCTURED_PROVIDER","model":"STRUCTURED_MODEL","apiKey":"OPENROUTER_API_KEY"},"reasoning":{"provider":"REASONING_PROVIDER","model":"REASONING_MODEL","apiKey":"OPENROUTER_API_KEY"},"questions":{"provider":"QUESTIONS_PROVIDER","model":"QUESTIONS_MODEL","apiKey":"OPENROUTER_API_KEY"},"fast":{"provider":"FAST_PROVIDER","model":"FAST_MODEL","apiKey":"CEREBRAS_API_KEY","timeoutMs":"FAST_TIMEOUT_MS","maxTokensField":"FAST_MAX_TOKENS_FIELD","maxOutputTokens":"FAST_MAX_OUTPUT_TOKENS"}}
+AI_DEFAULT_PROFILE=structured
+AI_TASK_ROUTES_JSON={"resume.review":"structured","resume.draft":"structured","vacancy.parse":"structured","match.requirements":"reasoning","prep.card":"reasoning","questions.generate":"questions","interview.turn":"fast","assistant.hint":"fast","interview.summary":"reasoning","answer.feedback":"reasoning"}
+```
+
+Для generic-профиля задайте env, например `LOCAL_PROVIDER=openai_compatible`,
+`LOCAL_MODEL=<model-id>`, `LOCAL_ENDPOINT=http://localhost:11434/v1/chat/completions`,
+и ссылки `{"provider":"LOCAL_PROVIDER","model":"LOCAL_MODEL","endpoint":"LOCAL_ENDPOINT"}`.
+Любой рекомендованный профиль можно переназначить другому провайдеру без правок кода.
+
+Fallback между профилями отсутствует: повторные попытки остаются у выбранного
+провайдера (прежние 2 повтора временных ошибок). Timeout действует на одну попытку,
+поэтому полное ожидание может быть больше; для live измеряйте также очереди и retries.
+Это не управляет внутренней маршрутизацией OpenRouter. Ошибки сети/провайдера
+возвращаются без исходного текста; журнал содержит ID задачи, провайдера, статус,
+длительность, число попыток, но не промпт/резюме/ключ.
+
+## STT отдельно от текстовых моделей
+
+`STT_PROVIDER=mock|whisper_cpp` относится к отдельному локальному распознаванию микрофона; OpenRouter и Cerebras здесь не speech-провайдеры. После проверки транскрипта работают прежние профили задач `interview.turn` и `assistant.hint`. Настройки, отсутствие сохранения аудио и точные зависимости — в [stt.md](stt.md).
+
+Учёт расходов, карта этапов A/B, рекомендуемые модели и чеклист: [usage.md](usage.md).

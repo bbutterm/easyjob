@@ -125,3 +125,7 @@ textarea { min-height: 90px; resize: vertical; font-family: ui-monospace, Menlo,
 
 .log { max-height: 220px; overflow-y: auto; font-size: 12.5px; }
 .log div { padding: 4px 0; border-bottom: 1px dashed var(--border); }
+
+.stt-widget { margin-top: 16px; }
+.stt-widget label { display: block; margin: 12px 0; }
+.stt-widget input:not([type="checkbox"]), .stt-widget select, .stt-widget textarea { width: 100%; box-sizing: border-box; }

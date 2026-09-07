@@ -1,0 +1,61 @@
+'use strict';
+const assert = require('node:assert/strict');
+const { chromium } = require('playwright');
+Object.assign(process.env, { NODE_ENV: 'test', DEMO_AUTH: '1', AI_PROVIDER: 'mock', SESSION_SECRET: 'resume-test', LOG_LEVEL: 'error' });
+const { createApp } = require('../server/index.js');
+(async () => {
+  const { server } = createApp({ dbFile: ':memory:', secure: false, retention: false, rateLimit: { perMinute: 1000, expensivePerMinute: 1000 } });
+  let browser;
+  try {
+    await new Promise((resolve, reject) => { server.once('error', reject); server.listen(0, '127.0.0.1', resolve); });
+    browser = await chromium.launch();
+    const base = 'http://127.0.0.1:' + server.address().port;
+    for (const width of [1440, 390]) {
+      const ctx = await browser.newContext({ viewport: { width, height: 844 }, reducedMotion: 'reduce' });
+      const page = await ctx.newPage();
+      await page.goto(base + '/#/resume/upload');
+      await page.waitForFunction(() => Api.live.enabled);
+      await page.evaluate(async width => { await Api.request('POST', '/api/auth/register', { username: 'resume-test-' + width, password: 'synthetic-password' }); location.hash = '#/resume/upload'; }, width);
+      await page.reload(); await page.waitForSelector('#file-input');
+      await page.locator('#file-input').setInputFiles({ name: 'synthetic.txt', mimeType: 'text/plain', buffer: Buffer.from('Synthetic resume. Engineer with five years of experience in testing software.') });
+      await page.waitForFunction(() => Store.get().upload.text?.includes('Synthetic resume'));
+      assert.equal(await page.locator('[data-act="upload:show-analysis"]').count(), 0);
+      let calls = 0;
+      await page.route('**/api/resumes/*/review', async route => { calls++; await new Promise(r => setTimeout(r, 300)); await route.fulfill({ status: 502, json: { error: 'Некорректный JSON модели', code: 'malformed_response' } }); });
+      await page.locator('[data-act="upload:review"]').click();
+      await page.evaluate(() => document.querySelector('[data-act="upload:review"]').click());
+      await page.waitForSelector('#upload-error');
+      assert.equal(calls, 1);
+      assert.equal(await page.evaluate(() => Store.get().pending), null);
+      assert.equal(await page.getByText('Демонстрационный разбор резюме', { exact: true }).count(), 0);
+      await page.unroute('**/api/resumes/*/review');
+      await page.route('**/api/resumes/*/review', route => route.fulfill({ status: 504, json: { error: 'Превышено время ожидания модели', code: 'timeout' } }));
+      await page.getByRole('button', { name: 'Повторить разбор' }).click();
+      await page.waitForFunction(() => Store.get().upload.error?.includes('время ожидания'));
+      assert.equal(await page.evaluate(() => Store.get().pending), null);
+      await page.unroute('**/api/resumes/*/review');
+      await page.getByRole('button', { name: 'Повторить разбор' }).click();
+      await page.getByRole('heading', { name: 'Разбор вашего резюме' }).waitFor();
+      await page.locator('[data-act="upload:clear"]').click();
+      await page.locator('#upload-text').fill('Synthetic text resume. Engineer with experience building software and testing systems.');
+      await page.route('**/api/resumes/*/review', route => new Promise(r => setTimeout(r, 1000)).then(() => route.abort()).catch(() => {}));
+      await page.locator('[data-act="upload:review"]').click();
+      await page.getByRole('button', { name: 'Отменить' , exact: true }).click();
+      await page.waitForSelector('#upload-error');
+      assert.equal(await page.evaluate(() => Store.get().pending), null);
+      await page.unroute('**/api/resumes/*/review');
+      await page.getByRole('button', { name: 'Повторить разбор' }).click();
+      await page.getByRole('heading', { name: 'Разбор вашего резюме' }).waitFor();
+      const panel = page.locator('[data-act="demopanel:toggle"]');
+      if (await panel.getAttribute('aria-expanded') === 'true') await panel.click();
+      await panel.click();
+      await page.getByRole('button', { name: 'Свернуть панель' }).click();
+      assert.equal(await panel.getAttribute('aria-expanded'), 'false');
+      await panel.click(); await page.keyboard.press('Escape');
+      assert.equal(await panel.getAttribute('aria-expanded'), 'false');
+      assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1), true);
+      await ctx.close();
+    }
+    console.log('PASS resume browser desktop/mobile/reduced motion: file/text, failure/retry, cancellation, duplicates, demo separation, panel');
+  } finally { if (browser) await browser.close(); await new Promise(r => server.close(r)); }
+})().catch(e => { console.error(e); process.exitCode = 1; });

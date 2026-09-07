@@ -23,18 +23,18 @@ function compile(pattern) {
   return { re, keys };
 }
 
-function readBody(req) {
+function readBody(req, limit = MAX_BODY) {
   return new Promise(function (resolve, reject) {
     const chunks = [];
     let size = 0;
     req.on('data', function (chunk) {
       size += chunk.length;
-      if (size > MAX_BODY) {
-        reject(new HttpError(413, 'Слишком большой запрос: не более ' + Math.round(MAX_BODY / 1024) + ' КБ'));
-        req.destroy();
+      if (size > limit) {
+        reject(new HttpError(413, 'Слишком большой запрос: не более ' + Math.round(limit / 1024) + ' КБ'));
+        chunks.length = 0;
         return;
       }
-      chunks.push(chunk);
+      if (size <= limit) chunks.push(chunk);
     });
     req.on('end', function () { resolve(Buffer.concat(chunks).toString('utf8')); });
     req.on('error', reject);
@@ -77,14 +77,28 @@ function create() {
           body = {};
         } else {
           if (type.indexOf('application/json') < 0) throw new HttpError(415, 'Ожидается application/json');
-          const raw = await readBody(req);
+          const raw = await readBody(req, url.pathname === '/api/resumes/extract' ? 3 * 1024 * 1024 : MAX_BODY);
           try { body = raw ? JSON.parse(raw) : {}; } catch (e) { throw new HttpError(400, 'Тело запроса — не JSON'); }
         }
       }
-      return route.handler({
-        req, res, params, body, query: url.searchParams,
-        cookies: parseCookies(req.headers.cookie), ctx
-      });
+      const aborter = new AbortController();
+      const close = () => { if (!res.writableEnded) aborter.abort(); };
+      res.on?.('close', close);
+      let timer;
+      const bounded = req.method === 'POST' && (
+        /^\/api\/(resumes|vacancies|preps)(\/|$)/.test(url.pathname) && !url.pathname.includes('/interviews')
+        || /^\/api\/interviews\/[^/]+\/finish\/?$/.test(url.pathname));
+      try {
+        return await require('./request-scope.js').run({ signal: aborter.signal }, () => {
+          const operation = Promise.resolve().then(() => route.handler({ req, res, params, body, query: url.searchParams,
+            cookies: parseCookies(req.headers.cookie), ctx }));
+          if (!bounded) return operation;
+          return Promise.race([operation, new Promise((_, reject) => { timer = setTimeout(() => {
+            aborter.abort(); reject(new HttpError(504, 'Превышено время ожидания сервера. Повторите запрос.', { code: 'timeout' }));
+          }, 95000); })]);
+        });
+      } finally { clearTimeout(timer); res.off?.('close', close); }
+
     }
     return undefined;
   }

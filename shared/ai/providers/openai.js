@@ -6,6 +6,8 @@
 
 'use strict';
 
+var Caps = require('../capabilities.js');
+
 function toWire(request, runtime) {
   var userContent;
   if (request.image) {
@@ -27,10 +29,13 @@ function toWire(request, runtime) {
 
   /* Имя поля различается между версиями: max_tokens в старых,
      max_completion_tokens в новых. Настраивается в конфигурации. */
-  var field = (runtime && runtime.maxTokensField) || 'max_completion_tokens';
+  var field = (runtime && runtime.maxTokensField) || Caps.profile(request.provider || 'openai').maxTokensField;
   body[field] = request.maxOutputTokens;
 
   if (request.outputFormat === 'json' && !(runtime && runtime.noJsonMode)) body.response_format = { type: 'json_object' };
+  /* Задачи подготовки со строгим JSON: рассуждение выключается явно, чтобы
+     предел длины уходил на ответ, а не на размышления (OpenRouter). */
+  if (request.provider === 'openrouter' && runtime && runtime.disableReasoning === true) body.reasoning = { enabled: false };
   if (request.streaming) {
     body.stream = true;
     /* Расход при потоке приходит в последнем событии только по запросу. */
@@ -47,7 +52,7 @@ function toWire(request, runtime) {
   }
 
   return {
-    url: (runtime && runtime.endpoint) || 'https://api.openai.com/v1/chat/completions',
+    url: (runtime && runtime.endpoint) || Caps.profile(request.provider || 'openai').endpoint,
     method: 'POST',
     headers: {
       'content-type': 'application/json',
@@ -66,6 +71,7 @@ function fromWire(json) {
     ok: true,
     text: String((choice.message && choice.message.content) || '').trim(),
     stopReason: choice.finish_reason || null,
+    truncated: ['length', 'max_tokens'].indexOf(choice.finish_reason) >= 0,
     usage: usageFrom(json.usage)
   };
 }
@@ -76,8 +82,8 @@ function usageFrom(u) {
   if (!u) return null;
   var details = u.prompt_tokens_details || {};
   var cdetails = u.completion_tokens_details || {};
-  var out = { input: Number(u.prompt_tokens) || 0, output: Number(u.completion_tokens) || 0,
-    cacheRead: Number(details.cached_tokens) || 0 };
+  var out = { input: Number(u.prompt_tokens) || 0, output: Number(u.completion_tokens) || 0 };
+  if (details.cached_tokens !== undefined) out.cacheRead = Number(details.cached_tokens) || 0;
   if (cdetails.reasoning_tokens !== undefined) out.reasoning = Number(cdetails.reasoning_tokens) || 0;
   if (u.cache_write_tokens !== undefined) out.cacheWrite = Number(u.cache_write_tokens) || 0;
   if (u.cost !== undefined) out.cost = u.cost;

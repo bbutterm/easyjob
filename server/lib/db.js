@@ -16,6 +16,14 @@ let db = null;
 let ftsAvailable = false;
 
 const SCHEMA = `
+CREATE TABLE IF NOT EXISTS users (
+  id TEXT PRIMARY KEY,
+  username TEXT NOT NULL UNIQUE COLLATE NOCASE,
+  password_hash TEXT NOT NULL,
+  role TEXT NOT NULL DEFAULT 'user',
+  is_demo INTEGER NOT NULL DEFAULT 0,
+  created_at INTEGER NOT NULL
+);
 CREATE TABLE IF NOT EXISTS sessions (
   id TEXT PRIMARY KEY,
   created_at INTEGER NOT NULL,
@@ -106,9 +114,25 @@ function open(file) {
   db.exec('PRAGMA journal_mode = WAL');
   db.exec('PRAGMA foreign_keys = ON');
   db.exec(SCHEMA);
+  const userCols = db.prepare('PRAGMA table_info(users)').all().map(c => c.name);
+  if (!userCols.includes('is_demo')) db.exec('ALTER TABLE users ADD COLUMN is_demo INTEGER NOT NULL DEFAULT 0');
   /* Поле добавлено позже схемы: у существующих баз его нет. */
   const cols = db.prepare('PRAGMA table_info(sessions)').all().map(function (c) { return c.name; });
   if (cols.indexOf('ip_hash') < 0) db.exec('ALTER TABLE sessions ADD COLUMN ip_hash TEXT');
+  if (cols.indexOf('user_id') < 0) db.exec('ALTER TABLE sessions ADD COLUMN user_id TEXT REFERENCES users(id)');
+  const usageCols = db.prepare('PRAGMA table_info(usage)').all().map(c => c.name);
+  const additions = { user_id: 'TEXT', stage: "TEXT NOT NULL DEFAULT 'unknown'",
+    estimated: 'INTEGER NOT NULL DEFAULT 1', input_estimated: 'INTEGER NOT NULL DEFAULT 1',
+    output_estimated: 'INTEGER NOT NULL DEFAULT 1', cost_usd: 'REAL NOT NULL DEFAULT 0',
+    pricing_missing: 'INTEGER NOT NULL DEFAULT 1', pricing_version: "TEXT NOT NULL DEFAULT 'legacy-unpriced'" };
+  for (const [name, type] of Object.entries(additions)) {
+    if (!usageCols.includes(name)) db.exec('ALTER TABLE usage ADD COLUMN ' + name + ' ' + type);
+  }
+  db.exec('UPDATE usage SET user_id = (SELECT user_id FROM sessions WHERE sessions.id = usage.session_id) WHERE user_id IS NULL');
+  for (const [task, stage] of Object.entries(require('../../shared/ai/routing.js').STAGES)) {
+    db.prepare("UPDATE usage SET stage = ? WHERE task = ? AND stage = 'unknown'").run(stage, task);
+  }
+  db.exec('CREATE UNIQUE INDEX IF NOT EXISTS sessions_user ON sessions(user_id)');
   db.exec('CREATE INDEX IF NOT EXISTS sessions_ip ON sessions(ip_hash)');
   /* Версия интервью для CAS: две вкладки не затирают реплики друг друга. */
   const icols = db.prepare('PRAGMA table_info(interviews)').all().map(function (c) { return c.name; });
@@ -165,7 +189,36 @@ function parse(text, fallback) {
 
 /* ---- Сессии ---- */
 
+const users = {
+  byUsername(username) { return db.prepare('SELECT * FROM users WHERE username = ?').get(username) || null; },
+  get(uid) { return db.prepare('SELECT * FROM users WHERE id = ?').get(uid) || null; },
+  create(username, hash, role = 'user', isDemo = false) {
+    const uid = id('u');
+    db.prepare('INSERT INTO users (id, username, password_hash, role, created_at, is_demo) VALUES (?, ?, ?, ?, ?, ?)')
+      .run(uid, username, hash, role, now(), isDemo ? 1 : 0);
+    return users.get(uid);
+  }
+};
+
 const sessions = {
+  forUser(uid) { return db.prepare('SELECT * FROM sessions WHERE user_id = ?').get(uid) || null; },
+  // Rotate the bearer identifier and all owned records atomically. On logout the
+  // replacement stays private until the next login; saved work remains available.
+  rotate(sid, uid, ipHash) {
+    const next = id('s');
+    db.exec('BEGIN');
+    try {
+      const changed = db.prepare('UPDATE sessions SET id = ?, user_id = ?, ip_hash = ?, last_seen_at = ? WHERE id = ?')
+        .run(next, uid, ipHash || '', now(), sid).changes;
+      if (!changed) throw new Error('Session no longer exists');
+      for (const table of ['resumes', 'vacancies', 'preps', 'interviews', 'usage', 'context_memory']) {
+        db.prepare('UPDATE ' + table + ' SET session_id = ? WHERE session_id = ?').run(next, sid);
+      }
+      if (ftsAvailable) db.prepare('UPDATE evidence_fts SET session_id = ? WHERE session_id = ?').run(next, sid);
+      db.exec('COMMIT');
+      return sessions.get(next);
+    } catch (e) { db.exec('ROLLBACK'); throw e; }
+  },
   create(ipHash) {
     const row = { id: id('s'), created_at: now(), last_seen_at: now(), paid_until: 0, ip_hash: ipHash || '' };
     db.prepare('INSERT INTO sessions (id, created_at, last_seen_at, paid_until, ip_hash) VALUES (?, ?, ?, ?, ?)')
@@ -604,16 +657,26 @@ const evidence = {
 /* ---- Учёт расходов ---- */
 
 const usage = {
-  /* usageStatus: reported — расход пришёл от сервиса; unknown — не пришёл,
-     в токенах стоят нули, но это НЕ «бесплатно»; not_applicable — заглушка. */
-  record(sid, entry) {
-    db.prepare(`INSERT INTO usage (session_id, task, provider, model, tokens_in, tokens_out, ok, ms, created_at,
+  /* Одна запись на попытку. usageStatus: reported — расход пришёл от
+     сервиса; unknown — не пришёл, токены оценены и помечены как оценка,
+     это НЕ «бесплатно»; not_applicable — заглушка. Содержимого здесь нет:
+     лишние поля записи (текст, ключи) не сохраняются. */
+  forSession(sid) {
+    const uid = sessions.get(sid)?.user_id || null;
+    return entry => usage.record(sid, entry, uid);
+  },
+  record(sid, entry, uid = sessions.get(sid)?.user_id || null) {
+    db.prepare(`INSERT INTO usage (session_id, user_id, stage, task, provider, model, tokens_in, tokens_out,
+        estimated, input_estimated, output_estimated, cost_usd, pricing_missing, pricing_version, ok, ms, created_at,
         request_id, phase, usage_status, attempts, tokens_cache_read, tokens_reasoning, cost, outcome,
         tokens_estimate, estimate_exact)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
-      .run(sid, entry.task, entry.provider, entry.model || '', entry.tokensIn || 0, entry.tokensOut || 0,
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+      .run(sid, uid, entry.stage || require('../../shared/ai/routing.js').STAGES[entry.task] || 'unknown',
+        entry.task, entry.provider, entry.model || '', entry.tokensIn || 0, entry.tokensOut || 0,
+        entry.estimated !== false ? 1 : 0, entry.inputEstimated !== false ? 1 : 0, entry.outputEstimated !== false ? 1 : 0,
+        entry.costUsd || 0, entry.pricingMissing !== false ? 1 : 0, entry.pricingVersion || 'legacy-unpriced',
         entry.ok ? 1 : 0, entry.ms || 0, now(),
-        entry.requestId || null, entry.phase || 'main', entry.usageStatus || 'reported',
+        entry.requestId || null, entry.phase || 'main', entry.usageStatus || (entry.estimated === false ? 'reported' : 'unknown'),
         entry.attempts || 1, entry.tokensCacheRead || 0, entry.tokensReasoning || 0,
         entry.cost === undefined ? null : entry.cost, entry.outcome || null,
         entry.tokensEstimate || 0, entry.estimateExact ? 1 : 0);
@@ -627,25 +690,33 @@ const usage = {
   },
   /* Сводка для владельца: по задачам и по дням, без привязки к содержимому. */
   summary(days) {
-    const since = Date.now() - (Number(days) || 30) * 24 * 3600 * 1000;
-    return {
-      since,
-      byTask: db.prepare(`SELECT task, provider, phase, COUNT(*) AS requests, SUM(ok) AS succeeded,
-          COALESCE(SUM(tokens_in), 0) AS tokensIn, COALESCE(SUM(tokens_out), 0) AS tokensOut,
-          COALESCE(SUM(tokens_cache_read), 0) AS tokensCacheRead,
-          SUM(CASE WHEN usage_status = 'unknown' THEN 1 ELSE 0 END) AS usageUnknown,
-          COALESCE(SUM(attempts), 0) AS attempts, ROUND(AVG(ms)) AS avgMs
-        FROM usage WHERE created_at >= ? GROUP BY task, provider, phase ORDER BY requests DESC`).all(since),
-      byDay: db.prepare(`SELECT date(created_at / 1000, 'unixepoch') AS day, COUNT(*) AS requests,
-          COUNT(DISTINCT session_id) AS sessions,
-          COALESCE(SUM(tokens_in), 0) AS tokensIn, COALESCE(SUM(tokens_out), 0) AS tokensOut
-        FROM usage WHERE created_at >= ? GROUP BY day ORDER BY day DESC`).all(since),
-      sessions: db.prepare('SELECT COUNT(*) AS total, SUM(paid_until > ?) AS paid FROM sessions').get(Date.now()),
+    days = Math.min(365, Math.max(1, Math.floor(Number(days) || 30)));
+    const until = Date.now();
+    const since = until - days * 86400000;
+    const metrics = `COUNT(*) AS requests, COUNT(DISTINCT session_id) AS sessions, COALESCE(SUM(ok),0) AS succeeded,
+      COALESCE(SUM(1-ok),0) AS failures, COALESCE(SUM(tokens_in),0) AS tokensIn,
+      COALESCE(SUM(tokens_out),0) AS tokensOut, COALESCE(SUM(cost_usd),0) AS estimatedCostUsd,
+      COALESCE(SUM(estimated),0) AS estimatedRequests, COALESCE(SUM(1-estimated),0) AS reportedRequests,
+      COALESCE(SUM(pricing_missing),0) AS unpricedRequests,
+      COALESCE(SUM(CASE WHEN usage_status = 'unknown' THEN 1 ELSE 0 END),0) AS usageUnknown,
+      COALESCE(SUM(attempts),0) AS attempts, COALESCE(ROUND(AVG(ms)),0) AS avgMs`;
+    function group(columns, by) {
+      return db.prepare(`SELECT ${columns}, ${metrics} FROM usage u LEFT JOIN users a ON a.id = u.user_id
+        WHERE u.created_at >= ? AND u.created_at <= ? GROUP BY ${by} ORDER BY requests DESC`).all(since, until);
+    }
+    return { since, until, days,
+      totals: db.prepare(`SELECT ${metrics} FROM usage WHERE created_at >= ? AND created_at <= ?`).get(since, until),
+      byUser: group("u.user_id AS userId, a.username AS username", 'u.user_id'),
+      byStage: group('stage', 'stage'), byProvider: group('provider', 'provider'),
+      byModel: group('provider, model', 'provider, model'), byTask: group('task, provider', 'task, provider'),
+      byPhase: group('phase', 'phase'),
+      byDay: group("date(u.created_at / 1000, 'unixepoch') AS day", 'day').sort((a,b) => a.day.localeCompare(b.day)),
+      sessions: db.prepare('SELECT COUNT(*) AS total, SUM(paid_until > ?) AS paid FROM sessions').get(until),
       preps: db.prepare('SELECT COUNT(*) AS total FROM preps WHERE created_at >= ?').get(since).total,
       resumes: db.prepare('SELECT COUNT(*) AS total FROM resumes').get().total
     };
   }
 };
 
-module.exports = { open, close, closeIf, id, sessions, resumes, vacancies, preps, interviews, contextMemory, evidence,
+module.exports = { open, close, closeIf, id, users, sessions, resumes, vacancies, preps, interviews, contextMemory, evidence,
   resumeSections, usage };

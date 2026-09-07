@@ -109,22 +109,33 @@ const VACANCY_TEXT = 'Ищем повара в ресторан полного �
     return document.querySelectorAll('.msg:not(.msg--sys)').length >= 3;
   }, null, { timeout: 15000 });
   ok('Ответ ушёл и интервьюер продолжил', (await page.locator('.msg--user').count()) === 1);
+  await page.check('[data-stt="consent"]');
+  await page.click('[data-stt="start"]');
+  await page.click('[data-stt="stop"]');
+  await page.waitForFunction(() => document.querySelector('[data-stt="state"]').textContent.startsWith('ready'));
+  const transcript = await page.inputValue('[data-stt="text"]');
+  await page.click('[data-stt="send"]');
+  await page.waitForFunction(() => document.querySelectorAll('.msg--user').length === 2);
+  await page.waitForFunction(() => document.querySelector('[data-stt="feedback"]').textContent.includes('передан'));
+  ok('STT-заглушка → обычный API turns → interview.turn → ответ интервьюера',
+    (await page.locator('.msg--user').last().innerText()).includes(transcript));
   ok('Реплика уходит с clientTurnId для идемпотентного повтора',
-    turnBodies.length === 1 && /^t[a-z0-9]{8,}$/.test(turnBodies[0].clientTurnId || ''), JSON.stringify(turnBodies[0]));
+    turnBodies.length >= 1 && /^t[a-z0-9]{8,}$/.test(turnBodies[0].clientTurnId || ''), JSON.stringify(turnBodies[0]));
   ok('До порога сжатия строки о памяти нет', (await page.locator('.chat-memory').count()) === 0);
   /* Ещё ответы — до порога сжатия: память появляется в интерфейсе. */
   const moreAnswers = ['Работал по технологическим картам.', 'Медкнижки сейчас нет.', 'Меню разрабатывал дважды в год.'];
+  const usersBefore = await page.locator('.msg--user').count();
   for (let i = 0; i < moreAnswers.length; i++) {
     await page.fill('#chat-input', moreAnswers[i]);
     await page.click('button:has-text("Отправить ответ")');
     await page.waitForFunction(function (n) {
       return document.querySelectorAll('.msg--user').length === n && !document.querySelector('.dots');
-    }, i + 2, { timeout: 15000 });
+    }, usersBefore + i + 1, { timeout: 15000 });
   }
   const memoryLine = await page.locator('.chat-memory').innerText();
   ok('После сжатия интерфейс показывает версию памяти и покрытие', /Память интервью: версия 1, покрыты реплики до № \d+/.test(memoryLine), memoryLine);
-  ok('Все реплики ушли с разными clientTurnId', turnBodies.length === 4
-    && new Set(turnBodies.map(function (b) { return b.clientTurnId; })).size === 4);
+  const ids = turnBodies.map(function (b) { return b.clientTurnId; }).filter(Boolean);
+  ok('Все реплики ушли с разными clientTurnId', ids.length >= 4 && new Set(ids).size === ids.length);
   await page.click('button:has-text("Завершить и выйти")');
   await page.click('.modal button:has-text("Завершить")');
   await page.waitForSelector('text=Итог пробного интервью', { timeout: 15000 });
@@ -144,7 +155,7 @@ const VACANCY_TEXT = 'Ищем повара в ресторан полного �
   await page.click('button:has-text("Разобрать резюме")');
   await page.waitForSelector('text=Разбор вашего резюме', { timeout: 15000 });
   ok('Разбор вставленного резюме выполнен сервером', await page.locator('text=Разбор вашего резюме').isVisible());
-  await page.click('button:has-text("Сохранить как версию резюме")');
+  await page.click('button[data-act="upload:save"]');
   await page.waitForSelector('text=Добавление вакансии');
   ok('Разобранное резюме доступно для подготовки',
     (await page.locator('#vac-resume option').count()) >= 3);

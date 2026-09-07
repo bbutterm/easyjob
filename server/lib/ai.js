@@ -14,28 +14,34 @@ const Capabilities = require('../../shared/ai/capabilities.js');
 const Variables = require('../../shared/ai/variables.js');
 const db = require('./db.js');
 const log = require('./log.js');
+const Pricing = require('./pricing.js');
+const Routing = require('../../shared/ai/routing.js');
+const TokenCounter = require('../../shared/context/tokens.js');
+const RequestScope = require('./request-scope.js');
 
 const GigaChatAuth = require('./gigachat-auth.js');
 
-function config() {
-  return {
-    provider: process.env.AI_PROVIDER || 'mock',
-    model: process.env.AI_MODEL || '',
-    apiKey: process.env.AI_API_KEY || '',
-    /* GigaChat: ключ авторизации обменивается на временный токен сам. */
-    authKey: process.env.AI_AUTH_KEY || '',
-    scope: process.env.AI_SCOPE || '',
-    endpoint: process.env.AI_ENDPOINT || '',
-    folderId: process.env.AI_FOLDER_ID || '',
-    locale: process.env.AI_LOCALE || 'ru-RU',
-    timeoutMs: Number(process.env.AI_TIMEOUT_MS) || 60000
-  };
+/* Настройки берутся из маршрутизации по задачам (shared/ai/routing.js):
+   у этапа подготовки и живого интервью могут быть разные провайдеры.
+   Некорректная конфигурация (опечатка в имени провайдера, битый JSON
+   профилей) не роняет сервер: задачи получают отказ политики, здоровье
+   показывает known:false. */
+function routing() {
+  try {
+    return Routing.load();
+  } catch (e) {
+    const provider = process.env.AI_PROVIDER || 'mock';
+    const fallback = { provider, model: process.env.AI_MODEL || '', apiKey: '', authKey: '', endpoint: '',
+      locale: process.env.AI_LOCALE || 'ru-RU', timeoutMs: 60000, invalid: true, reason: e.message };
+    return {
+      invalid: true,
+      resolve(task) { return Object.assign({}, fallback, { stage: Routing.STAGES[task] || null }); },
+      isLive() { return false; }
+    };
+  }
 }
-
-function isLive() {
-  const c = config();
-  return c.provider !== 'mock';
-}
+function config(taskId) { return routing().resolve(taskId); }
+function isLive() { return routing().isLive(); }
 
 /* Политика продукта: закрытые провайдеры и модели не используются.
    Обход только явной переменной AI_ALLOW_CLOSED_PROVIDERS=1 — для
@@ -43,6 +49,9 @@ function isLive() {
 function policyCheck(c) {
   if (!Capabilities.isKnown(c.provider)) {
     return { ok: false, reason: 'неизвестный провайдер «' + c.provider + '»' };
+  }
+  if (c.invalid) {
+    return { ok: false, reason: 'некорректная конфигурация маршрутизации моделей (см. docs/providers.md)' };
   }
   const verdict = Capabilities.productAllowed(c.provider, c.model);
   if (!verdict.allowed && process.env.AI_ALLOW_CLOSED_PROVIDERS !== '1') {
@@ -52,20 +61,30 @@ function policyCheck(c) {
 }
 
 function describe() {
-  const c = config();
-  const profile = Capabilities.profile(c.provider);
-  const policy = policyCheck(c);
+  const routes = routing();
+  const pre = routes.resolve('resume.review');
+  const live = routes.resolve('interview.turn');
+  const primary = pre.provider !== 'mock' ? pre : routes.resolve();
+  const primaryProfile = Capabilities.profile(primary.provider);
+  const liveProfile = Capabilities.profile(live.provider);
+  const mixed = pre.provider !== live.provider || pre.model !== live.model;
+  const policy = policyCheck(primary);
+  const title = function (p) { return p ? p.title : 'неизвестный провайдер'; };
   return {
-    provider: c.provider,
-    known: !!profile,
-    title: profile ? profile.title : 'неизвестный провайдер',
-    model: c.model || (profile && profile.defaultModel) || '',
-    live: c.provider !== 'mock' && !!profile,
-    dataRegion: profile ? profile.dataRegion : 'unknown',
-    openWeights: profile ? profile.openWeights === true : false,
-    hasKey: !!(c.apiKey || c.authKey),
+    provider: primary.provider,
+    known: !!primaryProfile,
+    title: mixed ? title(primaryProfile) + ' (pre-interview) · ' + title(liveProfile) + ' (live)' : title(primaryProfile),
+    model: primary.model || (primaryProfile && primaryProfile.defaultModel) || '',
+    live: routes.isLive() && !!primaryProfile && !routes.invalid,
+    dataRegion: primaryProfile ? primaryProfile.dataRegion : 'unknown',
+    openWeights: primaryProfile ? primaryProfile.openWeights === true : false,
+    hasKey: !!(primary.apiKey || primary.authKey),
     policyOk: policy.ok,
-    policyReason: policy.reason
+    policyReason: policy.reason,
+    stages: {
+      pre_interview: { provider: pre.provider, model: pre.model || '', live: pre.provider !== 'mock' },
+      live_interview: { provider: live.provider, model: live.model || '', live: live.provider !== 'mock' }
+    }
   };
 }
 
@@ -159,6 +178,7 @@ function buildStore(taskId, parts, sid) {
   const shares = legacy ? undefined
     : taskId === 'interview.turn' ? { identity: 0.05, preparation: 0.30, session: 0.60, moment: 0.02 }
     : (taskId === 'context.compact' || taskId === 'interview.summary') ? { identity: 0.05, preparation: 0.15, session: 0.75, moment: 0.02 }
+    : Routing.STAGES[taskId] === 'pre_interview' ? { identity: 0.05, preparation: 0.90, session: 0.03, moment: 0.02 }
     : undefined;
   const store = ContextStore.create({
     contextBudget: legacy ? AiRequest.defaultsFor(taskId).contextBudget : policy.inputCap,
@@ -304,17 +324,54 @@ function buildStore(taskId, parts, sid) {
   return { store, info };
 }
 
-/* Выполнить задачу. Возвращает { ok, text, json, usage, error, truncated }. */
+/* Пределы задачи подготовки: полный текст резюме или вакансии не
+   выбрасывается молча — либо помещается целиком, либо контролируемая
+   ошибка с советом сократить документ. */
+function droppedSource(report) {
+  return (report && report.dropped || []).some(function (x) { return /^preparation\.(rawResumeText|vacancyRawText):/.test(x); });
+}
+
+/* Выполнить задачу. Возвращает { ok, text, json, usage, error, code, truncated,
+   source, requestId, sizing, context }. Коды ошибок: policy, context_limit,
+   timeout, cancelled, provider_failure, malformed_response. */
 async function run(sessionId, taskId, parts, options) {
-  const c = config();
+  const c = config(taskId);
+  const recordUsage = db.usage.forSession(sessionId);
   const opts = options || {};
   const requestId = opts.requestId || ('r_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 8));
   const phase = opts.phase || 'main';
+  const stage = c.stage || Routing.STAGES[taskId] || 'unknown';
+  const pricing = Pricing.load();
+  const isMock = c.provider === 'mock';
+
+  /* Одна запись учёта на попытку. Расход без ответа сервиса — оценка,
+     помеченная как оценка, а не ноль. */
+  function account(request, result, extra) {
+    const acc = Pricing.account(request || { provider: c.provider, model: c.model, system: '', userText: '' }, result || {}, pricing);
+    const sizing = request && request.sizing;
+    if (acc.inputEstimated && sizing) acc.tokensIn = sizing.inputTokens;
+    if (acc.outputEstimated) acc.tokensOut = TokenCounter.count((result && result.text) || '').tokens;
+    const rate = pricing.prices[c.provider] && pricing.prices[c.provider][(request && request.model) || c.model];
+    if (rate) acc.costUsd = (acc.tokensIn * rate.input + acc.tokensOut * rate.output) / 1000000;
+    const u = result && result.usage;
+    recordUsage(Object.assign({
+      requestId, phase, task: taskId, stage, provider: c.provider, model: (request && request.model) || c.model || '',
+      tokensIn: acc.tokensIn, tokensOut: acc.tokensOut,
+      tokensCacheRead: u ? (u.cacheRead || 0) : 0, tokensReasoning: u ? (u.reasoning || 0) : 0,
+      cost: u && u.cost !== undefined ? u.cost : undefined,
+      costUsd: acc.costUsd, pricingMissing: acc.pricingMissing, pricingVersion: acc.pricingVersion,
+      estimated: acc.estimated, inputEstimated: acc.inputEstimated, outputEstimated: acc.outputEstimated,
+      usageStatus: isMock ? 'not_applicable' : (acc.estimated ? 'unknown' : 'reported'),
+      tokensEstimate: sizing ? sizing.inputTokens : 0, estimateExact: sizing ? sizing.exact : false,
+      attempts: 1, outcome: null, ok: !!(result && result.ok), ms: 0
+    }, extra || {}));
+  }
 
   const policy = policyCheck(c);
   if (!policy.ok) {
     log.error('ai.policy', { provider: c.provider, reason: policy.reason, task: taskId });
-    return { ok: false, error: 'Сервис модели не настроен: ' + policy.reason, requestId };
+    account(null, { ok: false }, { outcome: 'policy' });
+    return { ok: false, code: 'policy', error: 'Сервис модели не настроен: ' + policy.reason, requestId };
   }
 
   const assembled = buildStore(taskId, parts, sessionId);
@@ -324,71 +381,122 @@ async function run(sessionId, taskId, parts, options) {
   const fitted = AiRequest.fit(taskId, store, {
     provider: c.provider, model: c.model, locale: c.locale,
     endpoint: c.endpoint || undefined, streaming: opts.streaming,
+    maxOutputTokens: c.maxOutputTokens,
     thinkingKnownOff: process.env.AI_THINKING_OFF === '1'
   });
-  if (!fitted.ok) {
-    /* Не помещается даже после сброса всего необязательного — платный
-       вызов не делается, пользователь получает понятную ошибку. */
-    log.warn('ai.overflow', { requestId, task: taskId, sizing: fitted.sizing });
-    db.usage.record(sessionId, { requestId, phase, task: taskId, provider: c.provider, model: c.model,
-      ok: false, ms: 0, usageStatus: 'not_applicable', attempts: 0, outcome: 'overflow',
-      tokensEstimate: fitted.sizing.inputTokens });
-    return { ok: false, overflow: true, error: fitted.error, dropped: fitted.report.dropped, requestId,
-      sizing: fitted.sizing, context: contextInfo };
+  const pre = stage === 'pre_interview';
+  if (!fitted.ok || (pre && droppedSource(fitted.report))) {
+    /* Не помещается даже после сброса необязательного, либо пришлось бы
+       молча выбросить исходный документ — платный вызов не делается. */
+    const sizing = fitted.sizing || (fitted.request && fitted.request.sizing) || null;
+    log.warn('ai.overflow', { requestId, task: taskId, sizing });
+    account(fitted.request || null, { ok: false }, { outcome: 'overflow', usageStatus: 'not_applicable', attempts: 0 });
+    return { ok: false, overflow: true, code: 'context_limit', requestId, sizing, context: contextInfo,
+      error: fitted.ok
+        ? 'Исходный текст не помещается в контекст модели. Сократите резюме или вакансию и повторите запрос.'
+        : fitted.error,
+      dropped: fitted.report.dropped };
   }
   const request = fitted.request;
   const built = { report: fitted.report };
   if (opts.onDelta) request.onDelta = opts.onDelta;
 
+  /* Отмена и предел ожидания: внешний сигнал (обрыв соединения клиента)
+     плюс, для задач подготовки, собственный таймер — иначе зависший
+     провайдер держит запрос бесконечно. */
+  const outerSignal = opts.signal || (RequestScope.getStore() && RequestScope.getStore().signal) || null;
+  const controller = new AbortController();
+  const cancel = function () { controller.abort(); };
+  if (outerSignal) outerSignal.addEventListener('abort', cancel, { once: true });
+  if (outerSignal && outerSignal.aborted) cancel();
+  let timedOut = false;
+  const timeoutMs = Math.min(Number(c.timeoutMs) || 60000, 90000);
+  const timer = pre ? setTimeout(function () { timedOut = true; controller.abort(); }, timeoutMs) : null;
   const started = Date.now();
-  let apiKey;
+  let result;
   try {
-    apiKey = await resolveApiKey(c);
+    const execute = async function () {
+      let apiKey;
+      try {
+        apiKey = await resolveApiKey(c);
+      } catch (e) {
+        log.error('ai.auth', { provider: c.provider, error: String(e && e.message || e).slice(0, 200) });
+        return { ok: false, code: 'provider_failure', error: 'Сервис модели не настроен: не удалось получить ключ доступа', attempts: 0 };
+      }
+      return Providers.execute(request, {
+        apiKey, endpoint: c.endpoint || undefined, folderId: c.folderId || undefined,
+        timeoutMs: c.timeoutMs, maxTokensField: c.maxTokensField,
+        signal: pre ? controller.signal : outerSignal,
+        retries: pre ? 0 : undefined,
+        disableReasoning: pre && request.outputFormat === 'json',
+        /* Неудачная попытка перед повтором — отдельная запись: она тоже могла стоить денег. */
+        onAttemptFailure: function (failure) {
+          account(request, { ok: false, usage: failure.usage, text: '' }, { phase: 'retry', outcome: 'retry', ms: failure.ms });
+        }
+      });
+    };
+    result = pre ? await new Promise(function (resolve) {
+      const aborted = function () {
+        resolve({ ok: false, code: timedOut ? 'timeout' : 'cancelled',
+          error: timedOut ? 'Превышено время ожидания модели. Повторите запрос.' : 'Запрос отменён.' });
+      };
+      if (controller.signal.aborted) return aborted();
+      controller.signal.addEventListener('abort', aborted, { once: true });
+      execute().then(resolve, function () { resolve({ ok: false, code: 'provider_failure', error: 'Сервис модели не ответил' }); })
+        .finally(function () { controller.signal.removeEventListener('abort', aborted); });
+    }) : await execute();
   } catch (e) {
-    log.error('ai.auth', { provider: c.provider, error: e.message });
-    return { ok: false, error: e.message, dropped: built.report.dropped };
+    result = { ok: false, code: 'provider_failure', error: 'Сервис модели не ответил' };
   }
-  const result = await Providers.execute(request, {
-    apiKey, endpoint: c.endpoint || undefined, folderId: c.folderId || undefined,
-    timeoutMs: c.timeoutMs, signal: opts.signal
-  });
+  if (timer) clearTimeout(timer);
+  if (outerSignal) outerSignal.removeEventListener('abort', cancel);
+  if (outerSignal && outerSignal.aborted) result = Object.assign({}, result, { ok: false, code: 'cancelled', error: 'Запрос отменён.' });
+  if (result.aborted && !result.code) result = Object.assign({}, result, { code: timedOut ? 'timeout' : 'cancelled' });
   const ms = Date.now() - started;
 
-  /* Расход пишется по каждой попытке. Если сервис не вернул usage — статус
-     «неизвестно», а не ноль: неуспешная попытка тоже может стоить денег. */
-  const attemptLog = result.attemptLog && result.attemptLog.length ? result.attemptLog
-    : [{ attempt: 1, ok: result.ok, ms, outcome: result.ok ? 'ok' : 'error', usageStatus: result.usage ? 'reported' : 'unknown' }];
-  attemptLog.forEach(function (a, i) {
-    const isFinal = i === attemptLog.length - 1;
-    const u = isFinal ? result.usage : null;
-    db.usage.record(sessionId, {
-      requestId, phase, task: taskId, provider: c.provider, model: request.model,
-      tokensIn: u ? u.input : 0, tokensOut: u ? u.output : 0,
-      tokensCacheRead: u ? (u.cacheRead || 0) : 0, tokensReasoning: u ? (u.reasoning || 0) : 0,
-      cost: u && u.cost !== undefined ? u.cost : undefined,
-      usageStatus: c.provider === 'mock' ? 'not_applicable' : (u ? 'reported' : 'unknown'),
-      attempts: attemptLog.length, outcome: a.outcome || null,
-      tokensEstimate: request.sizing ? request.sizing.inputTokens : 0,
-      estimateExact: request.sizing ? request.sizing.exact : false,
-      ok: a.ok, ms: a.ms
-    });
-  });
-  log.info('ai.task', { requestId, phase, task: taskId, provider: c.provider, ok: result.ok, ms,
-    attempts: result.attempts, usageStatus: result.usage ? 'reported' : 'unknown',
-    sizing: request.sizing, dropped: built.report.dropped, error: result.error });
-
-  if (!result.ok) return { ok: false, error: result.error || 'Сервис модели не ответил', dropped: built.report.dropped, requestId };
-
+  /* Структурированный ответ: только целый JSON нужной формы. Обрыв по
+     длине, прозаический ответ или неполная схема — ошибка, не результат. */
   const task = Variables.task(taskId);
   let json = null;
-  if (task && task.output === 'json') {
-    const parsed = AiRequest.parseJson(result.text);
-    if (!parsed.ok) return { ok: false, error: 'Ответ модели не удалось разобрать: ' + parsed.error, raw: result.text };
-    json = parsed.value;
+  if (result.ok && task && task.output === 'json') {
+    let parsed;
+    try { parsed = { ok: true, value: JSON.parse(String(result.text || '').trim()) }; } catch (_) { parsed = { ok: false }; }
+    if (!parsed.ok || result.truncated || ['length', 'max_tokens'].indexOf(result.stopReason) >= 0
+      || (taskId === 'resume.review' && !validReview(parsed.value))) {
+      result = Object.assign({}, result, { ok: false, code: 'malformed_response',
+        error: 'Модель вернула неполный или некорректный структурированный ответ. Повторите запрос.' });
+    } else {
+      json = parsed.value;
+    }
+  }
+
+  const attemptLog = result.attemptLog && result.attemptLog.length ? result.attemptLog : null;
+  const last = attemptLog ? attemptLog[attemptLog.length - 1] : null;
+  account(request, result, {
+    attempts: result.attempts || (attemptLog ? attemptLog.length : 1),
+    outcome: result.ok ? 'ok' : (result.code || (last && last.outcome) || 'error'),
+    ms: last && last.ms !== undefined ? last.ms : ms
+  });
+  log.info('ai.task', { requestId, phase, task: taskId, stage, provider: c.provider, ok: result.ok, ms,
+    attempts: result.attempts, code: result.code || null, usageStatus: result.usage ? 'reported' : 'unknown',
+    sizing: request.sizing, dropped: built.report.dropped });
+
+  if (!result.ok) {
+    return { ok: false, error: result.error || 'Сервис модели не ответил', code: result.code || 'provider_failure',
+      dropped: built.report.dropped, requestId, sizing: request.sizing, context: contextInfo };
   }
   return { ok: true, text: result.text, json, truncated: result.truncated === true,
+    source: { provider: c.provider, model: request.model, stage },
     mock: result.mock === true, dropped: built.report.dropped, usage: result.usage, requestId,
     sizing: request.sizing, context: contextInfo };
 }
 
-module.exports = { run, config, isLive, describe, policyCheck, buildStore, snapshotFor, makeSnapshot, memoryEnabled, contextFlags };
+function validReview(value) {
+  return !!value && typeof value === 'object' && ['strengths', 'vague', 'missing'].every(function (k) { return Array.isArray(value[k]); })
+    && value.strengths.every(function (x) { return typeof x === 'string'; })
+    && value.vague.every(function (x) { return x && ['title', 'before', 'after', 'why'].every(function (k) { return typeof x[k] === 'string'; }); })
+    && value.missing.every(function (x) { return x && ['title', 'after', 'why'].every(function (k) { return typeof x[k] === 'string'; }); });
+}
+
+module.exports = { run, config, isLive, describe, policyCheck, validReview, buildStore, snapshotFor, makeSnapshot,
+  memoryEnabled, contextFlags };

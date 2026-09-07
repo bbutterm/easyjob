@@ -1,12 +1,11 @@
 /* Маршруты владельца. Доступ по токену ADMIN_TOKEN в заголовке
-   Authorization: Bearer <токен>. Без токена в настройках маршруты выключены.
+   Authorization: Bearer <токен>. Usage также доступен роли admin из базы.
    Содержимого резюме и ответов здесь нет — только счётчики. */
 
 'use strict';
 
 const crypto = require('node:crypto');
 const db = require('../lib/db.js');
-const ai = require('../lib/ai.js');
 const retention = require('../lib/retention.js');
 const { HttpError, sendJson } = require('../lib/router.js');
 
@@ -25,10 +24,15 @@ function register(r, cfg) {
     if (!authorized(req, cfg.adminToken)) throw new HttpError(401, 'Нужен токен владельца');
   }
 
-  r.get('/api/admin/usage', function ({ req, res, query }) {
-    guard(req);
-    const days = Math.min(365, Math.max(1, Number(query.get('days')) || 30));
-    sendJson(res, 200, Object.assign({ days, ai: ai.describe() }, db.usage.summary(days)));
+  r.get('/api/admin/usage', function ({ req, res, query, ctx }) {
+    const user = ctx && ctx.session && db.users.get(ctx.session.user_id || '');
+    if (!authorized(req, cfg.adminToken) && (!user || user.role !== 'admin')) {
+      throw new HttpError(user ? 403 : 401, 'Доступ запрещён');
+    }
+    const value = query.get('days');
+    if (value !== null && (!/^\d+$/.test(value) || Number(value) < 1 || Number(value) > 365)) throw new HttpError(400, 'Период: от 1 до 365 дней');
+    const days = value === null ? 30 : Number(value);
+    sendJson(res, 200, db.usage.summary(days));
   });
 
   r.post('/api/admin/retention/run', function ({ req, res }) {

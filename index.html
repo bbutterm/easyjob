@@ -3,9 +3,9 @@
 <html lang="ru">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="robots" content="noindex, nofollow">
-<title>Карьерный помощник — демонстрационный макет</title>
+<title>easyjob — Карьерный помощник</title>
 <style>
 /* ============================================================
    Карьерный помощник — демонстрационный прототип
@@ -168,7 +168,8 @@ a:hover { color: var(--accent-hover); }
   align-items: center;
   justify-content: center;
   gap: var(--space-2);
-  min-height: 38px;
+  min-height: 44px;
+  min-width: 44px;
   padding: 0 var(--space-4);
   border: 1px solid var(--border-strong);
   border-radius: var(--radius);
@@ -204,7 +205,7 @@ a:hover { color: var(--accent-hover); }
 .btn--danger { color: var(--danger); border-color: var(--danger-border); }
 .btn--danger:hover { background: var(--danger-soft); }
 
-.btn--sm { min-height: 30px; padding: 0 var(--space-3); font-size: 13px; }
+.btn--sm { min-height: 44px; padding: 0 var(--space-3); font-size: 13px; }
 .btn--block { width: 100%; }
 
 .btn-row { display: flex; flex-wrap: wrap; gap: var(--space-2); }
@@ -603,7 +604,7 @@ textarea[aria-invalid="true"] { border-color: var(--danger); background: var(--d
   border: 0; border-bottom: 1px solid var(--warn-border);
   font: inherit; font-size: 12.5px; font-weight: 620; cursor: pointer; text-align: left;
 }
-.demo-panel__body { padding: var(--space-3); }
+.demo-panel__body { padding: var(--space-3); max-height: min(60vh, 480px); overflow-y: auto; overflow-wrap: anywhere; }
 .demo-panel__body p { font-size: 12.5px; color: var(--text-muted); }
 .demo-panel .field { margin-bottom: var(--space-3); }
 .demo-panel--collapsed { width: auto; }
@@ -720,15 +721,452 @@ textarea[aria-invalid="true"] { border-color: var(--danger); background: var(--d
   }
 }
 
+/* easyjob web visual language: composed cards, editorial type, quiet blue.
+   data-reveal is reusable; UI.reveal applies is-entering only on route entry.
+   Essential content is visible without JavaScript or after an interrupted reveal. */
+:root {
+  --bg: #f8fafc;
+  --surface-2: #f1f5fb;
+  --surface-3: #e7edf7;
+  --border: #e2e8f0;
+  --border-strong: #c7d2e2;
+  --text: #202b40;
+  --text-muted: #59677c;
+  --text-faint: #66758a;
+  --accent: #2859d9;
+  --accent-hover: #1945b8;
+  --accent-soft: #edf3ff;
+  --accent-border: #b9cdf8;
+  --radius: 12px;
+  --radius-lg: 20px;
+  --shadow-1: 0 4px 16px rgba(38, 63, 105, .04);
+  --shadow-2: 0 18px 50px rgba(38, 63, 105, .09);
+}
+[data-theme="dark"] {
+  --bg: #141c2a; --surface: #1c2636; --surface-2: #253146; --surface-3: #30415b;
+  --border: #354359; --border-strong: #51627c; --text: #edf2fc;
+  --text-muted: #b4c0d4; --text-faint: #a5b4ce;
+  --accent: #9bbaff; --accent-hover: #b7cdff; --accent-soft: #253a60; --accent-border: #516d9e;
+}
+.btn { min-height: 44px; padding: 10px 18px; transition: transform 160ms ease, opacity 160ms ease; }
+.btn:hover { transform: translateY(-2px); }
+.btn--sm { min-height: 44px; padding: 8px 12px; }
+.btn--primary { box-shadow: 0 4px 12px rgba(40, 89, 217, .14); }
+.btn--primary[disabled] { background: var(--accent); }
+.btn:focus-visible, a:focus-visible, input:focus-visible, button:focus-visible { outline: 3px solid var(--accent); outline-offset: 4px; }
+input, select { min-height: 44px; }
+.card { box-shadow: var(--shadow-1); }
+em { font-style: normal; color: var(--accent); }
+.eyebrow { display: block; font-size: 11px; font-weight: 650; letter-spacing: .09em; text-transform: uppercase; color: var(--text-muted); }
+.story-page { padding: 0 48px; }
+.story-container { width: 100%; max-width: 1280px; margin: 0 auto; }
+.story-header { display: flex; justify-content: space-between; align-items: center; gap: 24px; padding: 32px 0; }
+.wordmark { font-size: 30px; letter-spacing: -.065em; font-weight: 750; color: var(--accent); text-decoration: none; }
+.wordmark span { display: block; font-size: 11px; font-weight: 500; letter-spacing: .01em; color: var(--text-muted); }
+.hero-layout { display: grid; grid-template-columns: 1fr 1fr; gap: 24px; align-items: center; min-height: 640px; }
+.hero-copy h1 { font-size: clamp(48px, 5.3vw, 76px); font-weight: 550; letter-spacing: -.065em; line-height: 1.04; margin: 24px 0; }
+.hero-lead { max-width: 450px; font-size: 17px; line-height: 1.7; color: var(--text-muted); margin: 24px 0 32px; }
+.mode-label { font-size: 12px; color: var(--text-muted); margin-top: 20px; }
+.source-story { position: relative; min-width: 0; height: 550px; }
+.story-orbit { position: absolute; width: 88%; aspect-ratio: 1; top: 50px; left: 6%; border: 1px solid var(--border); border-radius: 50%; background: radial-gradient(circle, var(--accent-soft), transparent 70%); }
+.source-card { position: absolute; width: 64%; padding: 24px; background: var(--surface); border: 1px solid var(--border); border-radius: 16px; box-shadow: var(--shadow-2); transform: rotate(var(--card-angle, 0deg)); }
+.source-card h3 { font-size: 20px; letter-spacing: -.03em; margin: 16px 0 12px; line-height: 1.3; }
+.source-card p { font-size: 13px; line-height: 1.7; color: var(--text-muted); }
+.source-card--resume { top: 30px; left: 2%; --card-angle: -6deg; }
+.source-card--vacancy { top: 160px; right: 0; --card-angle: 5deg; }
+.source-card--answer { bottom: 20px; left: 5%; --card-angle: -3deg; }
+.source-chip { display: inline-block; padding: 6px 10px; border-radius: 7px; font-size: 10px; color: var(--accent); background: var(--accent-soft); }
+.paper-lines { display: grid; gap: 8px; margin: 18px 0; }
+.paper-lines i { height: 5px; border-radius: 3px; background: var(--surface-3); }
+.paper-lines i:nth-child(2) { width: 80%; }
+.paper-lines i:last-child { width: 55%; }
+.ai-helper { position: relative; display: inline-flex; flex: none; align-items: center; justify-content: center; gap: 12px; width: 62px; height: 62px; background: linear-gradient(145deg, #86b8ff, #3269ef 75%); border: 1px solid #6a9afb; border-radius: 22px 22px 22px 10px; box-shadow: 0 12px 24px #2859d922; transform: rotate(-7deg); }
+.ai-helper i { width: 4px; height: 9px; border-radius: 3px; background: white; margin-top: -10px; }
+.ai-helper b { position: absolute; color: white; font-size: 20px; bottom: 9px; font-weight: 400; }
+.story-helper { position: absolute; right: 0; bottom: 12px; display: flex; flex-direction: column; align-items: center; gap: 16px; }
+.story-helper > span:last-child { font-size: 11px; color: var(--text-muted); }
+.story-footer { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 16px; padding: 26px 0; border-top: 1px solid var(--border); color: var(--text-muted); font-size: 12px; }
+.story-footer b { color: var(--accent); padding: 0 12px; }
+.auth-layout { display: grid; grid-template-columns: 1fr 440px; align-items: center; gap: 9%; min-height: 650px; padding: 36px 0 80px; }
+.auth-story h1 { font-size: clamp(40px, 4.4vw, 62px); line-height: 1.12; letter-spacing: -.055em; font-weight: 550; margin-top: 24px; }
+.auth-helper { display: flex; align-items: center; gap: 24px; margin-top: 48px; color: var(--text-muted); font-size: 14px; }
+.auth-card { padding: 36px; border-radius: 24px; box-shadow: var(--shadow-2); }
+.auth-card h2 { font-size: 28px; letter-spacing: -.04em; margin: 12px 0; }
+.auth-card > p { font-size: 14px; margin-bottom: 24px; }
+.auth-card form { margin-top: 24px; }
+.auth-card small { display: block; font-size: 11px; margin-top: 6px; color: var(--text-muted); }
+.auth-card .field { margin-bottom: 20px; }
+.auth-links { display: grid; gap: 4px; margin-top: 16px; }
+.auth-links a { display: flex; align-items: center; justify-content: center; min-height: 44px; font-size: 13px; }
+.auth-error { color: var(--danger); font-size: 13px; margin-bottom: 16px; }
+.auth-error:empty { display: none; }
+.demo-credentials { background: var(--accent-soft); padding: 12px; border-radius: 10px; color: var(--accent); }
+.sidebar__brand { padding: 28px 22px; gap: 6px; border: 0; }
+.sidebar__brand .wordmark { font-size: 32px; }
+.sidebar__brand .muted { font-size: 11px; }
+.sidebar__nav { padding: 12px; }
+.navlink { min-height: 44px; }
+.account-label { font-size: 12px; color: var(--text-muted); max-width: 160px; overflow-wrap: anywhere; }
+.content { max-width: 1280px; padding: 40px 40px 120px; }
+.dashboard-intro { display: flex; align-items: center; justify-content: space-between; gap: 20px; padding: 8px 0 32px; }
+.dashboard-intro h1 { font-size: clamp(36px, 3.6vw, 54px); letter-spacing: -.055em; font-weight: 550; line-height: 1.1; margin: 16px 0; }
+.dashboard-intro > .ai-helper { margin-right: 30px; }
+.dashboard-sources { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; margin-bottom: 36px; }
+.source-tile { display: block; background: var(--surface); padding: 24px 20px; border: 1px solid var(--border); border-radius: 16px; text-decoration: none; color: var(--text); box-shadow: var(--shadow-2); transition: transform 180ms ease; }
+.source-tile:nth-child(2) { background: var(--accent-soft); }
+.source-tile:hover { transform: translateY(-4px); color: var(--accent); }
+.source-tile h2 { font-size: 18px; margin: 22px 0 8px; letter-spacing: -.03em; }
+.source-tile h2 span { float: right; color: var(--accent); }
+.source-tile p { font-size: 12px; color: var(--text-muted); }
+@keyframes easyjob-enter {
+  from { opacity: .15; transform: translate3d(var(--reveal-x, 0px), 22px, 0) rotate(var(--card-angle, 0deg)); }
+  to { opacity: 1; transform: translate3d(0, 0, 0) rotate(var(--card-angle, 0deg)); }
+}
+[data-reveal="slide"] { --reveal-x: 22px; }
+.is-entering { animation: easyjob-enter 650ms cubic-bezier(.2,.7,.2,1) var(--reveal-delay, 0ms) both; }
+@media (max-width: 1100px) and (min-width: 901px) {
+  .story-page { padding: 0 32px; }
+  .auth-layout { gap: 40px; grid-template-columns: 1fr 400px; }
+  .content { padding: 28px 24px 100px; }
+  .dashboard-sources { gap: 10px; }
+  .source-tile { padding: 20px 14px; }
+}
+@media (max-width: 900px) {
+  .story-page { padding: env(safe-area-inset-top) max(20px, env(safe-area-inset-right)) max(24px, env(safe-area-inset-bottom)) max(20px, env(safe-area-inset-left)); }
+  .story-header { padding: 20px 0 32px; gap: 16px; }
+  .wordmark { font-size: 28px; }
+  .wordmark span { font-size: 10px; }
+  .hero-layout, .auth-layout { display: flex; flex-direction: column; align-items: stretch; min-height: 0; gap: 32px; }
+  .hero-copy h1 { font-size: clamp(42px, 10vw, 62px); margin: 20px 0; }
+  .hero-lead { font-size: 16px; margin: 20px 0 24px; }
+  .hero-copy .btn-row { display: grid; }
+  .source-story { display: grid; gap: 12px; height: auto; padding: 0 0 24px; }
+  .story-orbit { display: none; }
+  .source-card { position: static; width: 100%; padding: 20px; --card-angle: 0deg; }
+  .source-card h3 { font-size: 18px; margin-top: 12px; }
+  .paper-lines { display: none; }
+  .source-card--vacancy { background: var(--accent-soft); }
+  .story-helper { position: static; flex-direction: row; justify-content: flex-end; padding-top: 8px; }
+  .story-helper .ai-helper { width: 48px; height: 48px; border-radius: 16px 16px 16px 8px; }
+  .auth-layout { padding: 8px 0 24px; gap: 28px; }
+  .auth-story h1 { font-size: 38px; margin: 16px 0; }
+  .auth-story .hero-lead { margin: 16px 0 0; font-size: 15px; }
+  .auth-helper { display: none; }
+  .auth-card { padding: 24px 20px; }
+  .auth-card h2 { font-size: 26px; }
+  .shell { display: flex; flex-direction: column; min-height: 0; }
+  .main { display: contents; }
+  .topbar { position: static; order: 0; padding: max(12px, env(safe-area-inset-top)) 16px 12px; gap: 8px; }
+  .sidebar { display: none; position: static; order: 1; width: 100%; height: auto; transform: none; box-shadow: none; border-right: 0; border-bottom: 1px solid var(--border); }
+  body[data-nav="open"] .sidebar { display: flex; }
+  .sidebar__brand { display: none; }
+  .sidebar__foot { padding: 12px; }
+  .content { order: 2; padding: 24px max(16px, env(safe-area-inset-right)) 32px max(16px, env(safe-area-inset-left)); }
+  .demo-panel, .demo-panel--collapsed { position: static; width: auto; margin: 0 16px max(16px, env(safe-area-inset-bottom)); }
+  .demo-panel__head { min-height: 44px; }
+  .dashboard-intro { align-items: flex-start; padding-bottom: 24px; }
+  .dashboard-intro h1 { font-size: 36px; }
+  .dashboard-intro > .ai-helper { width: 42px; height: 42px; border-radius: 14px; margin: 32px 0 0; gap: 9px; }
+  .dashboard-intro .eyebrow { font-size: 10px; }
+  .dashboard-intro .muted { font-size: 14px; }
+  .dashboard-sources { grid-template-columns: minmax(0, 1fr); gap: 12px; margin-bottom: 28px; }
+  .source-tile { padding: 18px; }
+  .source-tile h2 { margin: 10px 0 6px; }
+  .btn, .btn--sm, .navlink, input, select, .auth-links a { min-height: 44px; }
+  input, textarea, select { font-size: 16px; }
+  .btn { white-space: normal; max-width: 100%; overflow-wrap: anywhere; }
+  .btn-row > .btn { flex-shrink: 1; }
+  .public__brand { flex-wrap: wrap; }
+  .toasts { position: static; width: auto; max-width: none; margin: 12px 16px; }
+  [data-reveal="slide"] { --reveal-x: 0px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .is-entering { animation: none; }
+  .btn, .source-tile, .sidebar { transition: none; }
+  .btn:hover, .source-tile:hover { transform: none; }
+}
+
+/* Explicit microphone controls also fit narrow interview screens. */
+.stt-widget label { display: block; overflow-wrap: anywhere; }
+.stt-widget input:not([type="checkbox"]), .stt-widget select, .stt-widget textarea { display: block; width: 100%; max-width: 100%; box-sizing: border-box; }
+.stt-widget p { overflow-wrap: anywhere; }
+
+/* Admin counters: keyboard-scrollable on narrow screens, no animation. */
+.usage-table { overflow-x: auto; max-width: 100%; margin-bottom: 24px; }
+.usage-table table { width: 100%; border-collapse: collapse; }
+.usage-table th, .usage-table td { padding: 10px; text-align: left; border-bottom: 1px solid var(--border, #888); }
+.usage-table:focus-visible { outline: 2px solid currentColor; outline-offset: 2px; }
+
+/* Quick Start: native controls, no motion, narrow screens and clear focus. */
+.quickstart { max-width: 780px; min-width: 0; }
+.quickstart progress { width: 100%; height: 14px; accent-color: var(--accent); }
+.qs-steps { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px 28px; padding-left: 24px; }
+.qs-steps li { overflow-wrap: anywhere; }
+.qs-steps [aria-current="step"] { font-weight: 700; }
+.quickstart .note { display: block; }
+.quickstart details { margin: 16px 0; }
+.quickstart summary, .quickstart a { display: inline-flex; align-items: center; min-height: 44px; min-width: 44px; }
+.quickstart summary { display: list-item; padding: 12px 0; cursor: pointer; }
+.quickstart input, .quickstart select, .quickstart textarea { width: 100%; min-height: 44px; box-sizing: border-box; }
+.qs-actions { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 20px; }
+.qs-actions .btn { min-height: 44px; white-space: normal; }
+.qs-result { white-space: pre-wrap; overflow-wrap: anywhere; font: inherit; max-height: 320px; overflow: auto; }
+.quickstart :focus-visible { outline: 3px solid currentColor; outline-offset: 3px; }
+@media (max-width: 480px) {
+  .qs-steps { grid-template-columns: minmax(0, 1fr); }
+  .qs-actions .btn { width: 100%; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .quickstart *, .quickstart { animation: none !important; transition: none !important; scroll-behavior: auto !important; }
+}
+
 </style>
 </head>
 <body>
 <a class="skip-link" href="#main">Перейти к содержимому</a>
 <div id="app"></div>
 <noscript>
-  <p style="padding:24px">Для работы демонстрационного макета нужен включённый JavaScript.
-  Данные при этом никуда не отправляются: весь код выполняется в вашем браузере.</p>
+  <p style="padding:24px">Для работы easyjob нужен включённый JavaScript.</p>
 </noscript>
+<script>
+/* ==== ../shared/stt/index.js ==== */
+/* STT is separate from text LLM routing. No storage, telemetry or provider bodies in errors. */
+(function (root, factory) {
+  if (typeof module === 'object' && module.exports) module.exports = factory();
+  else root.SpeechToText = factory();
+})(typeof globalThis !== 'undefined' ? globalThis : this, function () {
+  'use strict';
+  const MOCK_TEXT = 'Демонстрационная реплика: расскажите о вашем опыте.';
+  function chunks(text, limit = 4000) {
+    if (typeof text !== 'string' || !Number.isInteger(limit) || limit < 2) throw new Error('Некорректный текст STT.');
+    let rest = text.replace(/\s+/g, ' ').trim();
+    const out = [];
+    while (rest.length) {
+      let end = Math.min(limit, rest.length);
+      if (end < rest.length) {
+        const space = rest.lastIndexOf(' ', end);
+        if (space > 0) end = space;
+        else if (/[\uD800-\uDBFF]/.test(rest[end - 1])) end--;
+      }
+      out.push(rest.slice(0, end)); rest = rest.slice(end).trim();
+    }
+    return out;
+  }
+  function parse(payload) {
+    if (!payload || typeof payload.text !== 'string' || payload.text.length > 32000) throw new Error('Некорректный ответ STT.');
+    return chunks(payload.text);
+  }
+  function endpoint(value) {
+    const url = new URL(value || 'http://127.0.0.1:8080/inference');
+    if (url.protocol !== 'http:' || !['127.0.0.1', 'localhost', '[::1]'].includes(url.hostname)
+      || url.username || url.password || url.search || url.hash || url.pathname !== '/inference') throw new Error('Нужен локальный адрес whisper.cpp /inference.');
+    return url.href;
+  }
+  function provider(config = {}, fetcher = globalThis.fetch) {
+    const id = config.provider || 'mock';
+    if (!['mock', 'whisper_cpp'].includes(id)) throw new Error('Неизвестный STT-провайдер.');
+    const url = id === 'whisper_cpp' ? endpoint(config.endpoint) : null;
+    return {
+      id,
+      async transcribe(wav, signal) {
+        if (signal && signal.aborted) throw new Error('Отменено.');
+        if (id === 'mock') return { chunks: [MOCK_TEXT], mock: true };
+        if (!(wav instanceof Blob) || wav.type !== 'audio/wav' || wav.size > 1000000 || wav.size <= 44) throw new Error('Некорректное аудио STT.');
+        const body = new FormData();
+        body.append('file', wav, 'utterance.wav');
+        body.append('response_format', 'json'); body.append('language', 'ru');
+        body.append('temperature', '0');
+        let res;
+        try { res = await fetcher(url, { method: 'POST', body, signal, credentials: 'omit', redirect: 'error' }); }
+        catch (_) { throw new Error('STT недоступен или запрос отменён.'); }
+        if (!res.ok) throw new Error('STT недоступен.');
+        // Bound the provider response before parsing it.
+        const reader = res.body.getReader(); let size = 0; const parts = [];
+        try {
+          while (true) {
+            const part = await reader.read(); if (part.done) break;
+            size += part.value.byteLength;
+            if (size > 131072) throw new Error('Слишком большой ответ STT.');
+            parts.push(part.value);
+          }
+        } finally { await reader.cancel(); }
+        let data;
+        try { data = JSON.parse(await new Blob(parts).text()); } catch (_) { throw new Error('Некорректный JSON STT.'); }
+        return { chunks: parse(data), mock: false };
+      }
+    };
+  }
+  // Mono PCM16 WAV at 16 kHz: whisper.cpp does not need --convert or temporary files.
+  function wav(samples, rate) {
+    const length = Math.floor(samples.length * 16000 / rate);
+    const buffer = new ArrayBuffer(44 + length * 2), view = new DataView(buffer);
+    const str = (offset, text) => { for (let i = 0; i < text.length; i++) view.setUint8(offset + i, text.charCodeAt(i)); };
+    str(0, 'RIFF'); view.setUint32(4, 36 + length * 2, true); str(8, 'WAVE'); str(12, 'fmt ');
+    view.setUint32(16, 16, true); view.setUint16(20, 1, true); view.setUint16(22, 1, true);
+    view.setUint32(24, 16000, true); view.setUint32(28, 32000, true); view.setUint16(32, 2, true);
+    view.setUint16(34, 16, true); str(36, 'data'); view.setUint32(40, length * 2, true);
+    for (let i = 0; i < length; i++) {
+      const from = Math.floor(i * rate / 16000), to = Math.max(from + 1, Math.floor((i + 1) * rate / 16000));
+      let sum = 0; for (let j = from; j < to; j++) sum += samples[j] || 0;
+      const value = Math.max(-1, Math.min(1, sum / (to - from)));
+      view.setInt16(44 + i * 2, value * (value < 0 ? 32768 : 32767), true);
+    }
+    return new Blob([buffer], { type: 'audio/wav' });
+  }
+  function capabilities(env = globalThis) {
+    return { microphone: !!(env.navigator && env.navigator.mediaDevices && env.navigator.mediaDevices.getUserMedia && env.AudioContext), systemAudio: false };
+  }
+  async function capture(env = globalThis) {
+    const stream = await env.navigator.mediaDevices.getUserMedia({ audio: true, video: false });
+    let context, source, processor, parts = [], count = 0, closed = false;
+    const release = () => {
+      stream.getTracks().forEach(t => t.stop());
+      if (processor) { processor.onaudioprocess = null; processor.disconnect(); }
+      if (source) source.disconnect();
+      if (context) context.close().catch(() => {});
+    };
+    try {
+      context = new env.AudioContext(); await context.resume();
+      source = context.createMediaStreamSource(stream);
+      // Bounded 30-second utterances; AudioWorklet can replace this older, widely supported API later.
+      processor = context.createScriptProcessor(4096, 1, 1);
+      processor.onaudioprocess = event => {
+        if (count >= context.sampleRate * 30) return;
+        const data = event.inputBuffer.getChannelData(0).slice(0, context.sampleRate * 30 - count);
+        parts.push(data); count += data.length;
+      };
+      source.connect(processor); processor.connect(context.destination); // output buffer stays silent
+      return {
+        finish() {
+          if (closed) throw new Error('Запись закрыта.'); closed = true; release();
+          const samples = new Float32Array(count); let offset = 0;
+          parts.forEach(part => { samples.set(part, offset); offset += part.length; }); parts = [];
+          if (!count) throw new Error('Нет аудио.');
+          return wav(samples, context.sampleRate);
+        },
+        onEnded(callback) { stream.getAudioTracks().forEach(track => track.addEventListener('ended', callback, { once: true })); },
+        cancel() { closed = true; parts = []; release(); }
+      };
+    } catch (_) { release(); throw new Error('Не удалось открыть микрофон.'); }
+  }
+  function create(options = {}) {
+    const stt = options.adapter || provider(options.config);
+    let state = 'idle', generation = 0, recording = null, aborter = null, timer = null, result = [], mock = stt.id === 'mock';
+    function emit(error = '') { if (options.onState) options.onState({ state, chunks: result.slice(), mock, error }); }
+    function cancel() {
+      generation++; clearTimeout(timer); if (aborter) aborter.abort(); aborter = null;
+      if (recording) recording.cancel(); recording = null; result = []; state = 'idle'; emit();
+    }
+    async function start(consent) {
+      if (['requesting', 'recording', 'transcribing'].includes(state)) return;
+      cancel(); const token = generation;
+      if (consent !== true) { state = 'error'; emit('Подтвердите согласие на микрофон и обработку текста.'); return; }
+      state = 'requesting'; emit();
+      try {
+        const pending = stt.id === 'mock' ? { finish: () => null, cancel() {} } : await (options.capture || capture)();
+        if (token !== generation) { pending.cancel(); return; }
+        recording = pending; state = 'recording'; emit();
+        timer = setTimeout(stop, options.maxRecordingMs || 30000);
+        if (recording.onEnded) recording.onEnded(stop);
+      } catch (_) { if (token === generation) { state = 'error'; emit('Микрофон недоступен или разрешение отклонено. Проверьте разрешения и повторите.'); } }
+    }
+    async function stop() {
+      if (state === 'requesting') { cancel(); return; }
+      if (state !== 'recording') return;
+      const token = generation; clearTimeout(timer);
+      state = 'transcribing'; emit(); aborter = new AbortController();
+      let deadline; const controller = aborter;
+      try {
+        const audio = recording.finish(); recording = null;
+        const timeout = new Promise((_, reject) => { deadline = setTimeout(() => { controller.abort(); reject(new Error('timeout')); }, options.timeoutMs || 60000); });
+        const response = await Promise.race([stt.transcribe(audio, aborter.signal), timeout]);
+        if (token !== generation) return;
+        result = response.chunks; mock = response.mock;
+        if (!result.length) { state = 'error'; emit('Речь не найдена. Запишите реплику ещё раз.'); return; }
+        state = 'ready'; emit();
+      } catch (_) {
+        if (token === generation) { if (recording) recording.cancel(); recording = null; state = 'error'; emit('Не удалось распознать реплику. Проверьте локальный STT, разрешения сети и повторите запись.'); }
+      } finally { clearTimeout(deadline); if (token === generation) aborter = null; }
+    }
+    return { start, stop, cancel, state: () => state };
+  }
+  return { provider, create, capture, capabilities, wav, chunks, parse, endpoint, MOCK_TEXT };
+});
+
+</script>
+<script>
+/* ==== ../shared/stt/widget.js ==== */
+/* Shared visible, opt-in microphone UI. Transcript is never placed in browser storage. */
+(function (root) {
+  'use strict';
+  root.SttWidget = function (options) {
+    const host = document.createElement('section'); host.className = 'card stack stt-widget';
+    host.innerHTML = '<h2>Голос → текст</h2>'
+      + '<p>Только микрофон, до 30 секунд. Системный звук не поддерживается. Для записи чужой речи нужно согласие участников.</p>'
+      + '<label>STT-провайдер <select data-stt="provider"><option value="mock">Заглушка — НЕ распознаёт речь</option><option value="whisper_cpp">Локальный whisper.cpp</option></select></label>'
+      + '<label>Адрес локального STT <input data-stt="endpoint" value="http://127.0.0.1:8080/inference" spellcheck="false"></label>'
+      + '<label><input type="checkbox" data-stt="consent"> Разрешаю запись микрофона и локальную транскрипцию; после проверки отправлю текст выбранной AI-модели. Согласие участников получено.</label>'
+      + '<p data-stt="capability"></p><p role="status" aria-live="polite" data-stt="state">idle — Микрофон выключен</p>'
+      + '<div class="btn-row"><button type="button" class="btn" data-stt="start">Записать / повторить</button>'
+      + '<button type="button" class="btn" data-stt="stop" disabled>Стоп → распознать</button>'
+      + '<button type="button" class="btn" data-stt="cancel">Отменить / очистить</button></div>'
+      + '<label>Транскрипт — проверьте и удалите личные данные<textarea data-stt="text" maxlength="32000" rows="4" spellcheck="false"></textarea></label>'
+      + '<p data-stt="queue"></p><button type="button" class="btn" data-stt="send" disabled>Отправить фрагмент в AI</button>'
+      + '<p data-stt="feedback" role="status"></p>'
+      + '<p>Аудио не сохраняется. Отправленный текст в веб-интервью хранится как обычная реплика. Заглушка имитирует текст без доступа к микрофону.</p>';
+    const el = name => host.querySelector('[data-stt="' + name + '"]');
+    const labels = { idle: 'Микрофон выключен', requesting: 'Запрашиваю разрешение', recording: 'Запись микрофона', transcribing: 'Микрофон выключен, распознаю', ready: 'Текст готов к проверке', error: 'Ошибка' };
+    let controller, sending = false, disposed = false, state = 'idle', version = 0;
+    const config = options.config || {};
+    el('provider').value = config.provider || 'mock'; el('endpoint').value = config.endpoint || el('endpoint').value;
+    el('capability').textContent = SpeechToText.capabilities().microphone ? 'API микрофона доступен; разрешение ещё не запрошено.' : 'API микрофона недоступен. Доступна заглушка; используйте совместимый браузер или Electron.';
+    function refresh() {
+      const active = ['requesting', 'recording', 'transcribing'].includes(state);
+      el('start').disabled = active || sending || !el('consent').checked;
+      el('stop').disabled = !['requesting', 'recording'].includes(state);
+      ['provider', 'endpoint', 'consent'].forEach(name => { el(name).disabled = active || sending; });
+      el('text').disabled = active || sending;
+      const pieces = SpeechToText.chunks(el('text').value);
+      el('queue').textContent = pieces.length ? 'Фрагментов до 4000 символов: ' + pieces.length + '. Отправляется только первый, по нажатию.' : '';
+      el('send').disabled = state !== 'ready' || !pieces.length || sending || !el('consent').checked;
+    }
+    function update(snapshot) {
+      state = snapshot.state;
+      el('state').textContent = state + ' — ' + (snapshot.mock && state === 'recording' ? 'Демо: микрофон выключен' : labels[state]) + (snapshot.mock ? ' (заглушка)' : '') + (snapshot.error ? '. ' + snapshot.error : '');
+      el('text').value = snapshot.chunks.join('\n'); refresh();
+    }
+    el('start').onclick = async () => {
+      if (controller) controller.cancel();
+      try {
+        controller = SpeechToText.create({ config: { provider: el('provider').value, endpoint: el('endpoint').value }, onState: update, capture: async function () { if (options.beforeCapture) await options.beforeCapture(); return SpeechToText.capture(); } });
+        await controller.start(el('consent').checked);
+      } catch (_) { update({ state: 'error', chunks: [], error: 'Проверьте STT-провайдер и локальный адрес /inference.' }); }
+    };
+    el('stop').onclick = () => controller && controller.stop();
+    el('cancel').onclick = () => {
+      version++; if (controller) controller.cancel();
+      if (options.onCancel) options.onCancel(); el('feedback').textContent = ''; el('consent').checked = false; refresh();
+    };
+    el('consent').onchange = refresh; el('text').oninput = refresh;
+    el('send').onclick = async () => {
+      if (el('send').disabled) return;
+      const pieces = SpeechToText.chunks(el('text').value), token = version;
+      sending = true; refresh(); el('feedback').textContent = 'Отправляю текст в AI…';
+      try {
+        await options.onSend(pieces[0]);
+        if (disposed || token !== version) return;
+        el('text').value = pieces.slice(1).join('\n'); el('feedback').textContent = 'Фрагмент передан в AI.';
+      } catch (_) { if (!disposed && token === version) el('feedback').textContent = 'Не удалось передать текст. Проверьте состояние интервью и повторите.'; }
+      finally { sending = false; if (!disposed) refresh(); }
+    };
+    const hidden = () => { if (document.hidden) el('cancel').onclick(); };
+    document.addEventListener('visibilitychange', hidden);
+    refresh();
+    return { element: host, dispose() { document.removeEventListener('visibilitychange', hidden); disposed = true; version++; if (controller) controller.cancel(); if (options.onCancel) options.onCancel(); host.remove(); } };
+  };
+})(globalThis);
+
+</script>
 <script>
 /* ==== professions.js ==== */
 /* ============================================================
@@ -2157,7 +2595,11 @@ var UI = (function () {
   }
 
   /* modal: { title, body, actions: [{label, act, variant, data}], size } */
+  var modalReturn = null;
   function openModal(modal) {
+    var active = document.activeElement;
+    modalReturn = active ? { id: active.id, act: active.getAttribute('data-act'),
+      index: Array.from(document.querySelectorAll('[data-act]')).indexOf(active) } : null;
     Store.get().modal = modal;
     Store.notify();
   }
@@ -2165,6 +2607,10 @@ var UI = (function () {
   function closeModal() {
     Store.get().modal = null;
     Store.notify();
+    var target = modalReturn && (modalReturn.id ? document.getElementById(modalReturn.id)
+      : document.querySelectorAll('[data-act]')[modalReturn.index]);
+    if (target && (modalReturn.id || target.getAttribute('data-act') === modalReturn.act)) target.focus({ preventScroll: true });
+    modalReturn = null;
   }
 
   function confirm(options) {
@@ -2215,7 +2661,7 @@ var UI = (function () {
     var dialog = root.querySelector('.modal');
     if (!dialog) return;
     var selector = 'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])';
-    var nodes = Array.prototype.slice.call(dialog.querySelectorAll(selector));
+    var nodes = Array.prototype.slice.call(dialog.querySelectorAll(selector)).filter(function (node) { return !node.disabled && node.getClientRects().length; });
     if (!nodes.length) return;
     if (!dialog.contains(document.activeElement)) nodes[0].focus();
     dialog.addEventListener('keydown', function (event) {
@@ -2247,6 +2693,7 @@ var UI = (function () {
       + ' name="' + id + '"'
       + ' data-model="' + esc(options.model) + '"'
       + (options.required ? ' required' : '')
+      + (options.disabled ? ' disabled' : '')
       + (options.error ? ' aria-invalid="true"' : '')
       + (describedBy.length ? ' aria-describedby="' + describedBy.join(' ') + '"' : '')
       + (options.placeholder ? ' placeholder="' + esc(options.placeholder) + '"' : '')
@@ -2344,6 +2791,14 @@ var UI = (function () {
     openModal: openModal,
     closeModal: closeModal,
     confirm: confirm,
+    // Only route entries animate. Full-root updates (typing, toasts, theme)
+    // keep content visible and do not replay the story or move keyboard focus.
+    reveal: function (root, entering) {
+      root.querySelectorAll('[data-reveal]').forEach(function (node, i) {
+        node.style.setProperty('--reveal-delay', Math.min(i, 5) * 85 + 'ms');
+        if (entering) node.classList.add('is-entering');
+      });
+    },
     renderModal: renderModal,
     renderToasts: renderToasts,
     trapFocus: trapFocus,
@@ -2375,7 +2830,7 @@ var UI = (function () {
 var Api = (function () {
   'use strict';
 
-  var live = { enabled: false, ai: null, limits: null, professions: null };
+  var live = { enabled: false, ai: null, limits: null, professions: null, user: null, auth: null };
 
   function isHttp() {
     return /^https?:$/.test(window.location.protocol);
@@ -2387,9 +2842,15 @@ var Api = (function () {
     this.extra = extra || null;
   }
 
-  async function request(method, path, body) {
+  async function request(method, path, body, runtime) {
+    var rt = runtime || {};
+    var controller = new AbortController();
+    var timedOut = false;
+    var cancel = function () { controller.abort(); };
+    if (rt.signal) { rt.signal.addEventListener('abort', cancel, { once: true }); if (rt.signal.aborted) cancel(); }
+    var timer = setTimeout(function () { timedOut = true; controller.abort(); }, rt.timeoutMs || 100000);
     var options = {
-      method: method,
+      method: method, signal: controller.signal,
       credentials: 'same-origin',
       headers: { accept: 'application/json' }
     };
@@ -2397,26 +2858,28 @@ var Api = (function () {
       options.headers['content-type'] = 'application/json';
       options.body = JSON.stringify(body === undefined ? {} : body);
     }
-    var res;
     try {
-      res = await fetch(path, options);
+      var res = await fetch(path, options);
+      var data = await res.json();
+      if (!res.ok) throw new ApiError(res.status, (data && data.error) || ('Ошибка сервера, код ' + res.status), data);
+      return data;
     } catch (e) {
-      throw new ApiError(0, 'Сервер недоступен: ' + e.message);
+      if (controller.signal.aborted) throw new ApiError(timedOut ? 504 : 499,
+        timedOut ? 'Превышено время ожидания сервера. Повторите запрос.' : 'Запрос отменён.', { code: timedOut ? 'timeout' : 'cancelled' });
+      if (e instanceof ApiError) throw e;
+      throw new ApiError(0, 'Сервер недоступен. Проверьте соединение и повторите запрос.', { code: 'network' });
+    } finally {
+      clearTimeout(timer);
+      if (rt.signal) rt.signal.removeEventListener('abort', cancel);
     }
-    var data = null;
-    try { data = await res.json(); } catch (e) { data = null; }
-    if (!res.ok) {
-      throw new ApiError(res.status, (data && data.error) || ('Ошибка сервера, код ' + res.status), data);
-    }
-    return data;
   }
 
   /* Потоковый ответ (Server-Sent Events) через fetch. */
-  async function stream(path, body, onDelta, onStatus) {
+  async function stream(path, body, onDelta, onStatus, signal) {
     var res;
     try {
       res = await fetch(path, {
-        method: 'POST', credentials: 'same-origin',
+        method: 'POST', credentials: 'same-origin', signal: signal,
         headers: { 'content-type': 'application/json', accept: 'text/event-stream' },
         body: JSON.stringify(body)
       });
@@ -2517,6 +2980,7 @@ var Api = (function () {
       answers: p.answers || {}, ready: p.ready || {},
       match: p.match || null, questions: p.questions || null, card: p.card || null,
       interviewId: p.interview ? p.interview.id : null,
+      interviewStarted: !!(p.interview && p.interview.turns > 0),
       chat: null, voice: null, live: true
     };
   }
@@ -2588,67 +3052,82 @@ var ScreensCore = (function () {
 
   /* ---------------- Публичные страницы ---------------- */
 
+  function helper() {
+    return '<span class="ai-helper" aria-hidden="true"><i></i><i></i><b>⌣</b></span>';
+  }
+
+  function brand() {
+    return '<a class="wordmark" href="#/start">easyjob<span>Карьерный помощник</span></a>';
+  }
+
+  function modeLabel() {
+    return Api.isHttp() ? (Api.live.user ? 'Аккаунт · ' + esc(Api.live.user.username) : 'Сервер · гостевой доступ')
+      : 'Демо-режим · только в этой вкладке';
+  }
+
+  function sourceStory() {
+    return '<div class="source-story" aria-label="Как устроена подготовка">'
+      + '<div class="story-orbit" aria-hidden="true"></div>'
+      + '<article class="source-card source-card--resume" data-reveal="slide"><span class="eyebrow">01 / Ваш опыт</span>'
+      + '<h3>Резюме, в котором<br>видно главное.</h3><div class="paper-lines" aria-hidden="true"><i></i><i></i><i></i></div>'
+      + '<span class="source-chip">Навыки · Опыт · Достижения</span></article>'
+      + '<article class="source-card source-card--vacancy" data-reveal="slide"><span class="eyebrow">02 / Ваша цель</span>'
+      + '<h3>Та самая вакансия</h3><p>Что уже совпадает.<br>Что стоит подготовить.</p><span class="source-chip">Из требований — в план</span></article>'
+      + '<article class="source-card source-card--answer" data-reveal><span class="eyebrow">03 / Следующий шаг</span>'
+      + '<h3>Расскажите о себе.</h3><p>Соберите мысли. Попробуйте ответ.<br>Почувствуйте себя увереннее.</p></article>'
+      + '<div class="story-helper" data-reveal>' + helper() + '<span>Разберём по шагам</span></div></div>';
+  }
+
   function start() {
-    return ''
-      + '<div class="public"><div class="public__inner stack">'
-      + '  <div class="public__brand">'
-      + '    <h1>Карьерный помощник</h1>'
-      + '    <span class="tag tag--demo">Рабочее название</span>'
-      + '  </div>'
-      + note('demo', '<div><strong>Демо — ИИ и платежи не подключены.</strong> Это кликабельный макет интерфейса. '
-        + 'Тексты «от ИИ» — заранее подготовленные образцы. Введённые данные и файлы остаются в браузере.</div>')
-      + '  <div class="card stack">'
-      + '    <h2>Подготовка к поиску работы и собеседованиям</h2>'
-      + '    <p class="muted">Собрать или улучшить резюме, разобрать конкретную вакансию, подготовить ответы '
-      + '    на вероятные вопросы и потренироваться в пробном интервью — текстом или голосом.</p>'
-      + '    <ul class="muted">'
-      + '      <li>Резюме с нуля по шагам или разбор уже готового.</li>'
-      + '      <li>Сопоставление своего опыта с требованиями вакансии.</li>'
-      + '      <li>Вероятные вопросы и тренировочные интервью.</li>'
-      + '      <li>Отдельный раздел про помощника на реальном собеседовании.</li>'
-      + '    </ul>'
-      + '    <div class="btn-row">'
-      + '      <a class="btn btn--primary" href="#/onboarding">Открыть демо</a>'
-      + '      <a class="btn" href="#/auth/login">Экран входа (заглушка)</a>'
-      + '    </div>'
-      + '    <p class="faint" style="font-size:13px">Регистрация не требуется: макет открывается сразу.</p>'
-      + '  </div>'
-      + '</div></div>';
+    return '<main id="main" tabindex="-1" class="public story-page"><div class="story-container">'
+      + '<header class="story-header">' + brand() + '<a class="btn" href="#/auth/login">Войти <span aria-hidden="true">↗</span></a></header>'
+      + '<div class="hero-layout"><section class="hero-copy" data-reveal>'
+      + '<span class="eyebrow">Меньше сомнений. Больше ясности.</span>'
+      + '<h1>Ваш опыт.<br>Ваша история.<br><em>Новая работа.</em></h1>'
+      + '<p class="hero-lead">От первого резюме до уверенного ответа на собеседовании. Соберите всё для следующего шага в одном месте.</p>'
+      + '<div class="btn-row"><a class="btn btn--primary" href="' + (Api.isHttp() ? '#/auth/register' : '#/onboarding') + '">'
+      + (Api.isHttp() ? 'Начать подготовку' : 'Открыть демо') + ' <span aria-hidden="true">↗</span></a>'
+      + '<a class="btn btn--quiet" href="#/overview">' + (Api.isHttp() ? 'Продолжить как гость' : 'Посмотреть пример') + '</a></div>'
+      + '<p class="mode-label">' + modeLabel() + '</p></section>' + sourceStory() + '</div>'
+      + '<footer class="story-footer" data-reveal><span>Всё начинается с вашего опыта</span><span>Резюме <b>→</b> Вакансия <b>→</b> Практика</span></footer>'
+      + '</div></main>';
   }
 
   function auth(mode) {
     var isRegister = mode === 'register';
-    var isReset = mode === 'reset';
-    var title = isRegister ? 'Регистрация' : (isReset ? 'Восстановление доступа' : 'Вход');
-    var body;
-    if (isReset) {
-      body = UI.field({ id: 'auth-email', label: 'Электронная почта', model: '', value: '', placeholder: 'name@example.com', hint: 'Поле неактивно: письма не отправляются.' });
-    } else {
-      body = UI.field({ id: 'auth-email', label: 'Электронная почта', model: '', value: '', placeholder: 'name@example.com' })
-        + '<div class="field"><span class="field__label">Пароль</span>'
-        + '<div class="note note--info" style="margin-top:4px">Поле пароля в макете не показывается: '
-        + 'прототип не собирает и не хранит пароли.</div></div>';
-    }
-    return ''
-      + '<div class="public"><div class="public__inner stack">'
-      + '  <div class="public__brand"><h1>Карьерный помощник</h1><span class="tag tag--demo">Демо</span></div>'
-      + '  <div class="card stack">'
-      + '    <h2>' + esc(title) + '</h2>'
-      + note('alert', '<div><strong>Настоящей авторизации нет.</strong> Это визуальная заглушка: данные не '
-        + 'проверяются, аккаунт не создаётся, письма не отправляются.</div>')
-      + body
-      + '    <div class="btn-row">'
-      + '      <a class="btn btn--primary" href="#/onboarding">Продолжить в демо без входа</a>'
-      + (isReset
-          ? '<a class="btn" href="#/auth/login">Назад ко входу</a>'
-          : (isRegister
-              ? '<a class="btn" href="#/auth/login">У меня есть аккаунт</a>'
-              : '<a class="btn" href="#/auth/register">Создать аккаунт</a>'))
-      + '    </div>'
-      + (isReset ? '' : '<p><a href="#/auth/reset">Забыли пароль?</a></p>')
-      + '  </div>'
-      + '  <p><a href="#/start">← На начальную страницу</a></p>'
-      + '</div></div>';
+    var online = Api.isHttp();
+    return '<main id="main" tabindex="-1" class="public story-page"><div class="story-container">'
+      + '<header class="story-header">' + brand() + '<a class="btn btn--quiet" href="#/start">На главную</a></header>'
+      + '<div class="auth-layout"><section class="auth-story" data-reveal><span class="eyebrow">Ваш следующий шаг начинается здесь</span>'
+      + '<h1>Большие планы.<br><em>Спокойный старт.</em></h1>'
+      + '<p class="hero-lead">Сохраните свой опыт, найдите точки роста и подготовьтесь к разговору о будущем.</p>'
+      + '<div class="auth-helper">' + helper() + '<p>По одному шагу.<br><strong>В вашем темпе.</strong></p></div></section>'
+      + '<section class="card auth-card" data-reveal="slide"><span class="eyebrow">' + modeLabel() + '</span>'
+      + '<h2>' + (isRegister ? 'Создать аккаунт' : 'С возвращением') + '</h2>'
+      + (online ? '<p class="muted">' + (isRegister ? 'Ваши подготовки будут храниться на этом сервере.' : 'Войдите, чтобы продолжить свою подготовку.') + '</p>'
+        + (Api.live.auth && Api.live.auth.demo ? '<p class="demo-credentials">Пробный аккаунт: <strong>admin / admin</strong></p>' : '')
+        + '<form id="auth-form" data-auth-mode="' + (isRegister ? 'register' : 'login') + '">'
+        + '<div class="field"><label class="field__label" for="auth-username">Имя пользователя</label>'
+        + '<input id="auth-username" name="username" autocomplete="username" autocapitalize="none" spellcheck="false" required minlength="3" maxlength="32" pattern="[A-Za-z0-9_-]{3,32}" aria-describedby="username-hint">'
+        + '<small id="username-hint">3–32 латинские буквы, цифры, дефис или _</small></div>'
+        + '<div class="field"><label class="field__label" for="auth-password">Пароль</label>'
+        + '<input id="auth-password" name="password" type="password" autocomplete="' + (isRegister ? 'new-password' : 'current-password') + '" required minlength="' + (isRegister ? '8' : '1') + '" maxlength="128" aria-describedby="password-hint">'
+        + '<small id="password-hint">' + (isRegister ? 'От 8 до 128 символов' : 'Пароль вашего аккаунта') + '</small></div>'
+        + '<p id="auth-error" class="auth-error" role="alert"></p>'
+        + '<button id="auth-submit" class="btn btn--primary btn--block" type="submit">' + (isRegister ? 'Зарегистрироваться' : 'Войти') + '</button></form>'
+        : '<p class="muted">Демо без сервера: аккаунт не создаётся. Данные остаются в этой вкладке и сбрасываются при перезагрузке.</p>')
+      + '<div class="auth-links"><a href="#/auth/' + (isRegister ? 'login' : 'register') + '">' + (isRegister ? 'У меня есть аккаунт' : 'Создать аккаунт') + '</a>'
+      + '<a href="' + (online ? '#/overview' : '#/onboarding') + '">' + (online ? 'Продолжить как гость' : 'Продолжить в демо без входа') + '</a></div>'
+      + '</section></div></div></main>';
+  }
+
+  function dashboardIntro() {
+    return '<section class="dashboard-intro" data-reveal><div><span class="eyebrow">' + modeLabel() + '</span>'
+      + '<h1>Следующий шаг —<br><em>в ваших руках.</em></h1><p class="muted">Ваш опыт, планы и подготовка. Всё здесь.</p></div>' + helper() + '</section>'
+      + '<div class="dashboard-sources" data-reveal="slide">'
+      + '<a class="source-tile" href="#/resumes"><span class="eyebrow">01 / Исходники</span><h2>Мои резюме <span>↗</span></h2><p>Опыт, который стоит показать</p></a>'
+      + '<a class="source-tile" href="#/vacancies"><span class="eyebrow">02 / Направление</span><h2>Вакансии <span>↗</span></h2><p>От требований к плану действий</p></a>'
+      + '<a class="source-tile" href="#/interviews"><span class="eyebrow">03 / Практика</span><h2>Интервью <span>↗</span></h2><p>Уверенность приходит с подготовкой</p></a></div>';
   }
 
   function onboarding() {
@@ -2685,7 +3164,7 @@ var ScreensCore = (function () {
     if (state.scenario === 'error') return pageHead('Обзор') + UI.errorBlock();
 
     if (!state.preps.length && !state.resumes.length) {
-      return pageHead('Обзор', 'Здесь появятся ваши подготовки к собеседованиям.')
+      return dashboardIntro() + pageHead('Обзор', 'Здесь появятся ваши подготовки к собеседованиям.')
         + UI.emptyState(
           'Пока ничего нет',
           'Начните с резюме: соберите новое в мастере или загрузите готовое, чтобы посмотреть демонстрационный разбор.',
@@ -2716,11 +3195,11 @@ var ScreensCore = (function () {
     }).join('');
 
     return ''
-      + pageHead('Обзор', 'Последние подготовки и ближайший шаг.')
-      + note('demo', '<div>Демонстрационный комплект собран для профессии <strong>'
+      + dashboardIntro() + pageHead('Обзор', 'Последние подготовки и ближайший шаг.')
+      + (Api.live.enabled ? '' : note('demo', '<div>Демонстрационный комплект собран для профессии <strong>'
           + esc(DEMO_DATA.professionName) + '</strong>'
           + (DEMO_DATA.isGenericProfession ? ' (общий шаблон: этой профессии нет в библиотеке примеров)' : '')
-          + '. Профессию можно сменить в панели «Состояния демо» или создав резюме на другую профессию.</div>')
+          + '. Профессию можно сменить в панели «Состояния демо» или создав резюме на другую профессию.</div>'))
       + (prep && prep.stale ? staleBanner(prep) : '')
       + '<div class="card stack">'
       + '  <div class="card__head" style="margin-bottom:0">'
@@ -2736,7 +3215,7 @@ var ScreensCore = (function () {
       + '<div class="card"><div class="card__head"><div class="card__title"><h2>Мои подготовки</h2>'
       + '<small>Одна подготовка связывает резюме, вакансию, вопросы и интервью.</small></div></div>'
       + '<ul class="list">' + cards + '</ul></div>'
-      + '<div class="card stack">'
+      + (Api.live.enabled ? '' : '<div class="card stack">'
       + '  <h2>Режим демо</h2>'
       + '  <p class="muted">Можно переключиться между пустым и заполненным состоянием, чтобы посмотреть оба варианта.</p>'
       + '  <div class="btn-row">'
@@ -2744,7 +3223,7 @@ var ScreensCore = (function () {
       + '    <button type="button" class="btn" data-act="demo:scenario-filled">Показать заполненное состояние</button>'
       + '    <a class="btn" href="#/history">История</a>'
       + '  </div>'
-      + '</div>';
+      + '</div>');
   }
 
   /* ---------------- Мастер создания резюме ---------------- */
@@ -2961,44 +3440,47 @@ var ScreensCore = (function () {
     var fileRow = up.fileName
       ? '<div class="row-item" style="margin-top:16px"><div class="row-item__main">'
         + '<div class="row-item__title">' + esc(up.fileName) + '</div>'
-        + '<div class="row-item__meta">Файл выбран локально. Он не загружается на сервер и не читается макетом.</div>'
+        + '<div class="row-item__meta">' + esc(up.phase || 'Файл выбран') + '</div>'
         + '</div><div class="btn-row">'
-        + '<button type="button" class="btn btn--sm" data-act="upload:pick">Заменить</button>'
-        + '<button type="button" class="btn btn--sm btn--danger" data-act="upload:clear">Удалить</button>'
+        + '<button type="button" class="btn btn--sm" data-act="upload:pick"' + (up.busy ? ' disabled' : '') + '>Заменить</button>'
+        + '<button type="button" class="btn btn--sm btn--danger" data-act="upload:clear"' + (up.busy ? ' disabled' : '') + '>Удалить</button>'
         + '</div></div>'
       : '';
 
     return ''
-      + pageHead('Загрузка готового резюме', 'Выберите файл, чтобы посмотреть, как устроен разбор.')
-      + note('alert', '<div><strong>Чтение PDF и DOCX ещё не реализовано.</strong> Файл остаётся на вашем '
-        + 'устройстве: он не отправляется по сети и не анализируется. Отчёт ниже — общий демонстрационный образец, '
-        + 'а не разбор вашего документа.</div>')
+      + pageHead('Загрузка готового резюме', 'Загрузите документ или вставьте текст для разбора.')
+      + note('info', '<div>PDF с текстом, DOCX и TXT — до 2 МБ и 40 000 символов. Для DOC и RTF нужна конвертация. '
+        + 'Сканы не распознаются: OCR недоступен. Исходный файл не сохраняется; извлечённый текст сохраняется при запуске разбора.</div>')
       + '<div class="card">'
-      + '  <button type="button" class="dropzone" id="dropzone" data-act="upload:pick">'
+      + '  <button type="button" class="dropzone" id="dropzone" data-act="upload:pick"' + (up.busy ? ' disabled' : '') + '>'
       + '    <b>Перетащите файл сюда или нажмите, чтобы выбрать</b>'
-      + '    <span class="muted">Для демонстрации подойдут PDF или DOCX</span>'
+      + '    <span class="muted">PDF, DOCX, TXT · до 2 МБ</span>'
       + '  </button>'
       + '  <input type="file" id="file-input" class="visually-hidden" accept=".pdf,.docx,.doc,.rtf,.txt" '
       + '    aria-label="Выбрать файл резюме">'
       + fileRow
       + '  <hr class="divide">'
       + UI.field({ id: 'upload-text', label: 'Или вставьте текст резюме', type: 'textarea', rows: 8,
-          model: 'upload.text', value: up.text || '',
+          model: 'upload.text', value: up.text || '', disabled: !!up.busy,
           placeholder: 'Скопируйте текст из своего резюме',
           hint: Api.live.enabled
-            ? 'Текст уйдёт на сервер и будет разобран моделью. Файлы пока не читаются — только вставленный текст.'
+            ? 'Проверьте извлечённый текст. При запуске разбора он сохраняется на сервере и передаётся модели.'
             : 'В демо-режиме текст остаётся в браузере и не анализируется.' })
       + '  <div class="btn-row" style="margin-top:16px">'
       + (Api.live.enabled
-          ? '<button type="button" class="btn btn--primary" data-act="upload:review"'
-            + (state.pending ? ' disabled' : '') + '>'
-            + (state.pending ? 'Разбираю…' : 'Разобрать резюме') + '</button>'
+          ? '<button type="button" class="btn' + (up.fileError ? '' : ' btn--primary') + '" data-act="upload:review"'
+            + (state.pending || up.busy || up.fileError ? ' disabled' : '') + '>'
+            + (up.busy ? 'Обработка…' : up.error && !up.fileError ? 'Повторить разбор' : 'Разобрать резюме') + '</button>'
           : '')
-      + '    <button type="button" class="btn' + (Api.live.enabled ? '' : ' btn--primary')
-      + '" data-act="upload:show-analysis">Показать пример анализа</button>'
+      + (!Api.isHttp() && !up.fileName && !up.text
+        ? '<button type="button" class="btn" data-act="upload:show-analysis">Демо: показать пример анализа</button>' : '')
+      + (up.busy ? '<button type="button" class="btn" data-act="upload:cancel">Отменить</button>' : '')
+      + (up.fileError && !up.busy ? '<button type="button" class="btn btn--primary" data-act="upload:retry-file">Повторить чтение файла</button>' : '')
       + '    <a class="btn" href="#/resumes">К списку резюме</a>'
       + '  </div>'
       + '</div>'
+      + (up.phase ? '<p role="status">' + esc(up.phase) + (up.busy && up.elapsed !== undefined ? ' · ' + up.elapsed + ' с' : '') + '</p>' : '')
+      + (up.error ? '<div class="note note--alert" role="alert" id="upload-error">' + esc(up.error) + '</div>' : '')
       + (up.analysisShown ? analysisReport() : '');
   }
 
@@ -3023,6 +3505,7 @@ var ScreensCore = (function () {
 
   function analysisReport() {
     var state = Store.get();
+    if (Api.isHttp() && !state.upload.report) return '';
     var report = state.upload.report || DEMO_DATA.analysisReport;
     var real = !!state.upload.report;
     var decisions = state.upload.decisions;
@@ -3034,8 +3517,8 @@ var ScreensCore = (function () {
       + '<div class="card stack">'
       + (real
           ? '<div class="card__head"><div class="card__title"><h2>Разбор вашего резюме</h2>'
-            + '<small>' + (Api.live.ai && Api.live.ai.live ? 'Выполнен моделью по вставленному тексту' : 'Сервер на заглушке: структура настоящая, содержание фиксированное') + '</small></div>'
-            + (Api.live.ai && Api.live.ai.live ? '' : UI.demoBadge('Заглушка')) + '</div>'
+            + '<small>' + (state.upload.mock ? 'Демо-ответ сервера: содержание фиксированное' : 'Реальный анализ · ' + esc((state.upload.source || {}).provider || '') + ' · ' + esc((state.upload.source || {}).model || '') + ' · pre_interview') + '</small></div>'
+            + (state.upload.mock ? UI.demoBadge('Заглушка') : '') + '</div>'
             + note('info', '<div>Модель предлагает формулировки, но не имеет права добавлять факты. '
               + 'Принимайте только то, что соответствует действительности.</div>')
           : '<div class="card__head"><div class="card__title"><h2>Демонстрационный разбор резюме</h2>'
@@ -3050,15 +3533,15 @@ var ScreensCore = (function () {
       + (report.missing || []).map(function (s, i) { s.id = s.id || ('sug-m' + i); return suggestionBlock(s, decisions[s.id]); }).join('')
       + '</div>'
       + '<div class="card stack">'
-      + '  <div class="card__head"><div class="card__title"><h2>Демонстрационная версия резюме</h2>'
-      + '  <small>Принятые предложения применяются к образцу</small></div></div>'
+      + '  <div class="card__head"><div class="card__title"><h2>' + (real ? 'Выбранные рекомендации' : 'Демонстрационная версия резюме') + '</h2>'
+      + '  <small>' + (real ? 'Резюме и разбор сохранены. Рекомендации пока отмечены только в браузере; внесите правки в текст вручную.' : 'Принятые предложения применяются к образцу') + '</small></div></div>'
       + (accepted.length
           ? '<ul class="list">' + accepted.map(function (s) {
               return '<li><b>' + esc(s.title) + '</b><div class="diff-new">' + esc(s.after) + '</div></li>';
             }).join('') + '</ul>'
-          : '<p class="muted">Ни одно предложение пока не принято. Нажмите «Принять», чтобы увидеть изменение в образце.</p>')
+          : '<p class="muted">Ни одно предложение пока не принято. Нажмите «Принять», чтобы отметить рекомендацию.</p>')
       + '  <div class="btn-row">'
-      + '    <button type="button" class="btn btn--primary" data-act="upload:save">Сохранить как версию резюме</button>'
+      + '    <button type="button" class="btn btn--primary" data-act="upload:save">' + (real ? 'Использовать резюме для подготовки' : 'Сохранить как версию резюме') + '</button>'
       + '    <a class="btn" href="#/vacancy/new">Перейти к вакансии</a>'
       + '  </div>'
       + '</div>';
@@ -3669,6 +4152,7 @@ var ScreensPrep = (function () {
       + contextBlock
       + '  <div class="chat" id="chat-log" role="log" aria-live="polite">' + messages + pending + '</div>'
       + failedBlock
+      + '<div id="stt-slot"></div>'
       + UI.field({ id: 'chat-input', label: 'Ваш ответ', type: 'textarea', model: 'chatDraft',
           value: chat.draft, placeholder: 'Напишите ответ так, как сказали бы вслух',
           hint: 'Текст остаётся в браузере и сбрасывается после перезагрузки.' })
@@ -4167,10 +4651,270 @@ var ScreensPrep = (function () {
 
 </script>
 <script>
+/* ==== quickstart.js ==== */
+/* Account-only guided preparation. Only bounded status metadata is persisted. */
+var QuickStart = (function () {
+  'use strict';
+  var prefix = 'easyjob:quickstart:v1:';
+  var owner = null, status = null, seen = false, epoch = 0, busy = false, error = '';
+  var resumeId = '', vacancyId = '', draft = {};
+  var titles = ['Добро пожаловать', 'Резюме', 'Проверка резюме', 'Вакансия',
+    'Требования и сопоставление', 'Вопросы и первый ответ', 'Текстовое интервью', 'Что дальше'];
+  function fresh() { return { step: 0, completed: [], skipped: [], finished: false, timestamp: Date.now() }; }
+  function clean(value) {
+    var s = fresh();
+    if (!value || typeof value !== 'object') return s;
+    s.step = Number.isInteger(value.step) && value.step >= 0 && value.step < 8 ? value.step : 0;
+    ['completed', 'skipped'].forEach(function (key) {
+      s[key] = Array.isArray(value[key]) ? value[key].filter(function (v, i, a) {
+        return Number.isInteger(v) && v >= 0 && v < 8 && a.indexOf(v) === i;
+      }).slice(0, 8) : [];
+    });
+    s.finished = value.finished === true;
+    return s;
+  }
+  function announceAccountChange() {
+    try { window.localStorage.setItem('easyjob:auth:change', Date.now() + ':' + Math.random()); } catch (_) {}
+  }
+  window.addEventListener('storage', function (event) {
+    if (!eligible() || (event.key !== 'easyjob:auth:change' && event.key !== null)) return;
+    resetMemory(); Api.live.user = null; Store.replaceData({});
+    navigate('#/auth/login'); refresh();
+  });
+  function eligible() { return Api.isHttp() && !!Api.live.user; }
+  function resetMemory() {
+    epoch++; owner = null; status = null; seen = false; busy = false; error = '';
+    resumeId = ''; vacancyId = ''; draft = {};
+  }
+  function bind() {
+    var id = eligible() ? String(Api.live.user.id) : null;
+    if (owner === id) return;
+    resetMemory();
+    if (!id) return;
+    owner = id;
+    try {
+      var raw = window.localStorage.getItem(prefix + encodeURIComponent(id));
+      seen = !!raw;
+      status = clean(raw ? JSON.parse(raw) : null);
+    } catch (_) { status = fresh(); }
+  }
+  function save() {
+    if (!eligible() || owner !== String(Api.live.user.id) || !status) return;
+    status.timestamp = Date.now(); seen = true;
+    try { window.localStorage.setItem(prefix + encodeURIComponent(owner), JSON.stringify(status)); } catch (_) {}
+  }
+  function afterLogin(isRegister) {
+    bind();
+    var first = !seen && (isRegister || (!Store.get().resumes.length && !Store.get().preps.length && !Store.get().vacancies.length));
+    save();
+    return first ? '#/quickstart' : '#/overview';
+  }
+  function context() {
+    var s = Store.get();
+    var resumes = s.resumes.filter(function (r) { return !!r.serverId; });
+    var active = s.preps.find(function (p) { return p.id === s.activePrepId; });
+    var r = resumes.find(function (r) { return r.id === (resumeId || (active && active.resumeId)); }) || resumes[0];
+    var v = s.vacancies.find(function (v) { return v.id === (vacancyId || (active && active.vacancyId)); }) || s.vacancies[0];
+    var p = r && v && s.preps.find(function (p) { return p.resumeId === r.id && p.vacancyId === v.id; });
+    return { r: r, v: v, p: p, resumes: resumes };
+  }
+  function facts(c) {
+    var matched = !!(c.p && !c.p.stale && c.p.match && c.p.match.length);
+    return [status.completed.indexOf(0) >= 0, !!c.r, !!(c.r && c.r.review), !!c.v,
+      matched, !!(matched && c.p.questions && c.p.questions.length),
+      !!(matched && (c.p.interviewStarted || (c.p.chat && c.p.chat.started))), status.completed.indexOf(7) >= 0];
+  }
+  function sync() {
+    bind();
+    if (!status) return;
+    var done = facts(context()).reduce(function (a, yes, i) { if (yes) a.push(i); return a; }, []);
+    if (JSON.stringify(done) !== JSON.stringify(status.completed)) { status.completed = done; save(); }
+  }
+  function button(act, label, primary, disabled) {
+    return '<button type="button" class="btn' + (primary ? ' btn--primary' : '') + '" data-act="qs:' + act + '"' + (disabled ? ' disabled' : '') + '>' + label + '</button>';
+  }
+  function field(id, label, area) {
+    return '<label class="field" for="qs-' + id + '"><span class="field__label">' + label + '</span>'
+      + (area ? '<textarea rows="7" maxlength="40000"' : '<input maxlength="200"') + ' id="qs-' + id + '" data-qs-draft="' + id + '"'
+      + (area ? '>' + UI.esc(draft[id] || '') + '</textarea>' : ' value="' + UI.esc(draft[id] || '') + '">') + '</label>';
+  }
+  function select(kind, items, current) {
+    return '<label class="field" for="qs-select-' + kind + '"><span class="field__label">Выбрать ' + (kind === 'resume' ? 'резюме' : 'вакансию') + '</span>'
+      + '<select id="qs-select-' + kind + '" data-qs-select="' + kind + '">' + items.map(function (x) {
+        return '<option value="' + UI.esc(x.id) + '"' + (current && current.id === x.id ? ' selected' : '') + '>' + UI.esc(x.title) + '</option>';
+      }).join('') + '</select></label>';
+  }
+  function reviewText(review) {
+    function lines(value) {
+      if (Array.isArray(value)) return value.map(lines).join('\n\n');
+      if (value && typeof value === 'object') return Object.keys(value).map(function (key) { return lines(value[key]); }).join('\n');
+      return UI.esc(String(value == null ? '' : value));
+    }
+    return lines(review);
+  }
+  function screen() {
+    sync();
+    if (!status) return '';
+    save();
+    var c = context(), i = status.step, done = facts(c)[i], body = '', action = 'continue', label = 'Продолжить';
+    if (i === 0) body = '<p>Пройдём путь от резюме до первой подготовки и текстовой тренировки. Любой шаг можно пропустить или продолжить позже.</p>'
+      + '<p>Резюме, вакансия и ответы сохраняются на сервере. При запуске AI соответствующие данные передаются настроенному провайдеру. Удалите лишние персональные данные и контакты. Продолжая, вы подтверждаете, что ознакомились с этим порядком.</p><a href="#/privacy">Обработка данных</a>';
+    if (i === 1) {
+      body = '<p>Создайте резюме из текста или выберите сохранённое. На этом шаге AI ещё не вызывается.</p>';
+      if (c.resumes.length) body += select('resume', c.resumes, c.r) + '<a href="#/resume/' + UI.esc(c.r.id) + '">Открыть резюме</a>';
+      body += '<details' + (!c.r ? ' open' : '') + '><summary>Создать другое резюме</summary>' + field('resumeTitle', 'Название резюме') + field('resumeText', 'Текст резюме', true)
+        + (c.r ? button('resume', 'Сохранить другое резюме') : '') + '</details>';
+      if (!c.r) { action = 'resume'; label = 'Сохранить резюме'; }
+    }
+    if (i === 2) {
+      body = '<p>AI проверит ясность формулировок, опыт и навыки и предложит улучшения. Проверьте рекомендации: модель может ошибаться, изменения не применяются автоматически.</p>';
+      if (c.r) body += '<p>Резюме: <b>' + UI.esc(c.r.title) + '</b></p>';
+      if (done) body += '<details open><summary>Результат проверки</summary><pre class="qs-result">' + reviewText(c.r.review) + '</pre></details>';
+      else { action = 'review'; label = 'Проверить резюме с AI'; }
+    }
+    if (i === 3) {
+      body = '<p>Выберите вакансию или вставьте её текст. При сохранении сервер выделяет требования с AI; следующий шаг сопоставит их с резюме.</p>';
+      if (c.v) body += select('vacancy', Store.get().vacancies, c.v);
+      body += '<details' + (!c.v ? ' open' : '') + '><summary>Создать другую вакансию</summary>' + field('vacancyTitle', 'Должность') + field('company', 'Компания (необязательно)') + field('vacancyText', 'Текст вакансии', true)
+        + (c.v ? button('vacancy', 'Сохранить другую вакансию') : '') + '</details>';
+      if (!c.v) { action = 'vacancy'; label = 'Сохранить и выделить требования'; }
+    }
+    if (i === 4) {
+      body = '<p>AI сопоставит требования вакансии с опытом и отметит сильные стороны и пробелы. Это помощь в подготовке, а не решение о найме.</p>';
+      if (c.r && c.v) body += '<p>' + UI.esc(c.r.title) + ' → ' + UI.esc(c.v.title) + '</p>';
+      if (done) body += '<p>Сопоставление готово: ' + c.p.match.length + ' пунктов.</p><a href="#/prep/' + UI.esc(c.p.id) + '/match">Посмотреть сопоставление</a>';
+      else { action = 'match'; label = c.p ? 'Пересобрать подготовку' : 'Создать подготовку'; }
+    }
+    if (i === 5) {
+      body = '<p>Получите вопросы по выбранной подготовке. Можно записать первый ответ сейчас или вернуться к нему позже.</p>';
+      if (done) {
+        var q = c.p.questions[0];
+        body += '<p><b>' + UI.esc(q.text) + '</b></p>' + field('answer', 'Ваш ответ (необязательно)', true)
+          + button('answer', 'Сохранить ответ') + (c.p.answers[q.id] ? '<p role="status">Ответ сохранён на сервере.</p>' : '')
+          + '<a href="#/prep/' + UI.esc(c.p.id) + '/questions">Все вопросы и ответы</a>';
+      } else { action = 'questions'; label = 'Сгенерировать вопросы'; }
+    }
+    if (i === 6) {
+      body = '<p>Откройте текстовую тренировку и нажмите «Начать интервью», чтобы получить первый вопрос. Ответ можно набрать с клавиатуры; микрофон не нужен. Вернуться сюда можно через Quick Start в меню.</p>';
+      if (!done) { action = 'interview'; label = 'Открыть текстовую тренировку'; }
+      else body += '<p>Текстовое интервью уже начато.</p><a href="#/prep/' + UI.esc(c.p.id) + '/interview">Вернуться к интервью</a>';
+    }
+    if (i === 7) {
+      body = '<p>Live-интервью и распознавание речи (STT) — отдельный следующий этап. Открытие тренировки не включает запись звука.</p>'
+        + '<p>Перед live-сессией отдельно проверьте настройки провайдера, разрешения на запись и согласие участников. Mock или ненастроенный STT не означает работающее распознавание.</p>'
+        + '<a href="#/assistant">Следующее действие: изучить live-помощник и его настройки</a>';
+      label = 'Завершить Quick Start';
+    }
+    var needs = (i === 2 && !c.r) || (i === 4 && (!c.r || !c.v)) || ((i === 5 || i === 6) && !facts(c)[4]);
+    if (needs) body += '<p role="status">Сначала выберите резюме и вакансию и создайте подготовку на предыдущих шагах. Можно вернуться назад или пропустить этот шаг.</p>';
+    return '<section class="quickstart" aria-labelledby="qs-title" aria-busy="' + busy + '">'
+      + '<p class="muted">Quick Start · Шаг ' + (i + 1) + ' из 8 · Выполнено ' + status.completed.length + ' из 8</p>'
+      + '<progress max="8" value="' + status.completed.length + '" aria-label="Выполнено шагов"></progress>'
+      + '<ol class="qs-steps">' + titles.map(function (t, n) { return '<li' + (n === i ? ' aria-current="step"' : '') + '>' + t + ' — '
+        + (status.completed.indexOf(n) >= 0 ? 'Готово' : status.skipped.indexOf(n) >= 0 ? 'Пропущено' : n === i ? 'Сейчас' : 'Впереди') + '</li>'; }).join('') + '</ol>'
+      + '<h1 id="qs-title" tabindex="-1">' + titles[i] + '</h1>'
+      + '<p class="note">Pre-interview в текущей production-конфигурации использует OpenRouter. Текущий сервер: '
+      + UI.esc(Api.live.ai && Api.live.ai.live ? (Api.live.ai.title || Api.live.ai.provider) : 'заглушка AI; результаты демонстрационные') + '. Live/STT проверяется отдельно.</p>'
+      + (done ? '<p class="tag tag--ok">Этот шаг уже выполнен — можно продолжить.</p>' : '') + body
+      + '<p id="qs-error" role="alert">' + UI.esc(error) + '</p>'
+      + (busy ? '<p role="status">Ожидаем ответ сервера… Можно открыть другой раздел.</p>' : '')
+      + '<div class="qs-actions">' + button(action, error && action !== 'continue' ? 'Повторить: ' + label : label, true, busy || needs)
+      + button('back', 'Назад', false, i === 0) + button('skip', 'Пропустить этот шаг')
+      + button('later', 'Продолжить позже') + button('restart', 'Начать Quick Start заново') + '</div></section>';
+  }
+  function navigate(hash) { window.location.hash = hash; }
+  function refresh(focus) {
+    Store.notify();
+    if (focus && window.location.hash === '#/quickstart') {
+      var h = document.getElementById('qs-title'); if (h) h.focus();
+    }
+  }
+  async function act(action) {
+    bind(); if (!status) return;
+    if (action === 'restart') {
+      epoch++; busy = false; status = fresh(); draft = {}; error = ''; save(); navigate('#/quickstart'); refresh(true); return;
+    }
+    if (action === 'later') { save(); navigate('#/overview'); return; }
+    if (action === 'back' || action === 'skip' || action === 'continue') {
+      var i = status.step;
+      if (action === 'continue' && !facts(context())[i] && i !== 0 && i !== 7) return;
+      if (action === 'continue' && (i === 0 || i === 7)) status.completed.push(i);
+      if (action === 'skip' && status.skipped.indexOf(i) < 0) status.skipped.push(i);
+      status.step = Math.max(0, Math.min(7, i + (action === 'back' ? -1 : 1)));
+      error = ''; save();
+      if (i === 7 && action !== 'back') { status.finished = true; save(); navigate('#/overview'); }
+      refresh(true); return;
+    }
+    if (busy) return;
+    var c = context();
+    if (action === 'interview') {
+      if (!facts(c)[4]) return;
+      Store.get().activePrepId = c.p.id; navigate('#/prep/' + c.p.id + '/interview'); return;
+    }
+    var token = epoch, user = owner;
+    function current() { return token === epoch && eligible() && String(Api.live.user.id) === user; }
+    busy = true; error = ''; refresh();
+    try {
+      // Cookies may have changed in another tab. Recheck the owner before writing.
+      var me = await Api.request('GET', '/api/me');
+      if (!current()) return;
+      if (!me.user || String(me.user.id) !== user) throw new Api.ApiError(401, 'Аккаунт изменился или сессия истекла. Войдите снова.');
+      var result;
+      if (action === 'resume') {
+        if (!String(draft.resumeTitle || '').trim() || String(draft.resumeText || '').trim().length < 40) throw new Error('Введите название и текст резюме (не менее 40 символов).');
+        result = Api.resumeFromServer(await Api.request('POST', '/api/resumes', { title: draft.resumeTitle, data: { rawText: draft.resumeText } }));
+        if (!current()) return;
+        Store.get().resumes.unshift(result); resumeId = result.id; delete draft.resumeText; delete draft.resumeTitle;
+      } else if (action === 'review' && c.r) {
+        result = await Api.request('POST', '/api/resumes/' + c.r.serverId + '/review');
+        if (!current()) return; c.r.review = result.review;
+      } else if (action === 'vacancy') {
+        if (!String(draft.vacancyTitle || '').trim() || String(draft.vacancyText || '').trim().length < 40) throw new Error('Введите должность и текст вакансии (не менее 40 символов).');
+        result = Api.vacancyFromServer(await Api.request('POST', '/api/vacancies', { title: draft.vacancyTitle, company: draft.company || '', rawText: draft.vacancyText }));
+        if (!current()) return;
+        Store.get().vacancies.unshift(result); vacancyId = result.id; delete draft.vacancyText; delete draft.vacancyTitle; delete draft.company;
+      } else if (action === 'match' && c.r && c.v) {
+        result = Api.prepFromServer(await Api.request('POST', c.p ? '/api/preps/' + c.p.serverId + '/rebuild' : '/api/preps',
+          c.p ? {} : { resumeId: c.r.serverId, vacancyId: c.v.serverId, profession: c.r.profession || c.v.title }));
+        if (!current()) return;
+        if (c.p) Object.assign(c.p, result); else Store.get().preps.unshift(result);
+        Store.get().activePrepId = result.id;
+      } else if (action === 'questions' && facts(c)[4]) {
+        result = await Api.request('POST', '/api/preps/' + c.p.serverId + '/questions');
+        if (!current()) return; c.p.questions = result.questions;
+      } else if (action === 'answer' && facts(c)[5]) {
+        if (!String(draft.answer || '').trim()) throw new Error('Введите ответ или продолжите без него.');
+        var answers = Object.assign({}, c.p.answers); answers[c.p.questions[0].id] = draft.answer;
+        await Api.request('PUT', '/api/preps/' + c.p.serverId + '/answers', { answers: answers, ready: c.p.ready });
+        if (!current()) return; c.p.answers = answers; delete draft.answer;
+      }
+      if (current()) sync();
+    } catch (e) {
+      if (current()) {
+        error = (e.message || 'Ошибка сервера') + ' Шаг не отмечен выполненным. Повторите действие.';
+        if (e.status === 401) { resetMemory(); Api.live.user = null; Store.replaceData({}); navigate('#/auth/login'); }
+      }
+    } finally { if (current()) { busy = false; refresh(); } }
+  }
+  document.addEventListener('input', function (e) {
+    var key = e.target.getAttribute('data-qs-draft');
+    if (eligible() && ['resumeTitle', 'resumeText', 'vacancyTitle', 'vacancyText', 'company', 'answer'].indexOf(key) >= 0) draft[key] = e.target.value;
+  });
+  document.addEventListener('change', function (e) {
+    var kind = e.target.getAttribute('data-qs-select');
+    if (!kind || !eligible()) return;
+    if (kind === 'resume') resumeId = e.target.value; else vacancyId = e.target.value;
+    draft.answer = ''; error = ''; sync(); refresh();
+  });
+  return { screen: screen, act: act, bind: bind, sync: sync, afterLogin: afterLogin, resetMemory: resetMemory, eligible: eligible, announceAccountChange: announceAccountChange };
+})();
+
+</script>
+<script>
 /* ==== app.js ==== */
 /* ============================================================
    Маршрутизация, отрисовка оболочки и обработка действий.
-   Никаких сетевых запросов: макет работает полностью локально.
+   HTTP uses the local API; file:// keeps the standalone demo.
    ============================================================ */
 
 (function () {
@@ -4178,6 +4922,10 @@ var ScreensPrep = (function () {
 
   var esc = UI.esc;
   var root = document.getElementById('app');
+  var lastRenderRoute = null;
+  var authBusy = false;
+  var bootComplete = false;
+  var authError = '';
 
   var NAV = [
     { section: 'overview', href: '#/overview', label: 'Обзор' },
@@ -4218,13 +4966,58 @@ var ScreensPrep = (function () {
   }
 
   var KNOWN = ['start', 'auth', 'onboarding', 'overview', 'resumes', 'resume', 'vacancies',
-    'vacancy', 'prep', 'interviews', 'assistant', 'plans', 'history', 'settings', 'privacy'];
+    'vacancy', 'prep', 'interviews', 'assistant', 'plans', 'history', 'settings', 'privacy', 'admin', 'quickstart'];
 
   /* ---------------- Отрисовка ---------------- */
+
+  var adminUsage = { days: 30, data: null, error: '', loading: false, owner: null };
+  function isAdmin() { return Api.isHttp() && Api.live.user && Api.live.user.role === 'admin'; }
+  function usageScreen() {
+    if (!isAdmin()) { adminUsage.data = null; return '<h1>Доступ запрещён</h1>'; }
+    if (adminUsage.owner !== Api.live.user.id) { adminUsage.owner = Api.live.user.id; adminUsage.data = null; }
+    if (!adminUsage.data && !adminUsage.loading && !adminUsage.error) loadUsage();
+    var out = '<h1>Расходы AI</h1><p>Приблизительная стоимость USD. Ненастроенные цены не включены в сумму.</p>'
+      + '<label for="usage-days">Период</label> <select id="usage-days"' + (adminUsage.loading ? ' disabled' : '') + '>'
+      + [7, 30, 90, 365].map(function (d) { return '<option value="' + d + '"' + (d === adminUsage.days ? ' selected' : '') + '>' + d + ' дней</option>'; }).join('')
+      + '</select><p role="status">' + esc(adminUsage.loading ? 'Загрузка…' : adminUsage.error) + '</p>';
+    var data = adminUsage.data;
+    if (!data) return out;
+    var metrics = [['requests', 'Запросы'], ['failures', 'Ошибки'], ['tokensIn', 'Входные токены'],
+      ['tokensOut', 'Выходные токены'], ['estimatedCostUsd', '≈ USD'], ['estimatedRequests', 'Оценка токенов'],
+      ['reportedRequests', 'Токены провайдера'], ['unpricedRequests', 'Без цены'], ['avgMs', 'Среднее мс']];
+    function table(title, rows, dimensions) {
+      var cols = dimensions.concat(metrics);
+      return '<h2>' + title + '</h2><div class="usage-table" tabindex="0" role="region" aria-label="' + title + '"><table><caption class="sr-only">' + title + '</caption><thead><tr>'
+        + cols.map(function (c) { return '<th scope="col">' + c[1] + '</th>'; }).join('') + '</tr></thead><tbody>'
+        + rows.map(function (r) { return '<tr>' + cols.map(function (c) { return '<td>' + esc(c[0] === 'estimatedCostUsd' ? Number(r[c[0]]).toFixed(6) : String(r[c[0]] == null ? '—' : r[c[0]])) + '</td>'; }).join('') + '</tr>'; }).join('')
+        + '</tbody></table></div>';
+    }
+    return out + table('Всего', [data.totals], [])
+      + table('По пользователям', data.byUser, [['username', 'Логин'], ['userId', 'ID']])
+      + table('По этапам', data.byStage, [['stage', 'Этап']])
+      + table('По провайдерам', data.byProvider, [['provider', 'Провайдер']])
+      + table('По моделям', data.byModel, [['provider', 'Провайдер'], ['model', 'Модель']])
+      + table('По дням (UTC)', data.byDay, [['day', 'День']]);
+  }
+  function loadUsage() {
+    if (!isAdmin()) return;
+    adminUsage.loading = true;
+    var owner = Api.live.user.id;
+    Api.request('GET', '/api/admin/usage?days=' + adminUsage.days).then(function (data) {
+      if (isAdmin() && Api.live.user.id === owner) adminUsage.data = data;
+    }).catch(function () { adminUsage.error = 'Не удалось загрузить статистику. Выберите период для повтора.'; })
+      .finally(function () { adminUsage.loading = false; if (parseRoute().name === 'admin') render(); });
+  }
+  document.addEventListener('change', function (event) {
+    if (event.target.id !== 'usage-days' || !isAdmin() || adminUsage.loading) return;
+    adminUsage.days = Number(event.target.value); adminUsage.data = null; adminUsage.error = ''; render();
+  });
 
   function screenFor(route) {
     var parts = route.parts;
     switch (route.name) {
+      case 'quickstart': return QuickStart.screen();
+      case 'admin': return usageScreen();
       case 'start': return ScreensCore.start();
       case 'auth': return ScreensCore.auth(parts[1] || 'login');
       case 'onboarding': return ScreensCore.onboarding();
@@ -4275,16 +5068,19 @@ var ScreensPrep = (function () {
     }).join('');
 
     return ''
-      + '<nav class="sidebar" aria-label="Основная навигация">'
+      + '<nav class="sidebar" id="site-nav" aria-label="Основная навигация">'
       + '  <div class="sidebar__brand">'
-      + '    <b>Карьерный помощник</b>'
-      + '    <span class="tag tag--demo">Демо-макет</span>'
+      + '    <b class="wordmark">easyjob</b>'
+      + '    <span class="muted">Карьерный помощник</span>'
       + '  </div>'
       + '  <div class="sidebar__nav">' + links + '</div>'
       + '  <div class="sidebar__foot">'
+      + (QuickStart.eligible() ? '<a class="navlink" href="#/quickstart">Продолжить Quick Start</a><button class="btn" data-act="qs:restart">Начать Quick Start заново</button>' : '')
+      + (isAdmin() ? '<a class="navlink" href="#/admin">Расходы AI</a>' : '')
       + '    <a class="navlink" href="#/history"><span>История</span></a>'
       + '    <a class="navlink" href="#/privacy"><span>Обработка данных</span></a>'
-      + '    <a class="navlink" href="#/start"><span>Выйти из демо</span></a>'
+      + (Api.live.user ? '<button id="account-logout" class="btn btn--block" data-act="auth:logout">Выйти из аккаунта</button>'
+          : '<a class="navlink" href="' + (Api.isHttp() ? '#/auth/login' : '#/start') + '"><span>' + (Api.isHttp() ? 'Войти в аккаунт' : 'Выйти из демо') + '</span></a>')
       + '  </div>'
       + '</nav>';
   }
@@ -4300,8 +5096,9 @@ var ScreensPrep = (function () {
 
     return ''
       + '<div class="topbar">'
-      + '  <button type="button" class="btn btn--sm menu-btn" data-act="nav:toggle" aria-label="Открыть меню">☰</button>'
+      + '  <button type="button" class="btn btn--sm menu-btn" id="menu-toggle" data-act="nav:toggle" aria-controls="site-nav" aria-expanded="' + (document.body.getAttribute('data-nav') === 'open') + '" aria-label="Открыть меню">☰ Меню</button>'
       + '  <div class="topbar__ctx">' + ctx + '</div>'
+      + '<span class="account-label">' + (Api.live.user ? esc(Api.live.user.username) : (Api.isHttp() ? 'Гость' : 'Демо')) + '</span>'
       + (Api.live.enabled
           ? (Api.live.ai && Api.live.ai.live
               ? '<span class="tag tag--ok"><span class="badge-full">Сервер · ' + esc(Api.live.ai.title) + '</span><span class="badge-short">Сервер</span></span>'
@@ -4322,11 +5119,12 @@ var ScreensPrep = (function () {
       var ai = Api.live.ai || {};
       return ''
         + '<aside class="demo-panel' + (open ? '' : ' demo-panel--collapsed') + '" aria-label="Режим сервера">'
-        + '  <button type="button" class="demo-panel__head" data-act="demopanel:toggle" aria-expanded="'
+        + '  <button type="button" class="demo-panel__head" data-act="demopanel:toggle" aria-controls="demo-panel-body" aria-expanded="'
         + (open ? 'true' : 'false') + '"><span>Режим сервера</span><span aria-hidden="true">' + (open ? '▾' : '▴') + '</span></button>'
-        + '  <div class="demo-panel__body">'
+        + '  <div class="demo-panel__body" id="demo-panel-body"><button type="button" class="btn btn--sm" data-act="demopanel:close">Свернуть панель</button>'
         + '    <p><b>' + esc(ai.title || ai.provider || '') + '</b>' + (ai.model ? ' · ' + esc(ai.model) : '')
         + (ai.live ? '' : ' — заглушка, ключ не задан') + '</p>'
+        + (ai.stages ? '<p>pre_interview: ' + esc(ai.stages.pre_interview.provider) + ' · ' + esc(ai.stages.pre_interview.model) + '<br>live_interview: ' + esc(ai.stages.live_interview.provider) + ' · ' + esc(ai.stages.live_interview.model) + '</p>' : '')
         + '    <p>Данные хранятся на сервере' + (ai.dataRegion === 'ru' ? ' и обрабатываются в РФ' : '') + '.</p>'
         + (Api.live.limits ? '<p>Подготовок сегодня: ' + esc(Api.live.limits.usedToday) + ' из '
             + esc(Api.live.limits.freePerDay) + '.</p>' : '')
@@ -4348,11 +5146,11 @@ var ScreensPrep = (function () {
     ];
     return ''
       + '<aside class="demo-panel' + (open ? '' : ' demo-panel--collapsed') + '" aria-label="Состояния демо">'
-      + '  <button type="button" class="demo-panel__head" data-act="demopanel:toggle" aria-expanded="'
+      + '  <button type="button" class="demo-panel__head" data-act="demopanel:toggle" aria-controls="demo-panel-body" aria-expanded="'
       + (open ? 'true' : 'false') + '">'
       + '    <span>Состояния демо</span><span aria-hidden="true">' + (open ? '▾' : '▴') + '</span>'
       + '  </button>'
-      + '  <div class="demo-panel__body">'
+      + '  <div class="demo-panel__body" id="demo-panel-body"><button type="button" class="btn btn--sm" data-act="demopanel:close">Свернуть панель</button>'
       + '    <label class="field" for="demo-scenario"><span class="field__label">Сценарий</span>'
       + '      <select id="demo-scenario" data-change-act="demo:scenario">'
       + options.map(function (o) {
@@ -4381,9 +5179,22 @@ var ScreensPrep = (function () {
       + '</aside>';
   }
 
+  var speechWidget = null;
+  var speechTextAborter = null;
   function render() {
     var state = Store.get();
     var route = parseRoute();
+    if (route.name === 'quickstart' && !QuickStart.eligible()) {
+      window.location.hash = Api.isHttp() ? '#/auth/login' : '#/overview'; return;
+    }
+    QuickStart.sync();
+    var routeKey = window.location.hash;
+    var entering = lastRenderRoute !== routeKey;
+    var authDraft = !entering && document.getElementById('auth-form') ? {
+      username: document.getElementById('auth-username').value,
+      password: document.getElementById('auth-password').value
+    } : null;
+    if (entering) authError = '';
 
     document.documentElement.setAttribute('data-theme', state.theme);
 
@@ -4393,6 +5204,8 @@ var ScreensPrep = (function () {
     }
 
     var focusId = document.activeElement ? document.activeElement.id : null;
+    var focusAction = document.activeElement && document.activeElement.getAttribute('data-act');
+    var focusIndex = focusAction ? Array.from(root.querySelectorAll('[data-act]')).indexOf(document.activeElement) : -1;
     var selection = null;
     if (document.activeElement && typeof document.activeElement.selectionStart === 'number') {
       selection = document.activeElement.selectionStart;
@@ -4405,7 +5218,7 @@ var ScreensPrep = (function () {
       html = screenFor(route);
     } else {
       var section = sectionForRoute(route.name);
-      var content = Store.sectionAllowed(section) || section === 'settings' || section === 'plans'
+      var content = Store.sectionAllowed(section) || section === 'settings' || section === 'plans' || section === 'admin' || section === 'quickstart'
         ? screenFor(route)
         : ScreensPrep.locked(navLabel(section), section === 'assistant' ? 'assistant' : 'training');
       html = ''
@@ -4418,12 +5231,38 @@ var ScreensPrep = (function () {
         + content + '</main>'
         + '  </div>'
         + '</div>'
-        + (document.body.getAttribute('data-nav') === 'open'
-            ? '<button type="button" class="nav-scrim" data-act="nav:close" aria-label="Закрыть меню"></button>' : '')
         + demoPanel();
     }
 
+    if (speechWidget) speechWidget.element.remove();
     root.innerHTML = html + UI.renderModal(state.modal) + UI.renderToasts(state.toasts);
+    var speechSlot = document.getElementById('stt-slot');
+    if (speechWidget && (entering || !speechSlot)) { speechWidget.dispose(); speechWidget = null; }
+    if (speechSlot) {
+      if (!speechWidget) speechWidget = SttWidget({ onCancel: function () { if (speechTextAborter) speechTextAborter.abort(); }, onSend: async function (text) {
+        var prep = Store.activePrep();
+        if (!prep || !prep.chat || prep.chat.pending || prep.chat.failed || prep.chat.finished) throw new Error('Интервью недоступно');
+        prep.chat.draft = text;
+        if (prep.live) {
+          speechTextAborter = new AbortController();
+          try { await liveSendChat(prep, speechTextAborter.signal); if (prep.chat.failed) throw new Error('Ответ интервьюера не получен'); } finally { speechTextAborter = null; }
+        }
+        else dispatch('chat:send', {});
+      } });
+      speechSlot.appendChild(speechWidget.element);
+    }
+    if (authDraft) {
+      document.getElementById('auth-username').value = authDraft.username;
+      document.getElementById('auth-password').value = authDraft.password;
+    }
+    var authForm = document.getElementById('auth-form');
+    if (authForm) {
+      document.getElementById('auth-submit').disabled = authBusy;
+      document.getElementById('auth-error').textContent = authError;
+      authForm.setAttribute('aria-busy', String(authBusy));
+    }
+    UI.reveal(root, entering);
+    lastRenderRoute = routeKey;
 
     if (state.modal) UI.trapFocus(root);
     if (focusId && !state.modal) {
@@ -4434,6 +5273,10 @@ var ScreensPrep = (function () {
           try { node.setSelectionRange(selection, selection); } catch (e) { /* не текстовое поле */ }
         }
       }
+    }
+    if (!entering && !focusId && focusIndex >= 0 && !state.modal) {
+      var control = root.querySelectorAll('[data-act]')[focusIndex];
+      if (control && control.getAttribute('data-act') === focusAction) control.focus({ preventScroll: true });
     }
     var newLog = document.getElementById('chat-log');
     if (newLog && chatAtBottom) newLog.scrollTop = newLog.scrollHeight;
@@ -4449,37 +5292,60 @@ var ScreensPrep = (function () {
 
   /* ---------------- Локальный выбор файла ---------------- */
 
+  var uploadOperation = null;
+  var selectedFile = null;
+  function uploadPhase(phase) {
+    Store.update(function (s) { s.upload.phase = phase; });
+  }
+  function cancelUpload() {
+    if (uploadOperation) uploadOperation.abort();
+  }
+  async function readResumeFile(file) {
+    if (uploadOperation || Store.get().pending) return;
+    selectedFile = file;
+    var op = new AbortController(); uploadOperation = op;
+    Store.update(function (s) { s.upload = { fileName: file.name, text: '', decisions: {}, phase: 'Файл выбран', busy: true }; });
+    try {
+      if (!/\.(pdf|docx|doc|rtf|txt)$/i.test(file.name)) throw new Error('Недопустимый формат. Выберите PDF, DOCX или TXT.');
+      if (!file.size || file.size > 2 * 1024 * 1024) throw new Error('Размер файла: от 1 байта до 2 МБ.');
+      if (!Api.live.enabled) throw new Error('Для чтения файла нужен доступный сервер. Запустите сервер и откройте приложение через HTTP.');
+      uploadPhase('Чтение файла…');
+      var base64 = await new Promise(function (resolve, reject) {
+        var reader = new FileReader();
+        var abort = function () { reader.abort(); reject(new Error('Запрос отменён.')); };
+        op.signal.addEventListener('abort', abort, { once: true });
+        reader.onload = function () { resolve(String(reader.result).split(',')[1]); };
+        reader.onerror = function () { reject(new Error('Не удалось прочитать файл. Выберите его снова.')); };
+        reader.onloadend = function () { op.signal.removeEventListener('abort', abort); };
+        reader.readAsDataURL(file);
+      });
+      if (op.signal.aborted) throw new Error('Запрос отменён.');
+      uploadPhase('Загрузка и извлечение текста на сервере…');
+      var data = await Api.request('POST', '/api/resumes/extract', { name: file.name, base64: base64 }, { signal: op.signal, timeoutMs: 25000 });
+      if (op.signal.aborted) throw new Error('Запрос отменён.');
+      Store.update(function (s) { s.upload.text = data.rawText; s.upload.phase = 'Текст извлечён — проверьте его и нажмите «Разобрать резюме»'; });
+    } catch (e) {
+      Store.update(function (s) { s.upload.error = e.message; s.upload.phase = 'Ошибка чтения файла'; s.upload.fileError = true; });
+    } finally {
+      if (uploadOperation === op) uploadOperation = null;
+      Store.update(function (s) { s.upload.busy = false; s.pending = null; });
+    }
+  }
   function bindFileInput() {
     var input = document.getElementById('file-input');
     var zone = document.getElementById('dropzone');
     if (!input) return;
-
-    input.addEventListener('change', function () {
-      if (input.files && input.files[0]) {
-        Store.update(function (s) { s.upload.fileName = input.files[0].name; });
-        UI.toast('Файл выбран локально. Он не отправляется и не читается макетом.');
-      }
-    });
-
+    input.addEventListener('change', function () { if (input.files && input.files[0]) readResumeFile(input.files[0]); });
     if (!zone) return;
-    ['dragenter', 'dragover'].forEach(function (type) {
+    ['dragenter', 'dragover', 'dragleave', 'drop'].forEach(function (type) {
       zone.addEventListener(type, function (event) {
         event.preventDefault();
-        zone.classList.add('dropzone--over');
-      });
-    });
-    ['dragleave', 'drop'].forEach(function (type) {
-      zone.addEventListener(type, function (event) {
-        event.preventDefault();
-        zone.classList.remove('dropzone--over');
+        zone.classList.toggle('dropzone--over', type === 'dragenter' || type === 'dragover');
       });
     });
     zone.addEventListener('drop', function (event) {
       var files = event.dataTransfer && event.dataTransfer.files;
-      if (files && files[0]) {
-        Store.update(function (s) { s.upload.fileName = files[0].name; });
-        UI.toast('Файл выбран локально. Он не отправляется и не читается макетом.');
-      }
+      if (files && files[0]) readResumeFile(files[0]);
     });
   }
 
@@ -4525,6 +5391,10 @@ var ScreensPrep = (function () {
 
   async function liveHydrate() {
     var me = await Api.request('GET', '/api/me');
+    Api.live.enabled = true;
+    Api.live.user = me.user;
+    Api.live.auth = me.auth;
+    Api.live.ai = me.ai;
     Api.live.limits = me.limits;
     Api.live.professions = me.professions;
     var resumes = [];
@@ -4532,8 +5402,9 @@ var ScreensPrep = (function () {
       var full = await Api.request('GET', '/api/resumes/' + me.resumes[i].id);
       resumes.push(Api.resumeFromServer(full));
     }
-    var vacancies = [];
+    var vacancies = (await Api.request('GET', '/api/vacancies')).map(Api.vacancyFromServer);
     var seen = {};
+    vacancies.forEach(function (v) { seen[v.id] = true; });
     me.preps.forEach(function (p) {
       if (p.vacancy && !seen[p.vacancy.id]) {
         seen[p.vacancy.id] = true;
@@ -4543,6 +5414,7 @@ var ScreensPrep = (function () {
       }
     });
     Store.replaceData({ resumes: resumes, vacancies: vacancies, preps: me.preps.map(Api.prepFromServer) });
+    QuickStart.bind();
   }
 
   async function liveEnsureResume(resume) {
@@ -4646,7 +5518,7 @@ var ScreensPrep = (function () {
     chat.messages.push({ who: 'bot', text: done.turn.text });
   }
 
-  async function liveSendChat(prep) {
+  async function liveSendChat(prep, signal) {
     var chat = prep.chat;
     var text = String(chat.draft || '').trim();
     if (!text) { UI.toast('Введите ответ, чтобы отправить его.'); return; }
@@ -4663,7 +5535,7 @@ var ScreensPrep = (function () {
       }, function (status) {
         chat.status = status;
         Store.notify();
-      });
+      }, signal);
       Store.update(function () { applyTurnResult(chat, done); });
     } catch (e) {
       Store.update(function () { chat.pending = false; chat.partial = ''; chat.status = ''; chat.failed = true; chat.failError = e.message; });
@@ -4700,22 +5572,43 @@ var ScreensPrep = (function () {
   }
 
   async function liveReview() {
+    if (uploadOperation || Store.get().pending || !Api.live.enabled) return;
     var up = Store.get().upload;
     var text = String(up.text || '').trim();
-    if (text.length < 40) { UI.toast('Вставьте текст резюме — хотя бы несколько строк.'); return; }
+    if (text.length < 40 || text.length > 40000) {
+      Store.update(function (s) { s.upload.error = 'Нужно от 40 до 40 000 символов текста резюме.'; }); return;
+    }
+    var op = new AbortController(); uploadOperation = op;
+    var started = Date.now();
+    Store.update(function (s) { s.upload.busy = true; s.upload.error = ''; s.upload.fileError = false;
+      s.upload.report = null; s.upload.analysisShown = false; s.upload.phase = 'Сохранение текста…'; s.upload.elapsed = 0; });
+    var ticker = setInterval(function () { Store.update(function (s) { s.upload.elapsed = Math.floor((Date.now() - started) / 1000); }); }, 1000);
     try {
       setPending('Отправляю резюме…');
-      var created = await Api.request('POST', '/api/resumes', {
-        title: 'Резюме из текста ' + Api.label(), data: { rawText: text }
-      });
+      var created = up.created;
+      if (!created || created.data.rawText !== text) {
+        created = await Api.request('POST', '/api/resumes', {
+          title: up.fileName || ('Резюме из текста ' + Api.label()), data: { rawText: text }
+        }, { signal: op.signal });
+        up.created = created;
+      }
+      if (op.signal.aborted) throw new Error('Запрос отменён.');
+      uploadPhase('Анализ моделью — ожидание ответа');
       setPending('Разбираю резюме…');
-      var data = await Api.request('POST', '/api/resumes/' + created.id + '/review');
+      var data = await Api.request('POST', '/api/resumes/' + created.id + '/review', undefined, { signal: op.signal });
+      if (op.signal.aborted) throw new Error('Запрос отменён.');
       Store.update(function (s) {
         s.upload.report = data.review; s.upload.decisions = {}; s.upload.analysisShown = true;
+        s.upload.source = data.source; s.upload.mock = data.mock === true; s.upload.phase = 'Разбор завершён';
         s.upload.serverResume = Api.resumeFromServer(Object.assign({}, created, { review: data.review }));
-        s.pending = null;
       });
-    } catch (e) { liveFail(e); }
+    } catch (e) {
+      Store.update(function (s) { s.upload.error = e.message; s.upload.phase = 'Разбор не завершён'; s.upload.analysisShown = false; });
+    } finally {
+      clearInterval(ticker);
+      if (uploadOperation === op) uploadOperation = null;
+      Store.update(function (s) { s.pending = null; s.upload.busy = false; });
+    }
   }
 
   async function liveSaveResume(resume) {
@@ -4728,6 +5621,7 @@ var ScreensPrep = (function () {
 
   function dispatch(act, data, element) {
     var state = Store.get();
+    if (act.indexOf('qs:') === 0) { QuickStart.act(act.slice(3)); return; }
 
     if (act.indexOf('go:') === 0) {
       var target = act.slice(3);
@@ -4738,6 +5632,21 @@ var ScreensPrep = (function () {
 
     switch (act) {
       /* -------- Оболочка -------- */
+      case 'auth:logout':
+        cancelUpload(); selectedFile = null;
+        if (authBusy) return;
+        authBusy = true;
+        adminUsage.data = null; adminUsage.owner = null; adminUsage.error = '';
+        Api.request('POST', '/api/auth/logout').then(async function () {
+          QuickStart.resetMemory();
+          QuickStart.announceAccountChange();
+          if (answersTimer) { clearTimeout(answersTimer); answersTimer = null; }
+          Api.live.user = null;
+          Store.replaceData({});
+          await liveHydrate();
+          go('#/auth/login');
+        }).catch(liveFail).finally(function () { authBusy = false; render(); });
+        return;
       case 'nav:toggle':
         document.body.setAttribute('data-nav',
           document.body.getAttribute('data-nav') === 'open' ? 'closed' : 'open');
@@ -4746,9 +5655,14 @@ var ScreensPrep = (function () {
       case 'nav:close':
         document.body.setAttribute('data-nav', 'closed');
         render();
+        document.getElementById('menu-toggle').focus();
         return;
       case 'theme:toggle':
         Store.setPref('theme', state.theme === 'dark' ? 'light' : 'dark');
+        return;
+      case 'demopanel:close':
+        Store.setPref('demoPanelOpen', false);
+        document.querySelector('[data-act="demopanel:toggle"]')?.focus();
         return;
       case 'demopanel:toggle':
         Store.setPref('demoPanelOpen', !state.demoPanelOpen);
@@ -4937,14 +5851,21 @@ var ScreensPrep = (function () {
         if (input) input.click();
         return;
       }
+      case 'upload:cancel':
+        cancelUpload(); return;
+      case 'upload:retry-file':
+        if (selectedFile) readResumeFile(selectedFile); return;
       case 'upload:clear':
-        Store.update(function (s) { s.upload.fileName = ''; });
+        if (uploadOperation) return;
+        selectedFile = null;
+        Store.update(function (s) { s.upload = { fileName: '', text: '', decisions: {} }; });
         UI.toast('Выбор файла удалён.');
         return;
       case 'upload:review':
         if (!state.pending) liveReview();
         return;
       case 'upload:show-analysis':
+        if (Api.isHttp() || state.upload.fileName || state.upload.text || uploadOperation) return;
         Store.update(function (s) { s.upload.analysisShown = true; s.upload.report = null; s.upload.decisions = {}; });
         UI.toast('Открыт демонстрационный отчёт на подготовленном примере.');
         return;
@@ -4960,6 +5881,7 @@ var ScreensPrep = (function () {
           go('#/vacancy/new');
           return;
         }
+        if (Api.isHttp()) return;
         var accepted = Object.keys(state.upload.decisions).filter(function (k) {
           return state.upload.decisions[k] === 'accepted';
         });
@@ -5478,6 +6400,39 @@ var ScreensPrep = (function () {
 
   /* ---------------- Обработчики событий ---------------- */
 
+  document.addEventListener('submit', async function (event) {
+    if (event.target.id !== 'auth-form') return;
+    event.preventDefault();
+    if (authBusy) return;
+    var form = event.target;
+    var routeAtSubmit = window.location.hash;
+    authBusy = true;
+    authError = '';
+    document.getElementById('auth-error').textContent = '';
+    document.getElementById('auth-submit').disabled = true;
+    form.setAttribute('aria-busy', 'true');
+    try {
+      var result = await Api.request('POST', '/api/auth/' + form.getAttribute('data-auth-mode'), {
+        username: form.elements.username.value, password: form.elements.password.value
+      });
+      Api.live.user = result.user;
+      QuickStart.announceAccountChange();
+      Store.replaceData({});
+      await liveHydrate();
+      var destination = QuickStart.afterLogin(form.getAttribute('data-auth-mode') === 'register');
+      if (window.location.hash === routeAtSubmit) go(destination);
+    } catch (e) {
+      if (window.location.hash === routeAtSubmit) authError = e.message || 'Не удалось войти. Повторите попытку.';
+    } finally {
+      authBusy = false;
+      if (form.elements.password) form.elements.password.value = '';
+      var password = document.getElementById('auth-password');
+      if (password) password.value = '';
+      render();
+      if (authError && password) document.getElementById('auth-password').focus();
+    }
+  });
+
   document.addEventListener('click', function (event) {
     var element = event.target.closest('[data-act]');
     if (!element) return;
@@ -5506,6 +6461,12 @@ var ScreensPrep = (function () {
       if (prep && prep.chat) prep.chat.draft = element.value;
       return;
     }
+    if (model === 'upload.text') {
+      if (uploadOperation) return;
+      Store.update(function (s) { s.upload.text = element.value; s.upload.analysisShown = false; s.upload.report = null;
+        s.upload.serverResume = null; s.upload.error = ''; s.upload.fileError = false; s.upload.phase = 'Текст изменён — готов к разбору'; });
+      return;
+    }
     setPath(model, element.value);
     if (/^preps\.\d+\.answers\./.test(model)) {
       var owner = Store.activePrep();
@@ -5529,16 +6490,27 @@ var ScreensPrep = (function () {
   });
 
   document.addEventListener('keydown', function (event) {
+    if (event.key === 'Escape' && document.body.getAttribute('data-nav') === 'open') dispatch('nav:close', {});
+    if (event.key === 'Escape' && Store.get().demoPanelOpen && !Store.get().modal) dispatch('demopanel:close', {});
     if (event.key === 'Escape' && Store.get().modal) {
       UI.closeModal();
     }
   });
 
+  window.addEventListener('storage', function (event) {
+    if (event.key !== 'easyjob:auth:change' && event.key !== null) return;
+    cancelUpload(); selectedFile = null;
+    if (answersTimer) { clearTimeout(answersTimer); answersTimer = null; }
+    adminUsage.data = null; adminUsage.owner = null; adminUsage.error = '';
+  });
+  window.addEventListener('pagehide', function () { cancelUpload(); if (speechWidget) { speechWidget.dispose(); speechWidget = null; } });
   window.addEventListener('hashchange', function () {
+    cancelUpload();
+    if (!bootComplete) return;
     document.body.setAttribute('data-nav', 'closed');
     render();
     var main = document.getElementById('main');
-    if (main) main.scrollIntoView({ block: 'start' });
+    if (main) { main.focus({ preventScroll: true }); main.scrollIntoView({ block: 'start' }); }
   });
 
   Store.subscribe(render);
@@ -5552,8 +6524,10 @@ var ScreensPrep = (function () {
     if (isLive) {
       try { await liveHydrate(); } catch (e) { UI.toast('Не удалось загрузить данные с сервера: ' + e.message); }
     }
+    bootComplete = true;
     render();
     window.setTimeout(function () {
+      if (PUBLIC_ROUTES.indexOf(parseRoute().name) >= 0) return;
       UI.toast(isLive
         ? 'Режим сервера: данные хранятся в базе' + (Api.live.ai && Api.live.ai.live ? ', ответы — от модели.' : ', модель пока на заглушке.')
         : 'Демо-макет: введённые данные хранятся только в этой вкладке и сбрасываются после перезагрузки.');

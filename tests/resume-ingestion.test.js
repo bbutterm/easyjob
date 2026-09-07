@@ -1,0 +1,25 @@
+'use strict';
+const assert = require('node:assert/strict');
+const { extract } = require('../server/lib/resume-extract.js');
+const execFixture = async (...args) => (await require('node:util').promisify(require('node:child_process').execFile)(...args, { encoding: 'buffer' })).stdout;
+const file = (name, bytes) => ({ name, base64: Buffer.from(bytes).toString('base64') });
+(async () => {
+  assert.equal(await extract(file('sample.txt', '\ufeffSample\r\nExperience\rSkills')), 'Sample\nExperience\nSkills');
+  assert.equal(await extract(file('sample.txt', Buffer.from('\ufeffОпыт\r\nНавыки', 'utf16le'))), 'Опыт\nНавыки');
+  assert.equal(await extract(file('sample.txt', Buffer.from([0xce,0xef,0xfb,0xf2]))), 'Опыт');
+  await assert.rejects(extract(file('sample.exe', 'hello')), /формат/i);
+  await assert.rejects(extract(file('sample.doc', 'hello')), /формат не поддерживается на сервере/i);
+  await assert.rejects(extract(file('sample.rtf', '{\\rtf1 hello}')), /формат не поддерживается на сервере/i);
+  await assert.rejects(extract(file('sample.txt', Buffer.alloc(2 * 1024 * 1024 + 1))), /2 МБ/);
+  await assert.rejects(extract(file('sample.pdf', 'not a pdf')), /PDF/);
+  await assert.rejects(extract(file('sample.txt', 'a'.repeat(40001))), /40 000/);
+  const docx = await execFixture('python3', ['-c', 'import io,zipfile,sys; b=io.BytesIO(); z=zipfile.ZipFile(b,"w"); z.writestr("word/document.xml",\'<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body><w:p><w:r><w:t>Sample &amp; skills</w:t></w:r></w:p><w:p><w:r><w:t>Experience</w:t></w:r></w:p></w:body></w:document>\'); z.close(); sys.stdout.buffer.write(b.getvalue())']);
+  assert.equal(await extract(file('sample.docx', docx)), 'Sample & skills\nExperience');
+  const pdf = await execFixture('python3', ['-c', 'from pypdf import PdfWriter; from pypdf.generic import DecodedStreamObject,NameObject,DictionaryObject; import sys; w=PdfWriter(); p=w.add_blank_page(width=300,height=300); f=DictionaryObject({NameObject("/Type"):NameObject("/Font"),NameObject("/Subtype"):NameObject("/Type1"),NameObject("/BaseFont"):NameObject("/Helvetica")}); p[NameObject("/Resources")]=DictionaryObject({NameObject("/Font"):DictionaryObject({NameObject("/F1"):w._add_object(f)})}); s=DecodedStreamObject(); s.set_data(b"BT /F1 12 Tf 10 100 Td (Sample experience skills) Tj ET"); p[NameObject("/Contents")]=w._add_object(s); import io; out=io.BytesIO(); w.write(out); sys.stdout.buffer.write(out.getvalue())']);
+  assert.match(await extract(file('sample.pdf', pdf)), /Sample experience skills/);
+  const blank = await execFixture('python3', ['-c', 'from pypdf import PdfWriter; import sys; w=PdfWriter(); w.add_blank_page(width=300,height=300); import io; out=io.BytesIO(); w.write(out); sys.stdout.buffer.write(out.getvalue())']);
+  await assert.rejects(extract(file('scan.pdf', blank)), /OCR/);
+  const locked = await execFixture('python3', ['-c', 'from pypdf import PdfWriter; import sys; w=PdfWriter(); w.add_blank_page(width=300,height=300); w.encrypt("fixture"); import io; out=io.BytesIO(); w.write(out); sys.stdout.buffer.write(out.getvalue())']);
+  await assert.rejects(extract(file('locked.pdf', locked)), /парол/);
+  console.log('PASS resume extraction: TXT encodings/newlines, DOCX, PDF, invalid/oversized/encrypted/scanned/unsupported');
+})().catch(e => { console.error(e); process.exitCode = 1; });

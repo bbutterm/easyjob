@@ -45,7 +45,11 @@ var UI = (function () {
   }
 
   /* modal: { title, body, actions: [{label, act, variant, data}], size } */
+  var modalReturn = null;
   function openModal(modal) {
+    var active = document.activeElement;
+    modalReturn = active ? { id: active.id, act: active.getAttribute('data-act'),
+      index: Array.from(document.querySelectorAll('[data-act]')).indexOf(active) } : null;
     Store.get().modal = modal;
     Store.notify();
   }
@@ -53,6 +57,10 @@ var UI = (function () {
   function closeModal() {
     Store.get().modal = null;
     Store.notify();
+    var target = modalReturn && (modalReturn.id ? document.getElementById(modalReturn.id)
+      : document.querySelectorAll('[data-act]')[modalReturn.index]);
+    if (target && (modalReturn.id || target.getAttribute('data-act') === modalReturn.act)) target.focus({ preventScroll: true });
+    modalReturn = null;
   }
 
   function confirm(options) {
@@ -103,7 +111,7 @@ var UI = (function () {
     var dialog = root.querySelector('.modal');
     if (!dialog) return;
     var selector = 'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])';
-    var nodes = Array.prototype.slice.call(dialog.querySelectorAll(selector));
+    var nodes = Array.prototype.slice.call(dialog.querySelectorAll(selector)).filter(function (node) { return !node.disabled && node.getClientRects().length; });
     if (!nodes.length) return;
     if (!dialog.contains(document.activeElement)) nodes[0].focus();
     dialog.addEventListener('keydown', function (event) {
@@ -135,6 +143,7 @@ var UI = (function () {
       + ' name="' + id + '"'
       + ' data-model="' + esc(options.model) + '"'
       + (options.required ? ' required' : '')
+      + (options.disabled ? ' disabled' : '')
       + (options.error ? ' aria-invalid="true"' : '')
       + (describedBy.length ? ' aria-describedby="' + describedBy.join(' ') + '"' : '')
       + (options.placeholder ? ' placeholder="' + esc(options.placeholder) + '"' : '')
@@ -232,6 +241,14 @@ var UI = (function () {
     openModal: openModal,
     closeModal: closeModal,
     confirm: confirm,
+    // Only route entries animate. Full-root updates (typing, toasts, theme)
+    // keep content visible and do not replay the story or move keyboard focus.
+    reveal: function (root, entering) {
+      root.querySelectorAll('[data-reveal]').forEach(function (node, i) {
+        node.style.setProperty('--reveal-delay', Math.min(i, 5) * 85 + 'ms');
+        if (entering) node.classList.add('is-entering');
+      });
+    },
     renderModal: renderModal,
     renderToasts: renderToasts,
     trapFocus: trapFocus,

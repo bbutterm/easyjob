@@ -14,7 +14,7 @@
 var Api = (function () {
   'use strict';
 
-  var live = { enabled: false, ai: null, limits: null, professions: null };
+  var live = { enabled: false, ai: null, limits: null, professions: null, user: null, auth: null };
 
   function isHttp() {
     return /^https?:$/.test(window.location.protocol);
@@ -26,9 +26,15 @@ var Api = (function () {
     this.extra = extra || null;
   }
 
-  async function request(method, path, body) {
+  async function request(method, path, body, runtime) {
+    var rt = runtime || {};
+    var controller = new AbortController();
+    var timedOut = false;
+    var cancel = function () { controller.abort(); };
+    if (rt.signal) { rt.signal.addEventListener('abort', cancel, { once: true }); if (rt.signal.aborted) cancel(); }
+    var timer = setTimeout(function () { timedOut = true; controller.abort(); }, rt.timeoutMs || 100000);
     var options = {
-      method: method,
+      method: method, signal: controller.signal,
       credentials: 'same-origin',
       headers: { accept: 'application/json' }
     };
@@ -36,26 +42,28 @@ var Api = (function () {
       options.headers['content-type'] = 'application/json';
       options.body = JSON.stringify(body === undefined ? {} : body);
     }
-    var res;
     try {
-      res = await fetch(path, options);
+      var res = await fetch(path, options);
+      var data = await res.json();
+      if (!res.ok) throw new ApiError(res.status, (data && data.error) || ('Ошибка сервера, код ' + res.status), data);
+      return data;
     } catch (e) {
-      throw new ApiError(0, 'Сервер недоступен: ' + e.message);
+      if (controller.signal.aborted) throw new ApiError(timedOut ? 504 : 499,
+        timedOut ? 'Превышено время ожидания сервера. Повторите запрос.' : 'Запрос отменён.', { code: timedOut ? 'timeout' : 'cancelled' });
+      if (e instanceof ApiError) throw e;
+      throw new ApiError(0, 'Сервер недоступен. Проверьте соединение и повторите запрос.', { code: 'network' });
+    } finally {
+      clearTimeout(timer);
+      if (rt.signal) rt.signal.removeEventListener('abort', cancel);
     }
-    var data = null;
-    try { data = await res.json(); } catch (e) { data = null; }
-    if (!res.ok) {
-      throw new ApiError(res.status, (data && data.error) || ('Ошибка сервера, код ' + res.status), data);
-    }
-    return data;
   }
 
   /* Потоковый ответ (Server-Sent Events) через fetch. */
-  async function stream(path, body, onDelta, onStatus) {
+  async function stream(path, body, onDelta, onStatus, signal) {
     var res;
     try {
       res = await fetch(path, {
-        method: 'POST', credentials: 'same-origin',
+        method: 'POST', credentials: 'same-origin', signal: signal,
         headers: { 'content-type': 'application/json', accept: 'text/event-stream' },
         body: JSON.stringify(body)
       });
@@ -156,6 +164,7 @@ var Api = (function () {
       answers: p.answers || {}, ready: p.ready || {},
       match: p.match || null, questions: p.questions || null, card: p.card || null,
       interviewId: p.interview ? p.interview.id : null,
+      interviewStarted: !!(p.interview && p.interview.turns > 0),
       chat: null, voice: null, live: true
     };
   }

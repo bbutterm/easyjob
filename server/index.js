@@ -16,6 +16,7 @@ const log = require('./lib/log.js');
 const Router = require('./lib/router.js');
 const api = require('./routes/api.js');
 const admin = require('./routes/admin.js');
+const auth = require('./lib/auth.js');
 const retention = require('./lib/retention.js');
 const { createLimiter, clientAddress } = require('./lib/ratelimit.js');
 
@@ -38,6 +39,7 @@ function createApp(options) {
   loadEnvFile(opts.envFile || path.join(ROOT, '.env'));
 
   const cfg = {
+    demoAuth: process.env.DEMO_AUTH === '1',
     dbFile: opts.dbFile || process.env.DB_FILE || path.join(ROOT, 'data', 'app.sqlite'),
     freePrepsPerDay: opts.freePrepsPerDay !== undefined ? opts.freePrepsPerDay
       : (Number(process.env.FREE_PREPS_PER_DAY) || 1),
@@ -52,8 +54,13 @@ function createApp(options) {
   if (process.env.RATE_LIMIT_EXPENSIVE_PER_MINUTE) cfg.rateLimit.expensivePerMinute = Number(process.env.RATE_LIMIT_EXPENSIVE_PER_MINUTE);
   if (process.env.RATE_LIMIT_SESSIONS_PER_HOUR) cfg.rateLimit.sessionsPerHour = Number(process.env.RATE_LIMIT_SESSIONS_PER_HOUR);
 
+  auth.validateDemoEnvironment(cfg);
+  if (['admin', 'admin/admin'].includes(cfg.adminToken)) {
+    throw new Error('ADMIN_TOKEN must be an independent random secret, never demo credentials');
+  }
   log.setLevel(process.env.LOG_LEVEL || 'info');
   const dbHandle = db.open(cfg.dbFile);
+  auth.seedDemo(cfg);
   session.init(process.env.SESSION_SECRET);
   if (!process.env.SESSION_SECRET) {
     log.warn('SESSION_SECRET не задан: сессии сбросятся при перезапуске сервера');
@@ -64,9 +71,11 @@ function createApp(options) {
 
   const router = Router.create();
   api.register(router);
+  require('./routes/auth.js').register(router);
   admin.register(router, cfg);
 
   const ipLimiter = createLimiter({ windowMs: 60000, max: cfg.rateLimit.perMinute });
+  const authLimiter = createLimiter({ windowMs: 60000, max: cfg.rateLimit.authPerMinute || 10 });
   const expensiveLimiter = createLimiter({ windowMs: 60000, max: cfg.rateLimit.expensivePerMinute });
   /* Новые сессии с одного адреса: иначе сброс cookie обнуляет лимиты. */
   const sessionLimiter = createLimiter({ windowMs: 3600000, max: cfg.rateLimit.sessionsPerHour || 60 });
@@ -128,6 +137,13 @@ function createApp(options) {
          лимит новых сессий. */
       if (!isApi) { serveStatic(req, res); return; }
 
+      if (req.method === 'POST' && /^\/api\/auth\/(login|register)\/?$/.test(pathname)) {
+        const attempt = authLimiter.hit(address);
+        if (!attempt.allowed) {
+          res.setHeader('retry-after', String(attempt.retryAfterSec));
+          throw new Router.HttpError(429, 'Слишком много попыток входа. Повторите через минуту.');
+        }
+      }
       const cookies = Router.parseCookies(req.headers.cookie);
       const ipHash = session.hashAddress(address);
       if (!session.verify(cookies[session.COOKIE])) {
@@ -137,8 +153,13 @@ function createApp(options) {
           throw new Router.HttpError(429, 'Слишком много новых сессий с этого адреса.');
         }
       }
-      const { session: current } = session.resolve(cookies, res, cfg.secure, ipHash);
-      const ctx = { session: current, ipHash, freePrepsPerDay: cfg.freePrepsPerDay, secure: cfg.secure };
+      let { session: current } = session.resolve(cookies, res, cfg.secure, ipHash);
+      const account = current.user_id ? db.users.get(current.user_id) : null;
+      if (account && account.is_demo && !cfg.demoAuth) {
+        db.sessions.rotate(current.id, current.user_id, ipHash);
+        current = session.resolve({}, res, cfg.secure, ipHash).session;
+      }
+      const ctx = { session: current, ipHash, freePrepsPerDay: cfg.freePrepsPerDay, secure: cfg.secure, demoAuth: cfg.demoAuth };
 
       if (isApi && req.method === 'POST' && EXPENSIVE.test(pathname)) {
         const bySession = expensiveLimiter.hit(current.id);
@@ -161,7 +182,7 @@ function createApp(options) {
 
   const server = http.createServer(handle);
   server.on('close', function () {
-    ipLimiter.stop(); expensiveLimiter.stop(); sessionLimiter.stop();
+    ipLimiter.stop(); authLimiter.stop(); expensiveLimiter.stop(); sessionLimiter.stop();
     if (retentionTimer) clearInterval(retentionTimer);
     db.closeIf(dbHandle);
   });

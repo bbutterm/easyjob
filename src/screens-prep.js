@@ -362,6 +362,7 @@ var ScreensPrep = (function () {
       + contextBlock
       + '  <div class="chat" id="chat-log" role="log" aria-live="polite">' + messages + pending + '</div>'
       + failedBlock
+      + '<div id="stt-slot"></div>'
       + UI.field({ id: 'chat-input', label: 'Ваш ответ', type: 'textarea', model: 'chatDraft',
           value: chat.draft, placeholder: 'Напишите ответ так, как сказали бы вслух',
           hint: 'Текст остаётся в браузере и сбрасывается после перезагрузки.' })
