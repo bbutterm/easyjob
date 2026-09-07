@@ -17,7 +17,7 @@ function read(name) {
 var html = read('index.html');
 var css = read('styles.css');
 
-var scripts = ['../shared/stt/index.js', '../shared/stt/widget.js', 'professions.js', 'data.js', 'state.js', 'ui.js', 'api.js', 'screens-core.js', 'screens-prep.js', 'quickstart.js', 'app.js'];
+var scripts = ['../shared/text/segment.js', '../shared/tts/index.js', '../shared/stt/index.js', '../shared/stt/widget.js', 'professions.js', 'data.js', 'state.js', 'ui.js', 'api.js', 'screens-core.js', 'screens-prep.js', 'quickstart.js', 'app.js'];
 
 html = html.replace(
   '<link rel="stylesheet" href="styles.css">',

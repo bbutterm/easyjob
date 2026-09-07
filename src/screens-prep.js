@@ -382,6 +382,7 @@ var ScreensPrep = (function () {
             : note('demo', '<div><strong>Реплики интервьюера — фиксированный сценарий.</strong> Ваши ответы видны в '
               + 'переписке, но не анализируются: настоящей оценки ответа нет.</div>'))
         + '  <div class="btn-row"><button type="button" class="btn btn--primary" data-act="chat:start">Начать интервью</button>'
+        + '  <button type="button" class="btn" data-act="go:#/prep/' + esc(prep.id) + '/voice">Голосом</button>'
         + '  <button type="button" class="btn" data-act="go:#/prep/' + esc(prep.id) + '/questions">Сначала разобрать вопросы</button></div>'
         + '</div>';
     }
@@ -499,11 +500,12 @@ var ScreensPrep = (function () {
     lost: { label: 'Связь потеряна', hint: 'Демонстрация состояния обрыва связи.' }
   };
 
-  function voice(prepId) {
+  function voice(prepId, model) {
     var state = Store.get();
     if (!Store.sectionAllowed('interviews')) return locked('Голосовое пробное интервью', 'training');
     var prep = Store.prepById(prepId) || Store.activePrep();
     if (!prep) return needPrep(prep, 'Голосовое пробное интервью');
+    if (isLivePrep(prep) && model) return liveVoice(prep, model);
     var v = ensureVoice(prep);
 
     if (v.finished) {
@@ -564,6 +566,63 @@ var ScreensPrep = (function () {
       + '  </div>'
       + '  <h2>Расшифровка</h2>'
       + '  <div class="transcript">' + (lines || '<p class="muted">Расшифровка появится после начала разговора.</p>') + '</div>'
+      + '</div>';
+  }
+
+  /* Голосовая тренировка в режиме сервера: настоящие реплики интервьюера
+     из чата, синтез речи по фразам, ответ микрофоном или текстом. */
+  var LIVE_VOICE_STATUS = {
+    idle: { label: 'Не начато', hint: 'Выберите способ озвучивания и нажмите «Начать разговор».' },
+    listening: { label: 'Слушаю', hint: 'Ваша очередь: запишите ответ микрофоном или наберите текст.' },
+    thinking: { label: 'Готовлю ответ', hint: 'Интервьюер формулирует реплику.' },
+    synthesizing: { label: 'Готовлю речь', hint: 'Фраза получена, синтез речи.' },
+    speaking: { label: 'Отвечаю', hint: 'Интервьюер говорит. Начните запись, чтобы перебить.' }
+  };
+  function liveVoice(prep, model) {
+    var chat = ensureChat(prep);
+    var ui = model.ui;
+    if (chat.finished && chat.summary) return interviewSummary(prep);
+    var status = !model.active ? 'idle' : (chat.pending && ui.state === 'idle' ? 'thinking' : (ui.state === 'idle' ? 'listening' : ui.state));
+    var st = LIVE_VOICE_STATUS[status] || LIVE_VOICE_STATUS.idle;
+    var orbCls = 'voice-orb' + (status === 'listening' || status === 'speaking' ? ' voice-orb--live' : '');
+    var lines = chat.messages.filter(function (m) { return m.who !== 'system'; }).map(function (m) {
+      return '<div class="transcript__line"><b>' + (m.who === 'user' ? 'Вы' : 'Интервьюер') + '</b>' + escLines(m.text) + '</div>';
+    }).join('');
+    if (chat.pending && chat.partial) lines += '<div class="transcript__line transcript__line--partial"><b>Интервьюер</b>' + escLines(chat.partial) + '</div>';
+    var stats = ui.stats;
+    return ''
+      + pageHead('Голосовое пробное интервью', 'Интервьюер говорит вслух, вы отвечаете голосом или текстом.')
+      + sourcesBar(prep)
+      + ScreensCore.staleBanner(prep)
+      + '<div class="card stack">'
+      + '  <div class="voice-stage">'
+      + '    <div class="' + orbCls + '" id="voice-orb">' + esc(st.label) + '</div>'
+      + '    <p class="muted" role="status" aria-live="polite">' + esc(st.hint) + '</p>'
+      + '  </div>'
+      + UI.select({ id: 'voice-tts', label: 'Озвучивание', value: model.provider, options: model.providers, act: 'voice:tts' })
+      + (model.tts && !model.tts.live ? '<p class="small muted">На сервере синтез речи не настроен (TTS_PROVIDER=mock): вариант «Сервер» даёт тишину с пометкой. Встроенный вариант — голос браузера.</p>' : '')
+      + (ui.mock && model.active ? note('demo', '<div>Озвучивание без звука: реплики только в тексте ниже.</div>') : '')
+      + (ui.error ? note('alert', '<div class="voice-error">' + esc(ui.error) + '</div>') : '')
+      + '  <div class="btn-row">'
+      + (!model.active
+          ? '<button type="button" class="btn btn--primary" data-act="voice:start"' + (Store.get().pending ? ' disabled' : '') + '>'
+            + (chat.started && !chat.finished ? 'Продолжить разговор' : 'Начать разговор') + '</button>'
+          : '<button type="button" class="btn" data-act="voice:interrupt"' + (status === 'speaking' || status === 'synthesizing' ? '' : ' disabled') + '>Остановить речь</button>')
+      + '    <button type="button" class="btn btn--danger" data-act="voice:finish"' + (chat.started ? '' : ' disabled') + '>Завершить</button>'
+      + '  </div>'
+      + (stats && stats.ttfaMs !== null && stats.ttfaMs !== undefined
+          ? '<p class="small muted voice-stats">До первого звука: ' + esc(String(stats.ttfaMs)) + ' мс · фраз произнесено: ' + esc(String(stats.spoken)) + (stats.cancelled ? ' · перебиваний: ' + esc(String(stats.cancelled)) : '') + '</p>'
+          : '')
+      + '</div>'
+      + (model.active ? '<div id="stt-slot"></div>' : '')
+      + (model.active ? '<div class="card stack">'
+          + UI.field({ id: 'voice-input', label: 'Или ответьте текстом', type: 'textarea', model: 'preps.' + prepIndex(prep) + '.chat.draft', value: chat.draft || '', rows: 2 })
+          + '<div class="btn-row"><button type="button" class="btn" data-act="voice:send-text"' + (chat.pending ? ' disabled' : '') + '>Отправить текст</button></div>'
+          + '</div>' : '')
+      + '<div class="card stack">'
+      + '  <h2>Расшифровка</h2>'
+      + '  <div class="transcript" id="voice-transcript">' + (lines || '<p class="muted">Реплики появятся после начала разговора.</p>') + '</div>'
+      + '  <p class="small muted">Звук не сохраняется ни в браузере, ни на сервере. Реплики хранятся как текст интервью.</p>'
       + '</div>';
   }
 

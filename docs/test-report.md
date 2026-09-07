@@ -10,6 +10,8 @@
 | Общий слой запросов и контекста | `npm run test:shared` | **85 из 85** и routing 14/14 |
 | Управление контекстом: счётчик, пределы, память | `npm run test:context` | **32 из 32** пройдено |
 | Импорт вакансии по ссылке: границы SSRF, разбор | `npm run test:import` | **67 из 67** пройдено |
+| Живое интервью: деление текста, очередь синтеза, серверный синтез | `npm run test:voice` | **24 из 24** пройдено |
+| Бенчмарк живого интервью | `npm run bench:live` | таблица в `docs/live-research.md` |
 | Аккаунты, Quick Start (9 шагов), расход, STT (включая серверный провайдер), чтение файлов | `test:auth`, `test:quickstart`, `test:usage`, `test:stt`, `test:resume` | все на `assert`, без падений |
 | Браузер: Quick Start, резюме, STT (1440/390/360) | `test:quickstart:browser`, `test:resume:browser`, `test:stt:browser` | пройдено |
 | Программа для компьютера | `xvfb-run -a npm run test:desktop` | **36 из 36** пройдено |

@@ -8,7 +8,7 @@
     "replay": "node --no-warnings tools/context-replay.js",
     "smoke": "node --no-warnings tools/smoke-provider.js",
     "docs": "node tools/gen-ai-docs.js",
-    "test": "npm run test:quickstart && npm run test:usage && npm run test:stt && npm run test:shared && npm run test:context && npm run test:import && npm run test:auth && npm run test:server && npm run test:web && npm run test:live",
+    "test": "npm run test:quickstart && npm run test:usage && npm run test:stt && npm run test:shared && npm run test:context && npm run test:import && npm run test:voice && npm run test:auth && npm run test:server && npm run test:web && npm run test:live",
     "test:shared": "node tests/shared.test.js && node tests/routing.test.js",
     "test:web": "node build.js && node tests/check.js",
     "test:desktop": "node tests/desktop.test.js",

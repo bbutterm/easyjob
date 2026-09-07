@@ -201,6 +201,40 @@ const VACANCY_TEXT = 'Ищем повара в ресторан полного �
   await page.waitForSelector('.card-model h3', { timeout: 15000 });
   ok('Карточка от модели переживает перезагрузку', (await page.locator('.card-model h3').count()) >= 1);
 
+  /* ---- Голосовая тренировка: озвучивание без звука, ответ через STT-заглушку и текстом ---- */
+  const prepHash = new URL(page.url()).hash.match(/#\/prep\/([^/]+)/);
+  const prepIdForVoice = prepHash ? prepHash[1] : null;
+  await page.goto(base + '/#/prep/' + prepIdForVoice + '/voice');
+  await page.waitForSelector('#voice-tts', { timeout: 15000 });
+  await page.selectOption('#voice-tts', 'mock');
+  await page.click('button:has-text("Начать разговор")');
+  await page.waitForFunction(function () { const o = document.querySelector('#voice-orb'); return o && /Отвечаю|Слушаю/.test(o.textContent); }, null, { timeout: 20000 });
+  ok('Голос: разговор начат, интервьюер «говорит» первую реплику (заглушка без звука)', /Отвечаю|Слушаю/.test(await page.locator('#voice-orb').innerText()));
+  await page.waitForFunction(function () { return /Слушаю/.test(document.querySelector('#voice-orb').textContent); }, null, { timeout: 20000 });
+  ok('Голос: после реплики состояние «Слушаю» и есть измерение до первого звука', /До первого звука: \d+ мс/.test(await page.locator('#main').innerText()));
+  await page.check('[data-stt="consent"]');
+  await page.click('[data-stt="start"]');
+  await page.click('[data-stt="stop"]');
+  await page.waitForFunction(function () { return document.querySelector('[data-stt="state"]').textContent.startsWith('ready'); });
+  await page.click('[data-stt="send"]');
+  await page.waitForFunction(function () { return document.querySelectorAll('#voice-transcript .transcript__line').length >= 3; }, null, { timeout: 20000 });
+  await page.waitForFunction(function () { return /Слушаю/.test(document.querySelector('#voice-orb').textContent); }, null, { timeout: 20000 });
+  const voiceStats = await page.locator('.voice-stats').innerText();
+  ok('Голос: ответ через STT-заглушку получил озвученную реплику интервьюера', /фраз произнесено: [1-9]/.test(voiceStats), voiceStats);
+  await page.fill('#voice-input', 'Отвечу текстом: работал в горячем цехе.');
+  await page.click('button:has-text("Отправить текст")');
+  await page.waitForFunction(function () { return document.querySelectorAll('#voice-transcript .transcript__line').length >= 5; }, null, { timeout: 20000 });
+  await page.waitForFunction(function () { return /Отвечаю|Готовлю/.test(document.querySelector('#voice-orb').textContent); }, null, { timeout: 20000 }).catch(function () {});
+  await page.click('button:has-text("Остановить речь")').catch(function () {});
+  await page.waitForFunction(function () { return /Слушаю/.test(document.querySelector('#voice-orb').textContent); }, null, { timeout: 20000 });
+  ok('Голос: текстовый ответ тоже озвучивается, речь можно прервать', (await page.locator('#voice-transcript .transcript__line').count()) >= 5);
+  await page.click('button:has-text("Завершить")');
+  await page.click('.modal button:has-text("Завершить")');
+  await page.waitForSelector('text=Итог пробного интервью', { timeout: 20000 });
+  ok('Голос: итог тренировки получен с сервера', (await page.locator('#main').innerText()).indexOf('Темы для повторения') >= 0);
+  const voiceTurns = await (await fetch(base + '/api/preps', { headers: { cookie: await cookieHeader(ctx) } })).json();
+  ok('Голос: реплики хранятся как текст интервью', voiceTurns.some(function (p) { return p.interview && p.interview.turns >= 5; }));
+
   /* ---- Помощник через сервер ---- */
   await page.goto(base + '/#/assistant');
   await page.waitForSelector('#main');

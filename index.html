@@ -929,6 +929,532 @@ em { font-style: normal; color: var(--accent); }
   <p style="padding:24px">Для работы easyjob нужен включённый JavaScript.</p>
 </noscript>
 <script>
+/* ==== ../shared/text/segment.js ==== */
+/* ============================================================
+   Деление текста на предложения и фрагменты для живого интервью.
+
+   Зачем отдельный модуль: один и тот же алгоритм нужен в трёх местах —
+     • браузер: поток ответа интервьюера → фразы для синтеза речи;
+     • браузер и сервер: распознанный текст → реплики для модели;
+     • программа для компьютера: текст экрана → вопрос собеседующего.
+
+   Правила границы предложения (русский и английский):
+     терминатор [.!?…] (+ закрывающие кавычки и скобки), затем пробел и
+     заглавная буква, цифра, открывающая кавычка/скобка или тире; либо
+     конец текста. Не граница: точка внутри числа (3.5), после инициала
+     (А. Пушкин), после сокращения (т.д., руб., г.), многоточие перед
+     строчной буквой, точка перед строчной буквой.
+
+   Потоковый режим: фраза отдаётся, когда её граница подтверждена
+   следующим символом; первая фраза может отдаваться раньше — по границе
+   клаузы (запятая, тире, точка с запятой), чтобы речь начиналась не
+   дожидаясь конца первого предложения. Короткие фразы склеиваются,
+   длинные режутся по клаузам.
+   ============================================================ */
+
+(function (root, factory) {
+  var api = factory();
+  if (typeof module === 'object' && module.exports) module.exports = api;
+  else root.TextSegment = api;
+})(typeof self !== 'undefined' ? self : this, function () {
+  'use strict';
+
+  /* Сокращения, после которых точка не заканчивает предложение. */
+  var ABBR = ['т', 'е', 'д', 'п', 'к', 'г', 'гг', 'ул', 'кв', 'руб', 'коп', 'тыс', 'млн', 'млрд', 'см', 'мм', 'км', 'кг', 'гр',
+    'стр', 'напр', 'им', 'проф', 'акад', 'доц', 'ст', 'ч', 'мин', 'сек', 'англ', 'рус', 'др', 'пр', 'св', 'чл', 'корр',
+    'мл', 'ср', 'ок', 'тел', 'обл', 'р', 'о', 'оз', 'пос', 'дер', 'сокр', 'рис', 'табл', 'прим', 'ред', 'изд', 'экз',
+    'шт', 'уч', 'зав', 'зам', 'ген', 'дир', 'нач', 'отд', 'ооо', 'зао', 'оао', 'ип',
+    'mr', 'mrs', 'ms', 'dr', 'prof', 'sr', 'jr', 'st', 'etc', 'vs', 'inc', 'ltd', 'co', 'no', 'e', 'i', 'eg', 'ie', 'approx', 'fig', 'vol', 'p', 'pp'];
+  var ABBR_SET = {};
+  ABBR.forEach(function (a) { ABBR_SET[a] = true; });
+
+  var UPPER = /[A-ZА-ЯЁ]/;
+  var LOWER = /[a-zа-яё]/;
+  var LETTER = /[A-Za-zА-Яа-яЁё]/;
+  var DIGIT = /[0-9]/;
+  var CLOSERS = '»"”’)\\]';
+  var OPENERS = '«"“‘([';
+
+  function isUpper(ch) { return !!ch && UPPER.test(ch); }
+  function isLower(ch) { return !!ch && LOWER.test(ch); }
+  function isDigit(ch) { return !!ch && DIGIT.test(ch); }
+  function isLetter(ch) { return !!ch && LETTER.test(ch); }
+
+  /* Слово перед позицией i (без точки), в нижнем регистре. */
+  function wordBefore(text, i) {
+    var j = i;
+    while (j > 0 && (isLetter(text[j - 1]) || isDigit(text[j - 1]))) j--;
+    return { word: text.slice(j, i), start: j };
+  }
+
+  /* Является ли позиция после терминатора концом предложения.
+     i — индекс терминатора; возвращает индекс, на котором предложение
+     заканчивается (после закрывающих кавычек), либо -1. */
+  function boundaryAt(text, i, options) {
+    var ch = text[i];
+    var end = i + 1;
+    /* Многоточие и повторы: "?!", "!!!", "..." */
+    while (end < text.length && /[.!?…]/.test(text[end])) end++;
+    var run = text.slice(i, end);
+    while (end < text.length && CLOSERS.indexOf(text[end]) >= 0) end++;
+    var next = text[end];
+    var afterSpace = end;
+    while (afterSpace < text.length && /[ \t\r\n]/.test(text[afterSpace])) afterSpace++;
+    var following = text[afterSpace];
+    var hasSpace = afterSpace > end;
+
+    if (ch === '.' && run === '.') {
+      /* Точка внутри числа или даты: 3.5, 12.09.2026 */
+      if (isDigit(text[i - 1]) && isDigit(next)) return -1;
+      var wb = wordBefore(text, i);
+      var word = wb.word.toLowerCase();
+      /* Инициал: одна заглавная буква перед точкой. */
+      if (wb.word.length === 1 && isUpper(wb.word)) return -1;
+      /* Сокращение из списка, а также цепочки вида т.д., т.е. */
+      if (ABBR_SET[word] && !(options && options.abbreviations === false)) {
+        /* "г." перед заглавной может быть и концом предложения ("...в 2020 г. Потом"),
+           но чаще нет; при сомнении не режем — потеря границы дешевле обрыва фразы. */
+        return -1;
+      }
+      /* Нумерованный пункт "1." в начале строки */
+      if (/^\d{1,2}$/.test(word) && (wb.start === 0 || text[wb.start - 1] === '\n')) return -1;
+    }
+    if (afterSpace >= text.length) return end; /* конец текста */
+    if (!hasSpace) {
+      /* "слово.Слово" без пробела: граница только если дальше явная заглавная и перед точкой нет цифры */
+      if (ch === '.' && isUpper(following) && isLetter(text[i - 1]) && !(options && options.strictSpace)) return end;
+      return -1;
+    }
+    if (isLower(following)) return -1;
+    if (isUpper(following) || isDigit(following) || OPENERS.indexOf(following) >= 0 || following === '—' || following === '–' || following === '-') return end;
+    return -1;
+  }
+
+  /* Полное деление готового текста на предложения. */
+  function sentences(text, options) {
+    var s = String(text || '').replace(/\r\n?/g, '\n');
+    var out = [];
+    var start = 0;
+    for (var i = 0; i < s.length; i++) {
+      var ch = s[i];
+      if (ch === '\n' && s[i + 1] === '\n') {
+        /* Пустая строка — всегда граница (абзац). */
+        push(out, s.slice(start, i)); start = i + 2; i++; continue;
+      }
+      if (ch === '\n' && listMarkerAt(s, i + 1)) { push(out, s.slice(start, i)); start = i + 1; continue; }
+      if (/[.!?…]/.test(ch)) {
+        var end = boundaryAt(s, i, options);
+        if (end > 0) {
+          push(out, s.slice(start, end));
+          start = end;
+          i = end - 1;
+        } else {
+          while (i + 1 < s.length && /[.!?…]/.test(s[i + 1])) i++;
+        }
+      }
+    }
+    push(out, s.slice(start));
+    return out;
+  }
+
+  /* Новая строка с маркером списка («1.», «2)», «—», «•») — граница. */
+  function listMarkerAt(text, i) {
+    return /^\s*(\d{1,2}[.)]|[—•\-*])\s/.test(text.slice(i, i + 6));
+  }
+
+  function push(out, piece) {
+    var t = String(piece).replace(/\s+/g, ' ').trim();
+    if (t) out.push(t);
+  }
+
+  /* Граница клаузы для ранней первой фразы: запятая, точка с запятой,
+     двоеточие, тире с пробелами. Возвращает индекс конца клаузы (после
+     знака) не раньше minChars, либо -1. */
+  function clauseEnd(text, minChars) {
+    var best = -1;
+    for (var i = minChars; i < text.length; i++) {
+      var ch = text[i];
+      if ((ch === ',' || ch === ';' || ch === ':') && /[ \n]/.test(text[i + 1] || '') && !isDigit(text[i - 1] || '')) { best = i + 1; break; }
+      if ((ch === '—' || ch === '–') && text[i - 1] === ' ' && /[ \n]/.test(text[i + 1] || '')) { best = i - 1; break; }
+    }
+    return best;
+  }
+
+  /* Резать длинную фразу по клаузам, затем по пробелам. */
+  function splitLong(piece, maxChars) {
+    var out = [];
+    var rest = piece;
+    while (rest.length > maxChars) {
+      var cut = -1;
+      for (var i = Math.min(maxChars, rest.length - 1); i > Math.floor(maxChars * 0.4); i--) {
+        if ((rest[i] === ',' || rest[i] === ';' || rest[i] === ':') && rest[i + 1] === ' ') { cut = i + 1; break; }
+        if ((rest[i] === '—' || rest[i] === '–') && rest[i - 1] === ' ' && rest[i + 1] === ' ') { cut = i - 1; break; }
+      }
+      if (cut < 0) cut = rest.lastIndexOf(' ', maxChars);
+      if (cut <= 0) cut = maxChars;
+      out.push(rest.slice(0, cut).trim());
+      rest = rest.slice(cut).trim();
+    }
+    if (rest) out.push(rest);
+    return out;
+  }
+
+  var DEFAULTS = { minChars: 24, maxChars: 220, firstChunkMin: 36, firstChunkMax: 140 };
+
+  /* Потоковый сегментатор: feed(delta) возвращает готовые фразы, flush()
+     отдаёт остаток. Первая фраза может быть клаузой, чтобы речь началась
+     раньше; остальные — предложения, склеенные до minChars и порезанные
+     до maxChars. */
+  function createStream(options) {
+    var opts = Object.assign({}, DEFAULTS, options || {});
+    var buffer = '';
+    var emitted = 0;
+    var pending = '';
+
+    function takeSentences(final) {
+      var ready = [];
+      var s = buffer;
+      var start = 0;
+      for (var i = 0; i < s.length; i++) {
+        var ch = s[i];
+        if (ch === '\n' && s[i + 1] === '\n') { ready.push(s.slice(start, i)); start = i + 2; i++; continue; }
+        if (ch === '\n' && listMarkerAt(s, i + 1)) { ready.push(s.slice(start, i)); start = i + 1; continue; }
+        if (!/[.!?…]/.test(ch)) continue;
+        /* Граница подтверждается только следующим не-пробельным символом. */
+        var lookahead = i + 1;
+        while (lookahead < s.length && /[.!?…»"”’)\]]/.test(s[lookahead])) lookahead++;
+        var spaceEnd = lookahead;
+        while (spaceEnd < s.length && /[ \t\r\n]/.test(s[spaceEnd])) spaceEnd++;
+        if (spaceEnd >= s.length && !final) { i = lookahead - 1; continue; }
+        var end = boundaryAt(s, i, opts);
+        if (end > 0) { ready.push(s.slice(start, end)); start = end; i = end - 1; }
+        else { i = lookahead - 1; }
+      }
+      buffer = s.slice(start);
+      return ready.map(function (p) { return p.replace(/\s+/g, ' ').trim(); }).filter(Boolean);
+    }
+
+    function pack(pieces, final) {
+      var out = [];
+      pieces.forEach(function (p) {
+        pending = pending ? pending + ' ' + p : p;
+        /* Первая фраза уходит сразу: задержка до первого звука важнее,
+           чем красивая длина; дальше короткие склеиваются. */
+        if (pending.length >= opts.minChars || (!emitted && !out.length && pending.length >= 8)) {
+          splitLong(pending, opts.maxChars).forEach(function (x) { out.push(x); });
+          pending = '';
+        }
+      });
+      if (final && pending) { splitLong(pending, opts.maxChars).forEach(function (x) { out.push(x); }); pending = ''; }
+      emitted += out.length;
+      return out;
+    }
+
+    function feed(delta) {
+      buffer += String(delta || '');
+      var out = [];
+      var ready = takeSentences(false);
+      if (ready.length) out = pack(ready, false);
+      /* Ранняя первая фраза: ещё нет ни одной, буфер длинный — режем по клаузе. */
+      if (!emitted && !out.length && !pending && buffer.length >= opts.firstChunkMin) {
+        var cut = clauseEnd(buffer, Math.floor(opts.firstChunkMin * 0.6));
+        if (cut > 0 && cut <= opts.firstChunkMax) {
+          var first = buffer.slice(0, cut).replace(/\s+/g, ' ').trim();
+          buffer = buffer.slice(cut);
+          out.push(first); emitted++;
+        } else if (buffer.length >= opts.firstChunkMax * 1.6) {
+          var sp = buffer.lastIndexOf(' ', opts.firstChunkMax);
+          if (sp > opts.firstChunkMin) {
+            out.push(buffer.slice(0, sp).trim()); buffer = buffer.slice(sp); emitted++;
+          }
+        }
+      }
+      return out;
+    }
+
+    function flush() {
+      var ready = takeSentences(true);
+      var tail = buffer.replace(/\s+/g, ' ').trim();
+      buffer = '';
+      if (tail) ready.push(tail);
+      return pack(ready, true);
+    }
+
+    return { feed: feed, flush: flush, pendingText: function () { return (pending ? pending + ' ' : '') + buffer; } };
+  }
+
+  /* Реплики для модели из распознанного текста: целые предложения,
+     сгруппированные до maxChars; одиночное длинное предложение режется. */
+  function utterances(text, maxChars) {
+    var max = maxChars || 4000;
+    var out = [];
+    var current = '';
+    sentences(text).forEach(function (sn) {
+      var parts = sn.length > max ? splitLong(sn, max) : [sn];
+      parts.forEach(function (p) {
+        if (!current) current = p;
+        else if (current.length + 1 + p.length <= max) current += ' ' + p;
+        else { out.push(current); current = p; }
+      });
+    });
+    if (current) out.push(current);
+    return out;
+  }
+
+  /* Подготовка текста к озвучиванию: разметка и ссылки убираются,
+     частые сокращения раскрываются, чтобы синтез не читал «тэ дэ». */
+  /* \b в JS не знает кириллицу: границы слов задаются явно. */
+  var B = '(?<![A-Za-zА-Яа-яЁё])';
+  var E = '(?![A-Za-zА-Яа-яЁё])';
+  function rx(body) { return new RegExp(B + body, 'gi'); }
+  var SPEAK_MAP = [
+    [rx('т\\.\\s?д\\.'), 'так далее'], [rx('т\\.\\s?п\\.'), 'тому подобное'], [rx('т\\.\\s?е\\.'), 'то есть'], [rx('т\\.\\s?к\\.'), 'так как'],
+    [rx('и\\s+др\\.'), 'и другие'], [rx('напр\\.'), 'например'], [rx('руб\\.'), 'рублей'], [rx('тыс\\.'), 'тысяч'], [rx('млн' + E + '\\.?'), 'миллионов'],
+    [rx('млрд' + E + '\\.?'), 'миллиардов'], [rx('г\\.\\s?(?=\\d)'), 'год '], [/(\d)\s?%/g, '$1 процентов'], [/№\s?/g, 'номер '], [rx('e\\.\\s?g\\.'), 'например'],
+    [rx('i\\.\\s?e\\.'), 'то есть'], [rx('etc\\.'), 'и так далее'], [rx('vs\\.?' + E), 'против']
+  ];
+  function forSpeech(text) {
+    var s = String(text || '');
+    s = s.replace(/https?:\/\/[^\s,;)»"]+/g, ' ссылка ');
+    s = s.replace(/[*_`#>]+/g, ' ');
+    s = s.replace(/[\u{1F300}-\u{1FAFF}\u{2600}-\u{27BF}]/gu, ' ');
+    SPEAK_MAP.forEach(function (pair) { s = s.replace(pair[0], pair[1]); });
+    s = s.replace(/\s+—\s+/g, ', ').replace(/\s+-\s+/g, ', ');
+    s = s.replace(/\s+([,.:;!?])/g, '$1').replace(/\s+/g, ' ').trim();
+    return s;
+  }
+
+  return { sentences: sentences, createStream: createStream, utterances: utterances, forSpeech: forSpeech,
+    splitLong: splitLong, boundaryAt: boundaryAt, DEFAULTS: DEFAULTS, ABBREVIATIONS: ABBR };
+});
+
+</script>
+<script>
+/* ==== ../shared/tts/index.js ==== */
+/* ============================================================
+   Синтез речи для живого интервью.
+
+   Провайдеры:
+     browser — Web Speech API (speechSynthesis) браузера: без сети и ключей,
+               голоса системные. «Встроенный» вариант: ничего ставить не надо.
+     server  — POST /api/tts/speak: сервер держит Piper, Kokoro или любой
+               OpenAI-совместимый сервис синтеза; ответ — аудио, играет
+               через <audio>. Ключи остаются на сервере.
+     mock    — без звука: «играет» по времени, чтобы конвейер и тесты
+               работали без динамиков и сети; помечается как заглушка.
+
+   Speaker — очередь фраз: играет строго по порядку, заранее синтезирует
+   следующие (prefetch) для сервера, умеет прерваться (barge-in), когда
+   пользователь начинает говорить, и сообщает состояние и время до первого
+   звука (ttfaMs). Текст перед синтезом нормализуется (TextSegment.forSpeech).
+   ============================================================ */
+
+(function (root, factory) {
+  var api = factory(typeof module === 'object' && module.exports ? require('../text/segment.js') : root.TextSegment);
+  if (typeof module === 'object' && module.exports) module.exports = api;
+  else root.TextToSpeech = api;
+})(typeof self !== 'undefined' ? self : this, function (TextSegment) {
+  'use strict';
+
+  var MAX_CHUNK = 600;
+  var SPEECH_CHARS_PER_SEC = 15;
+
+  function capabilities(env) {
+    var g = env || (typeof window !== 'undefined' ? window : {});
+    return { browser: !!(g.speechSynthesis && typeof g.SpeechSynthesisUtterance === 'function'),
+      audio: typeof g.Audio === 'function' || !!(g.AudioContext) };
+  }
+
+  /* Голос браузера для языка: сначала точное совпадение (ru-RU), потом язык. */
+  function pickVoice(voices, lang) {
+    var list = voices || [];
+    var exact = list.filter(function (v) { return String(v.lang || '').toLowerCase() === String(lang).toLowerCase(); });
+    var byLang = list.filter(function (v) { return String(v.lang || '').toLowerCase().indexOf(String(lang).slice(0, 2).toLowerCase()) === 0; });
+    var pool = exact.length ? exact : byLang;
+    if (!pool.length) return null;
+    var local = pool.filter(function (v) { return v.localService; });
+    return (local[0] || pool[0]);
+  }
+
+  /* ---- Провайдеры ----
+     Каждый: { id, mock, synth(text, signal) → { play(onEnd) → { stop } } }.
+     play запускает звук и зовёт onEnd по окончании; stop прерывает. */
+
+  function browserProvider(options) {
+    var o = options || {};
+    var g = o.env || window;
+    var lang = o.lang || 'ru-RU';
+    return {
+      id: 'browser', mock: false,
+      async synth(text) {
+        return {
+          play: function (onEnd) {
+            var u = new g.SpeechSynthesisUtterance(text);
+            u.lang = lang;
+            var voice = pickVoice(g.speechSynthesis.getVoices ? g.speechSynthesis.getVoices() : [], lang);
+            if (voice) u.voice = voice;
+            u.rate = o.rate || 1;
+            var done = false;
+            var finish = function () { if (!done) { done = true; onEnd(); } };
+            u.onend = finish; u.onerror = finish;
+            g.speechSynthesis.speak(u);
+            return { stop: function () { done = true; try { g.speechSynthesis.cancel(); } catch (e) { /* нет синтеза */ } } };
+          }
+        };
+      },
+      cancelAll: function () { try { g.speechSynthesis.cancel(); } catch (e) { /* нет синтеза */ } }
+    };
+  }
+
+  function serverProvider(options) {
+    var o = options || {};
+    var fetcher = o.fetcher || (typeof fetch === 'function' ? fetch.bind(typeof window !== 'undefined' ? window : globalThis) : null);
+    var AudioCtor = o.Audio || (typeof Audio === 'function' ? Audio : null);
+    var createUrl = o.createObjectURL || (typeof URL !== 'undefined' && URL.createObjectURL ? URL.createObjectURL.bind(URL) : null);
+    var revokeUrl = o.revokeObjectURL || (typeof URL !== 'undefined' && URL.revokeObjectURL ? URL.revokeObjectURL.bind(URL) : function () {});
+    return {
+      id: 'server', mock: false,
+      async synth(text, signal) {
+        var res;
+        try {
+          res = await fetcher(o.path || '/api/tts/speak', { method: 'POST', credentials: 'same-origin', signal: signal,
+            headers: { 'content-type': 'application/json' }, body: JSON.stringify({ text: text, voice: o.voice || undefined }) });
+        } catch (e) { throw new Error(signal && signal.aborted ? 'Отменено.' : 'Синтез на сервере недоступен.'); }
+        if (!res.ok) {
+          var err = null; try { err = await res.json(); } catch (e) { err = null; }
+          var error = new Error((err && err.error) || 'Синтез на сервере недоступен.');
+          error.code = err && err.code; throw error;
+        }
+        var blob = await res.blob();
+        var mock = res.headers && res.headers.get && res.headers.get('x-tts-mock') === '1';
+        return {
+          mock: mock,
+          play: function (onEnd) {
+            var url = createUrl(blob);
+            var audio = new AudioCtor(url);
+            var done = false;
+            var finish = function () { if (!done) { done = true; revokeUrl(url); onEnd(); } };
+            audio.onended = finish; audio.onerror = finish;
+            var p = audio.play(); if (p && p.catch) p.catch(finish);
+            return { stop: function () { done = true; try { audio.pause(); audio.src = ''; } catch (e) { /* уже остановлено */ } revokeUrl(url); } };
+          }
+        };
+      }
+    };
+  }
+
+  /* Заглушка: длительность как у речи, звука нет. setTimer подменяется в тестах. */
+  function mockProvider(options) {
+    var o = options || {};
+    var setTimer = o.setTimer || setTimeout, clearTimer = o.clearTimer || clearTimeout;
+    var synthMs = o.synthMs === undefined ? 0 : o.synthMs;
+    return {
+      id: 'mock', mock: true,
+      async synth(text, signal) {
+        if (synthMs) await new Promise(function (r) { setTimer(r, synthMs); });
+        if (signal && signal.aborted) throw new Error('Отменено.');
+        var ms = o.durationMs !== undefined ? o.durationMs : Math.max(120, Math.round(text.length / SPEECH_CHARS_PER_SEC * 1000));
+        return { play: function (onEnd) { var t = setTimer(onEnd, ms); return { stop: function () { clearTimer(t); } }; } };
+      }
+    };
+  }
+
+  function provider(config, deps) {
+    var c = config || {};
+    var id = c.provider || 'browser';
+    if (id === 'browser') return browserProvider(Object.assign({}, c, deps || {}));
+    if (id === 'server') return serverProvider(Object.assign({}, c, deps || {}));
+    if (id === 'mock') return mockProvider(Object.assign({}, c, deps || {}));
+    throw new Error('Неизвестный TTS-провайдер.');
+  }
+
+  /* Очередь речи. options: { provider, prefetch (2), onState, now }.
+     enqueue(text) → нормализует и ставит фразу; cancel() → мгновенно
+     прерывает звук и отменяет синтез; state(): idle | synthesizing | speaking. */
+  function createSpeaker(options) {
+    var o = options || {};
+    var impl = o.provider;
+    var prefetch = o.prefetch === undefined ? 2 : o.prefetch;
+    var now = o.now || function () { return Date.now(); };
+    var queue = [];        /* { text, promise, aborter, ready } */
+    var playing = null;    /* { stop } */
+    var waitingFor = null; /* фраза, чьего синтеза уже ждём */
+    var generation = 0;
+    var state = 'idle';
+    var stats = { spoken: 0, cancelled: 0, errors: 0, ttfaMs: null, turnStartedAt: null, lastError: '' };
+
+    function emit() { if (o.onState) o.onState({ state: state, queued: queue.length, stats: Object.assign({}, stats), mock: !!impl.mock }); }
+    function setState(s) { if (s !== state) { state = s; emit(); } }
+
+    function beginTurn() { stats.ttfaMs = null; stats.turnStartedAt = now(); }
+
+    function synthesize(item) {
+      if (item.promise) return item.promise;
+      item.aborter = typeof AbortController === 'function' ? new AbortController() : null;
+      item.promise = impl.synth(item.text, item.aborter ? item.aborter.signal : undefined)
+        .then(function (audio) { item.ready = audio; return audio; })
+        .catch(function (e) { item.error = e; return null; });
+      return item.promise;
+    }
+
+    function pump() {
+      /* Предвыборка: синтезируем следующие prefetch фраз параллельно. */
+      queue.slice(0, Math.max(1, prefetch)).forEach(synthesize);
+      if (playing || !queue.length) { if (!queue.length && !playing) setState('idle'); return; }
+      var item = queue[0];
+      if (waitingFor === item) return;
+      waitingFor = item;
+      var token = generation;
+      setState(item.ready ? 'speaking' : 'synthesizing');
+      synthesize(item).then(function (audio) {
+        if (token !== generation) return;
+        waitingFor = null;
+        queue.shift();
+        if (!audio) {
+          stats.errors++; stats.lastError = item.error ? item.error.message : 'ошибка синтеза';
+          if (o.onError) o.onError(item.error, item.text);
+          pump(); return;
+        }
+        if (stats.ttfaMs === null && stats.turnStartedAt !== null) stats.ttfaMs = now() - stats.turnStartedAt;
+        setState('speaking');
+        playing = audio.play(function () {
+          if (token !== generation) return;
+          playing = null; stats.spoken++;
+          if (o.onSpoken) o.onSpoken(item.text);
+          pump();
+        });
+      });
+    }
+
+    function enqueue(text) {
+      var clean = TextSegment ? TextSegment.forSpeech(text) : String(text || '').trim();
+      if (!clean) return false;
+      (clean.length > MAX_CHUNK ? (TextSegment ? TextSegment.splitLong(clean, MAX_CHUNK) : [clean.slice(0, MAX_CHUNK)]) : [clean])
+        .forEach(function (piece) { queue.push({ text: piece }); });
+      pump();
+      return true;
+    }
+
+    function cancel() {
+      generation++;
+      waitingFor = null;
+      queue.forEach(function (item) { if (item.aborter) item.aborter.abort(); if (item.ready && item.ready.stop) item.ready.stop(); });
+      if (queue.length || playing) stats.cancelled++;
+      queue = [];
+      if (playing) { playing.stop(); playing = null; }
+      if (impl.cancelAll) impl.cancelAll();
+      setState('idle');
+    }
+
+    return { enqueue: enqueue, cancel: cancel, beginTurn: beginTurn, state: function () { return state; },
+      stats: function () { return Object.assign({}, stats); }, provider: impl.id, mock: !!impl.mock };
+  }
+
+  return { provider: provider, createSpeaker: createSpeaker, capabilities: capabilities, pickVoice: pickVoice, MAX_CHUNK: MAX_CHUNK };
+});
+
+</script>
+<script>
 /* ==== ../shared/stt/index.js ==== */
 /* STT is separate from text LLM routing. No storage, telemetry or provider bodies in errors. */
 (function (root, factory) {
@@ -1130,6 +1656,9 @@ em { font-style: normal; color: var(--accent); }
       + '<p data-stt="feedback" role="status"></p>'
       + '<p>Аудио не сохраняется. Отправленный текст в веб-интервью хранится как обычная реплика. Заглушка имитирует текст без доступа к микрофону.</p>';
     const el = name => host.querySelector('[data-stt="' + name + '"]');
+    /* Реплики режутся по предложениям (TextSegment), а не по размеру: модель
+       получает законченные мысли; без сегментатора — прежнее деление. */
+    const pieceList = text => (globalThis.TextSegment ? globalThis.TextSegment.utterances(text, 4000) : SpeechToText.chunks(text));
     const labels = { idle: 'Микрофон выключен', requesting: 'Запрашиваю разрешение', recording: 'Запись микрофона', transcribing: 'Микрофон выключен, распознаю', ready: 'Текст готов к проверке', error: 'Ошибка' };
     let controller, sending = false, disposed = false, state = 'idle', version = 0;
     const config = options.config || {};
@@ -1141,7 +1670,7 @@ em { font-style: normal; color: var(--accent); }
       el('stop').disabled = !['requesting', 'recording'].includes(state);
       ['provider', 'endpoint', 'consent'].forEach(name => { el(name).disabled = active || sending; });
       el('text').disabled = active || sending;
-      const pieces = SpeechToText.chunks(el('text').value);
+      const pieces = pieceList(el('text').value);
       el('queue').textContent = pieces.length ? 'Фрагментов до 4000 символов: ' + pieces.length + '. Отправляется только первый, по нажатию.' : '';
       el('send').disabled = state !== 'ready' || !pieces.length || sending || !el('consent').checked;
     }
@@ -1165,7 +1694,7 @@ em { font-style: normal; color: var(--accent); }
     el('consent').onchange = refresh; el('text').oninput = refresh;
     el('send').onclick = async () => {
       if (el('send').disabled) return;
-      const pieces = SpeechToText.chunks(el('text').value), token = version;
+      const pieces = pieceList(el('text').value), token = version;
       sending = true; refresh(); el('feedback').textContent = 'Отправляю текст в AI…';
       try {
         await options.onSend(pieces[0]);
@@ -2338,6 +2867,7 @@ var Store = (function () {
       builder: emptyBuilder(),
       upload: { fileName: '', analysisShown: false, decisions: {} },
       vacancyDraft: { title: '', company: '', text: '', resumeId: '', url: '', imported: null, importError: '', importBusy: false, importElapsed: 0 },
+      voiceUi: { state: 'idle', stats: null, mock: false, error: '' },
       assistant: { status: 'disconnected', prepId: filled ? 'prep-1' : null, hintIndex: 0, hintsOpen: false,
         screenText: '', question: '', consent: false, busy: '', error: '', hint: null, hints: [] },
       settings: {
@@ -4223,6 +4753,7 @@ var ScreensPrep = (function () {
             : note('demo', '<div><strong>Реплики интервьюера — фиксированный сценарий.</strong> Ваши ответы видны в '
               + 'переписке, но не анализируются: настоящей оценки ответа нет.</div>'))
         + '  <div class="btn-row"><button type="button" class="btn btn--primary" data-act="chat:start">Начать интервью</button>'
+        + '  <button type="button" class="btn" data-act="go:#/prep/' + esc(prep.id) + '/voice">Голосом</button>'
         + '  <button type="button" class="btn" data-act="go:#/prep/' + esc(prep.id) + '/questions">Сначала разобрать вопросы</button></div>'
         + '</div>';
     }
@@ -4340,11 +4871,12 @@ var ScreensPrep = (function () {
     lost: { label: 'Связь потеряна', hint: 'Демонстрация состояния обрыва связи.' }
   };
 
-  function voice(prepId) {
+  function voice(prepId, model) {
     var state = Store.get();
     if (!Store.sectionAllowed('interviews')) return locked('Голосовое пробное интервью', 'training');
     var prep = Store.prepById(prepId) || Store.activePrep();
     if (!prep) return needPrep(prep, 'Голосовое пробное интервью');
+    if (isLivePrep(prep) && model) return liveVoice(prep, model);
     var v = ensureVoice(prep);
 
     if (v.finished) {
@@ -4405,6 +4937,63 @@ var ScreensPrep = (function () {
       + '  </div>'
       + '  <h2>Расшифровка</h2>'
       + '  <div class="transcript">' + (lines || '<p class="muted">Расшифровка появится после начала разговора.</p>') + '</div>'
+      + '</div>';
+  }
+
+  /* Голосовая тренировка в режиме сервера: настоящие реплики интервьюера
+     из чата, синтез речи по фразам, ответ микрофоном или текстом. */
+  var LIVE_VOICE_STATUS = {
+    idle: { label: 'Не начато', hint: 'Выберите способ озвучивания и нажмите «Начать разговор».' },
+    listening: { label: 'Слушаю', hint: 'Ваша очередь: запишите ответ микрофоном или наберите текст.' },
+    thinking: { label: 'Готовлю ответ', hint: 'Интервьюер формулирует реплику.' },
+    synthesizing: { label: 'Готовлю речь', hint: 'Фраза получена, синтез речи.' },
+    speaking: { label: 'Отвечаю', hint: 'Интервьюер говорит. Начните запись, чтобы перебить.' }
+  };
+  function liveVoice(prep, model) {
+    var chat = ensureChat(prep);
+    var ui = model.ui;
+    if (chat.finished && chat.summary) return interviewSummary(prep);
+    var status = !model.active ? 'idle' : (chat.pending && ui.state === 'idle' ? 'thinking' : (ui.state === 'idle' ? 'listening' : ui.state));
+    var st = LIVE_VOICE_STATUS[status] || LIVE_VOICE_STATUS.idle;
+    var orbCls = 'voice-orb' + (status === 'listening' || status === 'speaking' ? ' voice-orb--live' : '');
+    var lines = chat.messages.filter(function (m) { return m.who !== 'system'; }).map(function (m) {
+      return '<div class="transcript__line"><b>' + (m.who === 'user' ? 'Вы' : 'Интервьюер') + '</b>' + escLines(m.text) + '</div>';
+    }).join('');
+    if (chat.pending && chat.partial) lines += '<div class="transcript__line transcript__line--partial"><b>Интервьюер</b>' + escLines(chat.partial) + '</div>';
+    var stats = ui.stats;
+    return ''
+      + pageHead('Голосовое пробное интервью', 'Интервьюер говорит вслух, вы отвечаете голосом или текстом.')
+      + sourcesBar(prep)
+      + ScreensCore.staleBanner(prep)
+      + '<div class="card stack">'
+      + '  <div class="voice-stage">'
+      + '    <div class="' + orbCls + '" id="voice-orb">' + esc(st.label) + '</div>'
+      + '    <p class="muted" role="status" aria-live="polite">' + esc(st.hint) + '</p>'
+      + '  </div>'
+      + UI.select({ id: 'voice-tts', label: 'Озвучивание', value: model.provider, options: model.providers, act: 'voice:tts' })
+      + (model.tts && !model.tts.live ? '<p class="small muted">На сервере синтез речи не настроен (TTS_PROVIDER=mock): вариант «Сервер» даёт тишину с пометкой. Встроенный вариант — голос браузера.</p>' : '')
+      + (ui.mock && model.active ? note('demo', '<div>Озвучивание без звука: реплики только в тексте ниже.</div>') : '')
+      + (ui.error ? note('alert', '<div class="voice-error">' + esc(ui.error) + '</div>') : '')
+      + '  <div class="btn-row">'
+      + (!model.active
+          ? '<button type="button" class="btn btn--primary" data-act="voice:start"' + (Store.get().pending ? ' disabled' : '') + '>'
+            + (chat.started && !chat.finished ? 'Продолжить разговор' : 'Начать разговор') + '</button>'
+          : '<button type="button" class="btn" data-act="voice:interrupt"' + (status === 'speaking' || status === 'synthesizing' ? '' : ' disabled') + '>Остановить речь</button>')
+      + '    <button type="button" class="btn btn--danger" data-act="voice:finish"' + (chat.started ? '' : ' disabled') + '>Завершить</button>'
+      + '  </div>'
+      + (stats && stats.ttfaMs !== null && stats.ttfaMs !== undefined
+          ? '<p class="small muted voice-stats">До первого звука: ' + esc(String(stats.ttfaMs)) + ' мс · фраз произнесено: ' + esc(String(stats.spoken)) + (stats.cancelled ? ' · перебиваний: ' + esc(String(stats.cancelled)) : '') + '</p>'
+          : '')
+      + '</div>'
+      + (model.active ? '<div id="stt-slot"></div>' : '')
+      + (model.active ? '<div class="card stack">'
+          + UI.field({ id: 'voice-input', label: 'Или ответьте текстом', type: 'textarea', model: 'preps.' + prepIndex(prep) + '.chat.draft', value: chat.draft || '', rows: 2 })
+          + '<div class="btn-row"><button type="button" class="btn" data-act="voice:send-text"' + (chat.pending ? ' disabled' : '') + '>Отправить текст</button></div>'
+          + '</div>' : '')
+      + '<div class="card stack">'
+      + '  <h2>Расшифровка</h2>'
+      + '  <div class="transcript" id="voice-transcript">' + (lines || '<p class="muted">Реплики появятся после начала разговора.</p>') + '</div>'
+      + '  <p class="small muted">Звук не сохраняется ни в браузере, ни на сервере. Реплики хранятся как текст интервью.</p>'
       + '</div>';
   }
 
@@ -5221,6 +5810,11 @@ var QuickStart = (function () {
     adminUsage.days = Number(event.target.value); adminUsage.data = null; adminUsage.error = ''; render();
   });
 
+  function voiceScreenModel() {
+    return { ui: Store.get().voiceUi || { state: 'idle', stats: null, mock: false, error: '' }, active: voice.active,
+      providers: voiceProviders(), provider: voiceDefaultProvider(), tts: voice.tts };
+  }
+
   function screenFor(route) {
     var parts = route.parts;
     switch (route.name) {
@@ -5243,7 +5837,7 @@ var QuickStart = (function () {
         if (view === 'questions') return ScreensPrep.questions(prepId);
         if (view === 'card') return ScreensPrep.card(prepId);
         if (view === 'interview') return ScreensPrep.interview(prepId);
-        if (view === 'voice') return ScreensPrep.voice(prepId);
+        if (view === 'voice') return ScreensPrep.voice(prepId, voiceScreenModel());
         return ScreensPrep.match(prepId);
       }
       case 'interviews': return ScreensPrep.interviews();
@@ -5446,11 +6040,13 @@ var QuickStart = (function () {
     }
 
     if (speechWidget) speechWidget.element.remove();
+    if (voice.active && !(route.name === 'prep' && route.parts[2] === 'voice')) voiceStop();
+    if (route.name === 'prep' && route.parts[2] === 'voice' && Api.live.enabled) voiceLoadTts();
     root.innerHTML = html + UI.renderModal(state.modal) + UI.renderToasts(state.toasts);
     var speechSlot = document.getElementById('stt-slot');
     if (speechWidget && (entering || !speechSlot)) { speechWidget.dispose(); speechWidget = null; }
     if (speechSlot) {
-      if (!speechWidget) speechWidget = SttWidget({ onCancel: function () { if (speechTextAborter) speechTextAborter.abort(); }, onSend: async function (text) {
+      if (!speechWidget) speechWidget = SttWidget({ beforeCapture: function () { voiceInterrupt(); }, onCancel: function () { if (speechTextAborter) speechTextAborter.abort(); }, onSend: async function (text) {
         var prep = Store.activePrep();
         if (!prep || !prep.chat || prep.chat.pending || prep.chat.failed || prep.chat.finished) throw new Error('Интервью недоступно');
         prep.chat.draft = text;
@@ -5843,7 +6439,7 @@ var QuickStart = (function () {
     var op = beginOperation('Интервьюер готовит первый вопрос…');
     if (!op) return;
     try {
-      var first = await Api.request('POST', '/api/preps/' + prep.serverId + '/interviews', undefined, op);
+      var first = await Api.request('POST', '/api/preps/' + prep.serverId + '/interviews', { mode: voice.active && voice.prepId === prep.id ? 'voice' : 'text' }, op);
       Store.update(function () {
         var chat = ScreensPrep.ensureChat(prep);
         chat.started = true; chat.index = 0; chat.finished = false; chat.failed = false;
@@ -5858,6 +6454,110 @@ var QuickStart = (function () {
         Store.get().pending = null;
       });
     } catch (e) { liveFail(e); } finally { endOperation(); }
+  }
+
+  /* ---- Голосовая тренировка ----
+     Реплика интервьюера приходит потоком, режется на фразы (TextSegment)
+     и озвучивается очередью (TextToSpeech.createSpeaker) с предвыборкой.
+     Кандидат отвечает микрофоном (STT-виджет) или текстом. Начало записи
+     прерывает речь (barge-in). Всё живёт в памяти вкладки. */
+  var voice = { active: false, prepId: null, provider: '', speaker: null, segmenter: null, tts: null };
+
+  function voiceUi(patch) {
+    var s = Store.get();
+    s.voiceUi = Object.assign(s.voiceUi || { state: 'idle', stats: null, mock: false, error: '' }, patch || {});
+    Store.notify();
+  }
+
+  function voiceProviders() {
+    var caps = TextToSpeech.capabilities();
+    var list = [];
+    if (caps.browser) list.push({ value: 'browser', label: 'В браузере (Web Speech, без сервера)' });
+    var srv = voice.tts;
+    list.push({ value: 'server', label: srv && srv.live ? 'Сервер (' + srv.provider + (srv.voice ? ', ' + srv.voice : '') + ')' : 'Сервер (заглушка без звука)' });
+    list.push({ value: 'mock', label: 'Без звука (только текст)' });
+    return list;
+  }
+
+  function voiceDefaultProvider() {
+    if (voice.provider) return voice.provider;
+    var caps = TextToSpeech.capabilities();
+    if (voice.tts && voice.tts.live) return 'server';
+    return caps.browser ? 'browser' : 'mock';
+  }
+
+  function ensureSpeaker(providerId) {
+    if (voice.speaker && voice.provider === providerId) return voice.speaker;
+    if (voice.speaker) voice.speaker.cancel();
+    voice.provider = providerId;
+    var impl = TextToSpeech.provider({ provider: providerId, lang: 'ru-RU' });
+    voice.speaker = TextToSpeech.createSpeaker({ provider: impl, prefetch: 2,
+      onState: function (s) { voiceUi({ state: s.state, stats: s.stats, mock: s.mock }); },
+      onError: function (e, text) {
+        /* Сервер синтеза упал посреди разговора: договариваем голосом браузера,
+           если он есть; иначе остаёмся с текстом. Фраза не теряется. */
+        if (providerId === 'server' && TextToSpeech.capabilities().browser) {
+          ensureSpeaker('browser');
+          voice.speaker.enqueue(text);
+          voiceUi({ error: 'Сервер синтеза недоступен: продолжаю голосом браузера.' });
+          return;
+        }
+        voiceUi({ error: 'Синтез не удался: ' + (e && e.message ? e.message : 'ошибка') + '. Текст реплики виден ниже.' });
+      } });
+    voiceUi({ state: 'idle', mock: impl.mock, error: '' });
+    return voice.speaker;
+  }
+
+  async function voiceLoadTts() {
+    if (voice.tts || !Api.live.enabled) return;
+    try { voice.tts = await Api.request('GET', '/api/tts'); } catch (e) { voice.tts = { provider: 'unknown', live: false }; }
+    Store.notify();
+  }
+
+  function voiceBeginTurn() {
+    if (!voice.active) return;
+    voice.segmenter = TextSegment.createStream();
+    voice.speaker.beginTurn();
+  }
+  function voiceFeed(delta) {
+    if (!voice.active || !voice.segmenter) return;
+    voice.segmenter.feed(delta).forEach(function (c) { voice.speaker.enqueue(c); });
+  }
+  function voiceFlush() {
+    if (!voice.active || !voice.segmenter) return;
+    voice.segmenter.flush().forEach(function (c) { voice.speaker.enqueue(c); });
+    voice.segmenter = null;
+  }
+  function voiceSpeakWhole(text) {
+    if (!voice.active) return;
+    voiceBeginTurn();
+    voiceFeed(text);
+    voiceFlush();
+  }
+  function voiceInterrupt() {
+    if (voice.speaker) voice.speaker.cancel();
+    voice.segmenter = null;
+  }
+  function voiceStop() {
+    voiceInterrupt();
+    voice.active = false; voice.prepId = null;
+    voiceUi({ state: 'idle' });
+  }
+
+  async function liveVoiceStart(prep) {
+    var providerId = voiceDefaultProvider();
+    ensureSpeaker(providerId);
+    voice.active = true; voice.prepId = prep.id;
+    voiceUi({ error: '' });
+    var chat = ScreensPrep.ensureChat(prep);
+    if (!chat.started || chat.finished) {
+      await liveStartChat(prep);
+      var first = prep.chat && prep.chat.messages.filter(function (m) { return m.who === 'bot'; }).slice(-1)[0];
+      if (first && voice.active) voiceSpeakWhole(first.text);
+    } else {
+      var last = chat.messages.filter(function (m) { return m.who === 'bot'; }).slice(-1)[0];
+      if (last) voiceSpeakWhole(last.text);
+    }
   }
 
   /* Идентификатор реплики от клиента: повтор после обрыва сети уходит с
@@ -5877,22 +6577,31 @@ var QuickStart = (function () {
     var chat = prep.chat;
     var text = String(chat.draft || '').trim();
     if (!text) { UI.toast('Введите ответ, чтобы отправить его.'); return; }
-    var turn = { text: text, clientTurnId: newTurnId() };
+    var speaking = voice.active && voice.prepId === prep.id;
+    var turn = { text: text, clientTurnId: newTurnId(), mode: speaking ? 'voice' : 'text' };
     Store.update(function () {
       chat.messages.push({ who: 'user', text: text });
       chat.draft = ''; chat.failed = false; chat.pending = true; chat.partial = ''; chat.status = '';
       chat.lastTurn = turn;
     });
+    if (speaking) { voiceInterrupt(); voiceBeginTurn(); }
     try {
       var done = await Api.stream('/api/interviews/' + chat.interviewId + '/turns', turn, function (delta) {
         chat.partial += delta; chat.status = '';
+        if (speaking) voiceFeed(delta);
         Store.notify();
       }, function (status) {
         chat.status = status;
         Store.notify();
       }, signal);
+      if (speaking) {
+        /* Ответ мог прийти без потока (дубль реплики): озвучить целиком. */
+        if (!chat.partial && done.turn && done.turn.text) voiceFeed(done.turn.text);
+        voiceFlush();
+      }
       Store.update(function () { applyTurnResult(chat, done); });
     } catch (e) {
+      if (speaking) voiceInterrupt();
       Store.update(function () { chat.pending = false; chat.partial = ''; chat.status = ''; chat.failed = true; chat.failError = e.message; });
     }
   }
@@ -6577,9 +7286,24 @@ var QuickStart = (function () {
       }
 
       /* -------- Голосовое интервью -------- */
+      case 'voice:tts': {
+        voice.provider = data.value;
+        if (voice.active) ensureSpeaker(data.value);
+        Store.notify();
+        return;
+      }
+      case 'voice:interrupt':
+        voiceInterrupt();
+        return;
+      case 'voice:send-text': {
+        var prepV = Store.activePrep();
+        if (prepV && prepV.live && prepV.chat && !prepV.chat.pending) liveSendChat(prepV);
+        return;
+      }
       case 'voice:start': {
         var prep13 = Store.activePrep();
         if (!prep13) return;
+        if (prep13.live) { if (!state.pending) liveVoiceStart(prep13); return; }
         Store.update(function () {
           var v = ScreensPrep.ensureVoice(prep13);
           v.status = 'speaking';
@@ -6632,12 +7356,15 @@ var QuickStart = (function () {
       case 'voice:finish':
         UI.confirm({
           title: 'Завершить голосовую тренировку?',
-          body: '<p>Откроется демонстрационный итог. Звук не записывался.</p>',
+          body: Store.activePrep() && Store.activePrep().live
+            ? '<p>Сервер подготовит итог по репликам этой тренировки. Звук не сохранялся.</p>'
+            : '<p>Откроется демонстрационный итог. Звук не записывался.</p>',
           act: 'voice:finish-confirm', confirmLabel: 'Завершить'
         });
         return;
       case 'voice:finish-confirm': {
         var prep17 = Store.activePrep();
+        if (prep17 && prep17.live) { voiceStop(); if (prep17.chat && prep17.chat.started && !prep17.chat.finished) liveFinishChat(prep17); return; }
         if (!prep17 || !prep17.voice) return;
         Store.update(function () {
           prep17.voice.finished = true;
@@ -6648,7 +7375,8 @@ var QuickStart = (function () {
       case 'voice:restart': {
         var prep18 = Store.activePrep();
         if (!prep18) return;
-        Store.update(function () { prep18.voice = null; });
+        voiceStop();
+        Store.update(function () { prep18.voice = null; if (prep18.live) prep18.chat = null; });
         return;
       }
 

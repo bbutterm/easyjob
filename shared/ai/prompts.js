@@ -101,6 +101,7 @@
     'РАНЕЕ В РАЗГОВОРЕ (СВЁРТКА)': 'session.turnsSummary',
     'ПОСЛЕДНИЕ РЕПЛИКИ': 'session.turns',
     'УЖЕ ЗАТРОНУТЫЕ ТЕМЫ': 'session.askedTopics',
+    'РЕЖИМ': 'session.mode',
     'РАСПОЗНАНО НА ЭКРАНЕ (ИЗМЕНЕНИЕ)': 'screen.textDelta',
     'РАСПОЗНАНО НА ЭКРАНЕ': 'screen.text',
     'ВОПРОС СОБЕСЕДУЮЩЕГО': 'screen.detectedQuestion'
@@ -250,12 +251,25 @@
     text += section('РАНЕЕ В РАЗГОВОРЕ (СВЁРТКА)', session.turnsSummary, taskId);
     text += section('ПОСЛЕДНИЕ РЕПЛИКИ', session.turns, taskId);
     text += section('УЖЕ ЗАТРОНУТЫЕ ТЕМЫ', session.askedTopics, taskId);
+    text += section('РЕЖИМ', modeText(session.mode), taskId);
     text += section('РАСПОЗНАНО НА ЭКРАНЕ (ИЗМЕНЕНИЕ)', moment.textDelta, taskId);
     text += section('РАСПОЗНАНО НА ЭКРАНЕ', moment.text, taskId);
     text += section('ВОПРОС СОБЕСЕДУЮЩЕГО', moment.detectedQuestion, taskId);
     /* Хвостовые переводы строк убираются, но не пробелы внутри последнего
        раздела: исходный текст документа должен дойти до модели дословно. */
     return text.replace(/^\s+/, '').replace(/\n+$/, '');
+  }
+
+  /* Режим сессии — короткая инструкция, а не код: голосовая тренировка
+     требует разговорных коротких реплик без разметки. */
+  function modeText(mode) {
+    if (mode === 'practice_voice') {
+      return 'Голосовая тренировка: реплики озвучиваются синтезом речи. Говори как в живом разговоре: '
+        + 'одна-две короткие фразы, без списков, разметки, скобок и ссылок. Сначала кратко отреагируй, затем один вопрос.';
+    }
+    if (mode === 'practice_text') return 'Текстовая тренировка: кандидат читает реплики на экране.';
+    if (mode === 'live_assistant') return 'Живое собеседование: подсказка должна быть короткой опорой для собственного ответа.';
+    return null;
   }
 
   function schemaFor(taskId) {

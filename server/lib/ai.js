@@ -265,6 +265,7 @@ function buildStore(taskId, parts, sid) {
   if (Array.isArray(parts.askedTopics) && parts.askedTopics.length) {
     store.patch('session', { askedTopics: parts.askedTopics.slice(-30) });
   }
+  if (parts.mode) store.patch('session', { mode: parts.mode });
 
   if (!turns || !turns.length) return { store, info };
 
@@ -416,6 +417,8 @@ async function run(sessionId, taskId, parts, options) {
     provider: c.provider, model: c.model, locale: c.locale,
     endpoint: c.endpoint || undefined, streaming: opts.streaming,
     maxOutputTokens: c.maxOutputTokens,
+    /* Голосовая тренировка: короткая реплика — её озвучивают и слушают. */
+    maxWords: parts.mode === 'practice_voice' ? 45 : undefined,
     // Required source text may be bounded for live tasks, but never dropped.
     policyOverrides: { all: { required: ContextPolicy.policyFor(taskId).required.concat(
       ['resume.review', 'match.requirements', 'questions.generate', 'prep.card',

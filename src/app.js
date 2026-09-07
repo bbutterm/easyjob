@@ -104,6 +104,11 @@
     adminUsage.days = Number(event.target.value); adminUsage.data = null; adminUsage.error = ''; render();
   });
 
+  function voiceScreenModel() {
+    return { ui: Store.get().voiceUi || { state: 'idle', stats: null, mock: false, error: '' }, active: voice.active,
+      providers: voiceProviders(), provider: voiceDefaultProvider(), tts: voice.tts };
+  }
+
   function screenFor(route) {
     var parts = route.parts;
     switch (route.name) {
@@ -126,7 +131,7 @@
         if (view === 'questions') return ScreensPrep.questions(prepId);
         if (view === 'card') return ScreensPrep.card(prepId);
         if (view === 'interview') return ScreensPrep.interview(prepId);
-        if (view === 'voice') return ScreensPrep.voice(prepId);
+        if (view === 'voice') return ScreensPrep.voice(prepId, voiceScreenModel());
         return ScreensPrep.match(prepId);
       }
       case 'interviews': return ScreensPrep.interviews();
@@ -329,11 +334,13 @@
     }
 
     if (speechWidget) speechWidget.element.remove();
+    if (voice.active && !(route.name === 'prep' && route.parts[2] === 'voice')) voiceStop();
+    if (route.name === 'prep' && route.parts[2] === 'voice' && Api.live.enabled) voiceLoadTts();
     root.innerHTML = html + UI.renderModal(state.modal) + UI.renderToasts(state.toasts);
     var speechSlot = document.getElementById('stt-slot');
     if (speechWidget && (entering || !speechSlot)) { speechWidget.dispose(); speechWidget = null; }
     if (speechSlot) {
-      if (!speechWidget) speechWidget = SttWidget({ onCancel: function () { if (speechTextAborter) speechTextAborter.abort(); }, onSend: async function (text) {
+      if (!speechWidget) speechWidget = SttWidget({ beforeCapture: function () { voiceInterrupt(); }, onCancel: function () { if (speechTextAborter) speechTextAborter.abort(); }, onSend: async function (text) {
         var prep = Store.activePrep();
         if (!prep || !prep.chat || prep.chat.pending || prep.chat.failed || prep.chat.finished) throw new Error('Интервью недоступно');
         prep.chat.draft = text;
@@ -726,7 +733,7 @@
     var op = beginOperation('Интервьюер готовит первый вопрос…');
     if (!op) return;
     try {
-      var first = await Api.request('POST', '/api/preps/' + prep.serverId + '/interviews', undefined, op);
+      var first = await Api.request('POST', '/api/preps/' + prep.serverId + '/interviews', { mode: voice.active && voice.prepId === prep.id ? 'voice' : 'text' }, op);
       Store.update(function () {
         var chat = ScreensPrep.ensureChat(prep);
         chat.started = true; chat.index = 0; chat.finished = false; chat.failed = false;
@@ -741,6 +748,110 @@
         Store.get().pending = null;
       });
     } catch (e) { liveFail(e); } finally { endOperation(); }
+  }
+
+  /* ---- Голосовая тренировка ----
+     Реплика интервьюера приходит потоком, режется на фразы (TextSegment)
+     и озвучивается очередью (TextToSpeech.createSpeaker) с предвыборкой.
+     Кандидат отвечает микрофоном (STT-виджет) или текстом. Начало записи
+     прерывает речь (barge-in). Всё живёт в памяти вкладки. */
+  var voice = { active: false, prepId: null, provider: '', speaker: null, segmenter: null, tts: null };
+
+  function voiceUi(patch) {
+    var s = Store.get();
+    s.voiceUi = Object.assign(s.voiceUi || { state: 'idle', stats: null, mock: false, error: '' }, patch || {});
+    Store.notify();
+  }
+
+  function voiceProviders() {
+    var caps = TextToSpeech.capabilities();
+    var list = [];
+    if (caps.browser) list.push({ value: 'browser', label: 'В браузере (Web Speech, без сервера)' });
+    var srv = voice.tts;
+    list.push({ value: 'server', label: srv && srv.live ? 'Сервер (' + srv.provider + (srv.voice ? ', ' + srv.voice : '') + ')' : 'Сервер (заглушка без звука)' });
+    list.push({ value: 'mock', label: 'Без звука (только текст)' });
+    return list;
+  }
+
+  function voiceDefaultProvider() {
+    if (voice.provider) return voice.provider;
+    var caps = TextToSpeech.capabilities();
+    if (voice.tts && voice.tts.live) return 'server';
+    return caps.browser ? 'browser' : 'mock';
+  }
+
+  function ensureSpeaker(providerId) {
+    if (voice.speaker && voice.provider === providerId) return voice.speaker;
+    if (voice.speaker) voice.speaker.cancel();
+    voice.provider = providerId;
+    var impl = TextToSpeech.provider({ provider: providerId, lang: 'ru-RU' });
+    voice.speaker = TextToSpeech.createSpeaker({ provider: impl, prefetch: 2,
+      onState: function (s) { voiceUi({ state: s.state, stats: s.stats, mock: s.mock }); },
+      onError: function (e, text) {
+        /* Сервер синтеза упал посреди разговора: договариваем голосом браузера,
+           если он есть; иначе остаёмся с текстом. Фраза не теряется. */
+        if (providerId === 'server' && TextToSpeech.capabilities().browser) {
+          ensureSpeaker('browser');
+          voice.speaker.enqueue(text);
+          voiceUi({ error: 'Сервер синтеза недоступен: продолжаю голосом браузера.' });
+          return;
+        }
+        voiceUi({ error: 'Синтез не удался: ' + (e && e.message ? e.message : 'ошибка') + '. Текст реплики виден ниже.' });
+      } });
+    voiceUi({ state: 'idle', mock: impl.mock, error: '' });
+    return voice.speaker;
+  }
+
+  async function voiceLoadTts() {
+    if (voice.tts || !Api.live.enabled) return;
+    try { voice.tts = await Api.request('GET', '/api/tts'); } catch (e) { voice.tts = { provider: 'unknown', live: false }; }
+    Store.notify();
+  }
+
+  function voiceBeginTurn() {
+    if (!voice.active) return;
+    voice.segmenter = TextSegment.createStream();
+    voice.speaker.beginTurn();
+  }
+  function voiceFeed(delta) {
+    if (!voice.active || !voice.segmenter) return;
+    voice.segmenter.feed(delta).forEach(function (c) { voice.speaker.enqueue(c); });
+  }
+  function voiceFlush() {
+    if (!voice.active || !voice.segmenter) return;
+    voice.segmenter.flush().forEach(function (c) { voice.speaker.enqueue(c); });
+    voice.segmenter = null;
+  }
+  function voiceSpeakWhole(text) {
+    if (!voice.active) return;
+    voiceBeginTurn();
+    voiceFeed(text);
+    voiceFlush();
+  }
+  function voiceInterrupt() {
+    if (voice.speaker) voice.speaker.cancel();
+    voice.segmenter = null;
+  }
+  function voiceStop() {
+    voiceInterrupt();
+    voice.active = false; voice.prepId = null;
+    voiceUi({ state: 'idle' });
+  }
+
+  async function liveVoiceStart(prep) {
+    var providerId = voiceDefaultProvider();
+    ensureSpeaker(providerId);
+    voice.active = true; voice.prepId = prep.id;
+    voiceUi({ error: '' });
+    var chat = ScreensPrep.ensureChat(prep);
+    if (!chat.started || chat.finished) {
+      await liveStartChat(prep);
+      var first = prep.chat && prep.chat.messages.filter(function (m) { return m.who === 'bot'; }).slice(-1)[0];
+      if (first && voice.active) voiceSpeakWhole(first.text);
+    } else {
+      var last = chat.messages.filter(function (m) { return m.who === 'bot'; }).slice(-1)[0];
+      if (last) voiceSpeakWhole(last.text);
+    }
   }
 
   /* Идентификатор реплики от клиента: повтор после обрыва сети уходит с
@@ -760,22 +871,31 @@
     var chat = prep.chat;
     var text = String(chat.draft || '').trim();
     if (!text) { UI.toast('Введите ответ, чтобы отправить его.'); return; }
-    var turn = { text: text, clientTurnId: newTurnId() };
+    var speaking = voice.active && voice.prepId === prep.id;
+    var turn = { text: text, clientTurnId: newTurnId(), mode: speaking ? 'voice' : 'text' };
     Store.update(function () {
       chat.messages.push({ who: 'user', text: text });
       chat.draft = ''; chat.failed = false; chat.pending = true; chat.partial = ''; chat.status = '';
       chat.lastTurn = turn;
     });
+    if (speaking) { voiceInterrupt(); voiceBeginTurn(); }
     try {
       var done = await Api.stream('/api/interviews/' + chat.interviewId + '/turns', turn, function (delta) {
         chat.partial += delta; chat.status = '';
+        if (speaking) voiceFeed(delta);
         Store.notify();
       }, function (status) {
         chat.status = status;
         Store.notify();
       }, signal);
+      if (speaking) {
+        /* Ответ мог прийти без потока (дубль реплики): озвучить целиком. */
+        if (!chat.partial && done.turn && done.turn.text) voiceFeed(done.turn.text);
+        voiceFlush();
+      }
       Store.update(function () { applyTurnResult(chat, done); });
     } catch (e) {
+      if (speaking) voiceInterrupt();
       Store.update(function () { chat.pending = false; chat.partial = ''; chat.status = ''; chat.failed = true; chat.failError = e.message; });
     }
   }
@@ -1460,9 +1580,24 @@
       }
 
       /* -------- Голосовое интервью -------- */
+      case 'voice:tts': {
+        voice.provider = data.value;
+        if (voice.active) ensureSpeaker(data.value);
+        Store.notify();
+        return;
+      }
+      case 'voice:interrupt':
+        voiceInterrupt();
+        return;
+      case 'voice:send-text': {
+        var prepV = Store.activePrep();
+        if (prepV && prepV.live && prepV.chat && !prepV.chat.pending) liveSendChat(prepV);
+        return;
+      }
       case 'voice:start': {
         var prep13 = Store.activePrep();
         if (!prep13) return;
+        if (prep13.live) { if (!state.pending) liveVoiceStart(prep13); return; }
         Store.update(function () {
           var v = ScreensPrep.ensureVoice(prep13);
           v.status = 'speaking';
@@ -1515,12 +1650,15 @@
       case 'voice:finish':
         UI.confirm({
           title: 'Завершить голосовую тренировку?',
-          body: '<p>Откроется демонстрационный итог. Звук не записывался.</p>',
+          body: Store.activePrep() && Store.activePrep().live
+            ? '<p>Сервер подготовит итог по репликам этой тренировки. Звук не сохранялся.</p>'
+            : '<p>Откроется демонстрационный итог. Звук не записывался.</p>',
           act: 'voice:finish-confirm', confirmLabel: 'Завершить'
         });
         return;
       case 'voice:finish-confirm': {
         var prep17 = Store.activePrep();
+        if (prep17 && prep17.live) { voiceStop(); if (prep17.chat && prep17.chat.started && !prep17.chat.finished) liveFinishChat(prep17); return; }
         if (!prep17 || !prep17.voice) return;
         Store.update(function () {
           prep17.voice.finished = true;
@@ -1531,7 +1669,8 @@
       case 'voice:restart': {
         var prep18 = Store.activePrep();
         if (!prep18) return;
-        Store.update(function () { prep18.voice = null; });
+        voiceStop();
+        Store.update(function () { prep18.voice = null; if (prep18.live) prep18.chat = null; });
         return;
       }
 

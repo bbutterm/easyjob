@@ -17,6 +17,9 @@
       + '<p data-stt="feedback" role="status"></p>'
       + '<p>Аудио не сохраняется. Отправленный текст в веб-интервью хранится как обычная реплика. Заглушка имитирует текст без доступа к микрофону.</p>';
     const el = name => host.querySelector('[data-stt="' + name + '"]');
+    /* Реплики режутся по предложениям (TextSegment), а не по размеру: модель
+       получает законченные мысли; без сегментатора — прежнее деление. */
+    const pieceList = text => (globalThis.TextSegment ? globalThis.TextSegment.utterances(text, 4000) : SpeechToText.chunks(text));
     const labels = { idle: 'Микрофон выключен', requesting: 'Запрашиваю разрешение', recording: 'Запись микрофона', transcribing: 'Микрофон выключен, распознаю', ready: 'Текст готов к проверке', error: 'Ошибка' };
     let controller, sending = false, disposed = false, state = 'idle', version = 0;
     const config = options.config || {};
@@ -28,7 +31,7 @@
       el('stop').disabled = !['requesting', 'recording'].includes(state);
       ['provider', 'endpoint', 'consent'].forEach(name => { el(name).disabled = active || sending; });
       el('text').disabled = active || sending;
-      const pieces = SpeechToText.chunks(el('text').value);
+      const pieces = pieceList(el('text').value);
       el('queue').textContent = pieces.length ? 'Фрагментов до 4000 символов: ' + pieces.length + '. Отправляется только первый, по нажатию.' : '';
       el('send').disabled = state !== 'ready' || !pieces.length || sending || !el('consent').checked;
     }
@@ -52,7 +55,7 @@
     el('consent').onchange = refresh; el('text').oninput = refresh;
     el('send').onclick = async () => {
       if (el('send').disabled) return;
-      const pieces = SpeechToText.chunks(el('text').value), token = version;
+      const pieces = pieceList(el('text').value), token = version;
       sending = true; refresh(); el('feedback').textContent = 'Отправляю текст в AI…';
       try {
         await options.onSend(pieces[0]);

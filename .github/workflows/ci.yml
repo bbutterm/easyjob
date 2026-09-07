@@ -41,6 +41,8 @@ jobs:
         run: npm run test:context
       - name: Импорт вакансии по ссылке (границы SSRF, разбор)
         run: npm run test:import
+      - name: Живое интервью (деление, очередь синтеза, серверный синтез)
+        run: npm run test:voice
 
       - name: Сервер
         run: npm run test:server

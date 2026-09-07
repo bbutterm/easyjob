@@ -80,7 +80,7 @@
       language: rt.locale || 'ru-RU',
       tone: rt.tone || 'neutral',
       outputFormat: defs.outputFormat,
-      maxWords: defs.maxWords || null
+      maxWords: rt.maxWords || defs.maxWords || null
     };
 
     var context = ctx || {};

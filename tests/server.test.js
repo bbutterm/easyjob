@@ -843,6 +843,20 @@ const VACANCY_TEXT = 'Ищем повара в ресторан.\n\nТребов
     dupPair.map(function (x) { return x.status; }).join(','));
   mApp.server.close();
 
+  /* ---- Голосовой режим реплики ---- */
+  {
+    const AiRequest = require('../shared/ai/request.js');
+    const prepVoice = { id: 'p', match: [{ id: 'r1', text: 'Медкнижка', status: 'missing', evidence: 'нет' }], questions: [], answers: {}, resumeRev: 1, vacancyRev: 1, snapshot: null };
+    const intVoice = { id: 'i', turns: [{ seq: 1, role: 'interviewer', text: 'Расскажите о себе.' }, { seq: 2, role: 'candidate', text: 'Я повар.' }] };
+    const builtV = aiMod.buildStore('interview.turn', { prep: prepVoice, interview: intVoice, mode: 'practice_voice', resume: { rev: 1, data: RESUME } }, null);
+    const fitV = AiRequest.fit('interview.turn', builtV.store, { provider: 'mock', maxWords: 45 });
+    ok('Голосовой режим: в запросе раздел РЕЖИМ и предел в 45 слов', fitV.ok && /\[РЕЖИМ\]\nГолосовая тренировка/.test(fitV.request.userText)
+      && /не длиннее 45 слов/.test(fitV.request.system), fitV.ok ? '' : fitV.error);
+    const builtT = aiMod.buildStore('interview.turn', { prep: prepVoice, interview: intVoice, mode: 'practice_text', resume: { rev: 1, data: RESUME } }, null);
+    const fitT = AiRequest.fit('interview.turn', builtT.store, { provider: 'mock' });
+    ok('Текстовый режим: предела в 45 слов нет', fitT.ok && !/45 слов/.test(fitT.request.system));
+  }
+
   /* ---- Обмен ключа GigaChat на токен ---- */
   const GigaChatAuth = require('../server/lib/gigachat-auth.js');
   GigaChatAuth.reset();

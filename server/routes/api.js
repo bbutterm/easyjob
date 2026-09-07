@@ -572,12 +572,15 @@ function register(r) {
 
   /* ---- Интервью ---- */
 
-  r.post('/api/preps/:id/interviews', async function ({ res, params, ctx }) {
+  /* Режим реплики: голосовая тренировка просит короткие фразы. */
+  function turnMode(body) { return body && body.mode === 'voice' ? 'practice_voice' : 'practice_text'; }
+
+  r.post('/api/preps/:id/interviews', async function ({ res, params, body, ctx }) {
     const sid = ctx.session.id;
     const prep = db.preps.get(sid, params.id);
     if (!prep) throw new HttpError(404, 'Подготовка не найдена');
     const interview = db.interviews.create(sid, prep.id);
-    const first = await interviewerTurn(sid, prep, interview, null);
+    const first = await interviewerTurn(sid, prep, interview, null, null, null, turnMode(body));
     sendJson(res, 201, first);
   });
 
@@ -613,7 +616,7 @@ function register(r) {
 
     const wantsStream = String(req.headers.accept || '').indexOf('text/event-stream') >= 0;
     if (!wantsStream) {
-      sendJson(res, 200, await interviewerTurn(sid, prep, fresh, null));
+      sendJson(res, 200, await interviewerTurn(sid, prep, fresh, null, null, null, turnMode(body)));
       return;
     }
     res.writeHead(200, { 'content-type': 'text/event-stream; charset=utf-8', 'cache-control': 'no-store',
@@ -624,7 +627,7 @@ function register(r) {
     const send = function (event, data) { if (res.destroyed) return; res.write('event: ' + event + '\ndata: ' + JSON.stringify(data) + '\n\n'); };
     try {
       const result = await interviewerTurn(sid, prep, fresh, function (delta) { send('delta', { text: delta }); },
-        function (text) { send('status', { text }); }, aborter.signal);
+        function (text) { send('status', { text }); }, aborter.signal, turnMode(body));
       send('done', result);
     } catch (e) {
       send('error', { error: e.message });
@@ -684,7 +687,7 @@ function register(r) {
     } finally { release(); }
   });
 
-  async function interviewerTurn(sid, prep, interview, onDelta, onStatus, signal) {
+  async function interviewerTurn(sid, prep, interview, onDelta, onStatus, signal, mode) {
     const resume = db.resumes.get(sid, prep.resumeId);
     const vacancy = db.vacancies.get(sid, prep.vacancyId);
     /* Память обновляется до реплики, когда порог достигнут: реплика
@@ -692,7 +695,7 @@ function register(r) {
        не блокирует — окно и свёртка работают как прежде. */
     const compaction = await Compact.maybeRun(sid, prep, resume, vacancy, interview, { onStatus, signal });
     if (compaction.ran) prep = db.preps.get(sid, prep.id) || prep;
-    const result = await ai.run(sid, 'interview.turn', { resume, vacancy, prep, interview },
+    const result = await ai.run(sid, 'interview.turn', { resume, vacancy, prep, interview, mode: mode || 'practice_text' },
       { streaming: !!onDelta, onDelta, signal });
     if (signal && signal.aborted) throw new HttpError(499, 'Запрос отменён', { code: 'cancelled' });
     if (!result.ok) throw aiError(result);
