@@ -168,6 +168,12 @@ function snapshotFor(sid, prep, resume, vacancy) {
   return { snapshot: fresh, pinned: matchesPrep, sourcesChanged: !matchesPrep };
 }
 
+function pick(map, key) {
+  const out = {};
+  if (map && map[key] !== undefined) out[key] = map[key];
+  return out;
+}
+
 function buildStore(taskId, parts, sid) {
   const policy = ContextPolicy.policyFor(taskId);
   const legacy = policyMode() === 'legacy';
@@ -228,8 +234,12 @@ function buildStore(taskId, parts, sid) {
     vacancyRawText: vacancy && !isInterview ? vacancy.rawText : undefined,
     requirements: requirements || undefined,
     weakSpots: weakSpots.length ? weakSpots : undefined,
-    questions: prep.questions || undefined,
-    answers: parts.includeAnswers ? prep.answers : undefined
+    questions: parts.questionId
+      ? (prep.questions || []).filter(function (q) { return q.id === parts.questionId; })
+      : (prep.questions || undefined),
+    answers: parts.includeAnswers
+      ? (parts.questionId ? pick(prep.answers || {}, parts.questionId) : prep.answers)
+      : undefined
   });
 
   if (!turns || !turns.length) return { store, info };

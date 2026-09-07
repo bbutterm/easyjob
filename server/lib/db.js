@@ -143,6 +143,8 @@ function open(file) {
      не на текущей версии резюме — подмена версии незаметно запрещена. */
   const pcols = db.prepare('PRAGMA table_info(preps)').all().map(function (c) { return c.name; });
   if (pcols.indexOf('snapshot') < 0) db.exec('ALTER TABLE preps ADD COLUMN snapshot TEXT');
+  /* Обратная связь на ответы: по questionId, с источником и отпечатком ответа. */
+  if (pcols.indexOf('feedback') < 0) db.exec("ALTER TABLE preps ADD COLUMN feedback TEXT NOT NULL DEFAULT '{}'");
   /* Источник вакансии: адрес без токенов, способ получения, время. */
   const vcols = db.prepare('PRAGMA table_info(vacancies)').all().map(function (c) { return c.name; });
   if (vcols.indexOf('source_url') < 0) db.exec('ALTER TABLE vacancies ADD COLUMN source_url TEXT');
@@ -413,7 +415,7 @@ function rowToPrep(row) {
     profession: row.profession || '',
     match: parse(row.match, null), questions: parse(row.questions, null),
     answers: parse(row.answers, {}), ready: parse(row.ready, {}),
-    card: parse(row.card, null), snapshot: parse(row.snapshot, null),
+    card: parse(row.card, null), snapshot: parse(row.snapshot, null), feedback: parse(row.feedback, {}),
     createdAt: row.created_at, updatedAt: row.updated_at
   };
 }
@@ -434,7 +436,7 @@ const preps = {
     return db.prepare('SELECT * FROM preps WHERE session_id = ? ORDER BY updated_at DESC').all(sid).map(rowToPrep);
   },
   set(sid, pid, fields) {
-    const allowed = ['match', 'questions', 'answers', 'ready', 'card'];
+    const allowed = ['match', 'questions', 'answers', 'ready', 'card', 'feedback'];
     const sets = [];
     const values = [];
     allowed.forEach(function (key) {

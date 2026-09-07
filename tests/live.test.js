@@ -122,6 +122,18 @@ const VACANCY_TEXT = 'Ищем повара в ресторан полного �
     (await page.inputValue('.q-item >> nth=0 >> textarea')).indexOf('сорок столов') >= 0);
   ok('Отметка «Подготовлено» сохранена', await page.locator('.q-item >> nth=0 >> .tag--ok').isVisible());
 
+  /* ---- Обратная связь на ответ ---- */
+  await page.click('.q-item >> nth=0 >> button:has-text("Получить обратную связь")');
+  await page.waitForSelector('.q-item >> nth=0 >> .q-feedback__result', { timeout: 20000 });
+  const fbText = await page.locator('.q-item >> nth=0 >> .q-feedback__result').innerText();
+  ok('Обратная связь получена с сервера и подписана источником', /Сильно/.test(fbText) && /Заглушка модели/.test(fbText) && /без баллов/.test(fbText));
+  await page.fill('.q-item >> nth=0 >> textarea', 'Отвечал за горячий цех в смену на сорок столов. Добавлю деталь.');
+  await page.waitForSelector('.q-item >> nth=0 >> .q-feedback__result:has-text("Ответ изменился")');
+  ok('Изменённый ответ помечает обратную связь устаревшей', true);
+  await page.reload();
+  await page.waitForSelector('.q-item', { timeout: 15000 });
+  ok('Обратная связь переживает перезагрузку', (await page.locator('.q-item >> nth=0 >> .q-feedback__result').count()) === 1);
+
   /* ---- Интервью потоком ---- */
   await page.click('button:has-text("Начать пробное интервью")');
   await page.waitForSelector('button:has-text("Начать интервью")');

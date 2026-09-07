@@ -164,6 +164,8 @@ var Api = (function () {
       stale: !!p.stale, staleReason: p.staleReason || '',
       answers: p.answers || {}, ready: p.ready || {},
       match: p.match || null, questions: p.questions || null, card: p.card || null,
+      feedback: p.feedback || {}, state: p.state || '', states: p.states || {},
+      feedbackBusy: {}, feedbackError: {},
       interviewId: p.interview ? p.interview.id : null,
       interviewStarted: !!(p.interview && p.interview.turns > 0),
       chat: null, voice: null, live: true

@@ -5,6 +5,7 @@
 'use strict';
 
 const { createApp } = require('../server/index.js');
+const aiMod = require('../server/lib/ai.js');
 
 process.env.AI_PROVIDER = 'mock';
 process.env.SESSION_SECRET = 'test-secret';
@@ -656,6 +657,57 @@ const VACANCY_TEXT = 'Ищем повара в ресторан.\n\nТребов
   ok('Чужая вакансия не читается и не правится', (await stranger2.call('GET', '/api/vacancies/' + iv2.data.id)).status === 404
     && (await stranger2.call('PUT', '/api/vacancies/' + iv2.data.id, { title: 'x' })).status === 404);
   iApp.server.close();
+
+  /* ---- Обратная связь на ответ и состояние подготовки ---- */
+  const fApp = createApp({ dbFile: ':memory:', freePrepsPerDay: 100, secure: false, retention: false,
+    rateLimit: { perMinute: 10000, expensivePerMinute: 10000, sessionsPerHour: 1000 } });
+  await new Promise(function (r) { fApp.server.listen(0, '127.0.0.1', r); });
+  const fbase = 'http://127.0.0.1:' + fApp.server.address().port;
+  const fc = client(fbase);
+  await fc.call('GET', '/api/me');
+  const fr = await fc.call('POST', '/api/resumes', { title: 'Р', data: RESUME });
+  const fv = await fc.call('POST', '/api/vacancies', { title: 'Повар', rawText: VACANCY_TEXT });
+  const fp = await fc.call('POST', '/api/preps', { resumeId: fr.data.id, vacancyId: fv.data.id });
+  ok('Состояние подготовки после сопоставления — match_ready', fp.data.state === 'match_ready' && fp.data.states.questions_ready === false);
+  const noQ = await fc.call('POST', '/api/preps/' + fp.data.id + '/feedback', { questionId: 'q1' });
+  ok('Обратная связь без вопросов — 404', noQ.status === 404);
+  const fq = await fc.call('POST', '/api/preps/' + fp.data.id + '/questions');
+  const qidF = fq.data.questions[0].id;
+  const emptyA = await fc.call('POST', '/api/preps/' + fp.data.id + '/feedback', { questionId: qidF });
+  ok('Обратная связь без ответа — 400 empty_answer', emptyA.status === 400 && emptyA.data.code === 'empty_answer');
+  const answersF = {}; answersF[qidF] = 'Вёл горячий цех на сорок столов, отвечал за заготовки.';
+  await fc.call('PUT', '/api/preps/' + fp.data.id + '/answers', { answers: answersF, ready: {} });
+  ok('Состояние: answers_started после сохранённого ответа', (await fc.call('GET', '/api/preps/' + fp.data.id)).data.state === 'answers_started');
+  const fb1 = await fc.call('POST', '/api/preps/' + fp.data.id + '/feedback', { questionId: qidF });
+  ok('Обратная связь получена и подписана источником заглушки',
+    fb1.status === 200 && fb1.data.feedback.strong.length > 0 && fb1.data.feedback.rewrite && fb1.data.source.mode === 'mock'
+    && fb1.data.source.provider === 'mock' && fb1.data.source.stage === 'pre_interview' && fb1.data.state === 'feedback_ready', JSON.stringify(fb1.data).slice(0, 200));
+  const fpView = await fc.call('GET', '/api/preps/' + fp.data.id);
+  ok('Обратная связь сохранена по вопросу с отпечатком ответа', fpView.data.feedback[qidF] && fpView.data.feedback[qidF].answerText === answersF[qidF]);
+  /* Модели уходят только этот вопрос и этот ответ. */
+  const dbF = require('../server/lib/db.js');
+  const fPrep = dbF.preps.get((await fc.call('GET', '/api/me')).data.session.id, fp.data.id);
+  const builtF = aiMod.buildStore('answer.feedback', { prep: fPrep, includeAnswers: true, questionId: qidF }, null).store.build().context.preparation;
+  ok('В задачу обратной связи уходит один вопрос и один ответ', builtF.questions.length === 1 && Object.keys(builtF.answers).length === 1);
+  /* Неполный ответ модели не сохраняется. */
+  const mockF = require('../shared/ai/providers/mock.js');
+  const realF = mockF.run;
+  mockF.run = function (request) { return request.task === 'answer.feedback' ? { ok: true, text: '{"strong": ["x"', mock: true, usage: null } : realF(request); };
+  const fbBad = await fc.call('POST', '/api/preps/' + fp.data.id + '/feedback', { questionId: qidF });
+  mockF.run = realF;
+  ok('Неразборчивый ответ модели — 502 malformed_response, прежняя обратная связь сохранена',
+    fbBad.status === 502 && fbBad.data.code === 'malformed_response'
+    && (await fc.call('GET', '/api/preps/' + fp.data.id)).data.feedback[qidF].strong.length > 0);
+  const strangerF = client(fbase);
+  await strangerF.call('GET', '/api/me');
+  ok('Чужая подготовка недоступна для обратной связи', (await strangerF.call('POST', '/api/preps/' + fp.data.id + '/feedback', { questionId: qidF })).status === 404);
+  await fc.call('POST', '/api/preps/' + fp.data.id + '/card');
+  const fi = await fc.call('POST', '/api/preps/' + fp.data.id + '/interviews');
+  await fc.call('POST', '/api/interviews/' + fi.data.interviewId + '/turns', { text: 'Ответ.' });
+  ok('Состояние: text_interview_started после первой реплики кандидата', (await fc.call('GET', '/api/preps/' + fp.data.id)).data.state === 'text_interview_started');
+  await fc.call('POST', '/api/interviews/' + fi.data.interviewId + '/finish');
+  ok('Состояние: live_interview_available после итога', (await fc.call('GET', '/api/preps/' + fp.data.id)).data.state === 'live_interview_available');
+  fApp.server.close();
 
   /* ---- Обмен ключа GigaChat на токен ---- */
   const GigaChatAuth = require('../server/lib/gigachat-auth.js');

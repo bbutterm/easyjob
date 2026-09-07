@@ -185,6 +185,7 @@ var ScreensPrep = (function () {
         + (hintOpen
             ? '<div class="note note--info" style="margin-top:12px"><div><b>Ориентиры:</b> ' + esc(q.guidance) + '</div></div>'
             : '')
+        + feedbackBlock(prep, q)
         + '</div>';
     }).join('');
 
@@ -219,6 +220,42 @@ var ScreensPrep = (function () {
       + '    Собрать карточку подготовки</button>'
       + '  <button type="button" class="btn" data-act="go:#/prep/' + esc(prep.id) + '/match">Вернуться к сопоставлению</button>'
       + '</div></div>';
+  }
+
+  /* Обратная связь на ответ: только в режиме сервера. Показывает сильные
+     стороны, пробелы и вариант переформулировки с источником; если ответ
+     изменился после оценки — пометка «устарело». */
+  function feedbackBlock(prep, q) {
+    if (!isLivePrep(prep)) return '';
+    var fb = (prep.feedback || {})[q.id];
+    var busy = !!(prep.feedbackBusy || {})[q.id];
+    var error = (prep.feedbackError || {})[q.id] || '';
+    var answer = String(prep.answers[q.id] || '').trim();
+    var outdated = fb && fb.answerText !== undefined && fb.answerText !== answer;
+    var html = '<div class="q-feedback" data-q="' + esc(q.id) + '">'
+      + '<div class="btn-row" style="margin-top:8px">'
+      + '  <button type="button" class="btn btn--sm" data-act="q:feedback" data-id="' + esc(q.id) + '"'
+      + (busy || !answer ? ' disabled' : '') + '>'
+      + (busy ? 'Оцениваю ответ…' : (fb ? 'Оценить ответ заново' : 'Получить обратную связь')) + '</button>'
+      + (!answer && !busy ? '<span class="muted small">Напишите ответ, чтобы получить обратную связь.</span>' : '')
+      + '</div>';
+    if (error) {
+      html += note('alert', '<div class="q-feedback__error"><strong>Обратная связь не получена.</strong> ' + esc(error)
+        + ' <button type="button" class="btn btn--sm" data-act="q:feedback" data-id="' + esc(q.id) + '">Повторить</button></div>');
+    }
+    if (fb && !busy) {
+      var src = fb.source || {};
+      html += '<div class="note note--' + (outdated ? 'demo' : 'info') + ' q-feedback__result" style="margin-top:8px"><div>'
+        + (outdated ? '<p><strong>Ответ изменился после оценки.</strong> Оцените заново, чтобы обратная связь соответствовала тексту.</p>' : '')
+        + (fb.strong && fb.strong.length ? '<p><b>Сильно:</b></p><ul>' + fb.strong.map(function (t) { return '<li>' + esc(t) + '</li>'; }).join('') + '</ul>' : '')
+        + (fb.gaps && fb.gaps.length ? '<p><b>Чего не хватает:</b></p><ul>' + fb.gaps.map(function (t) { return '<li>' + esc(t) + '</li>'; }).join('') + '</ul>' : '')
+        + (fb.rewrite ? '<p><b>Вариант формулировки:</b></p><div>' + escLines(fb.rewrite) + '</div>' : '')
+        + '<p class="muted small">' + (src.mode === 'mock' ? 'Заглушка модели, не настоящая оценка' : 'Оценка модели')
+        + (src.provider ? ': ' + esc(src.provider) + (src.model ? ' · ' + esc(src.model) : '') : '')
+        + (src.stage ? ' · ' + esc(src.stage) : '') + '. Оценивается ответ, а не человек: без баллов.</p>'
+        + '</div></div>';
+    }
+    return html + '</div>';
   }
 
   function prepIndex(prep) {

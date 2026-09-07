@@ -51,13 +51,42 @@ function stale(prep, resume, vacancy) {
   return { stale: false, reason: '' };
 }
 
+/* Состояние подготовки: цепочка шагов, каждый достигнут после сохранённого
+   действия пользователя и переживает перезагрузку. Возвращается и самый
+   дальний достигнутый шаг, и отметки по каждому. */
+const PREP_STATES = ['resume_selected', 'vacancy_selected', 'vacancy_requirements_ready', 'match_ready', 'questions_ready',
+  'answers_started', 'feedback_ready', 'prep_card_ready', 'text_interview_started', 'text_interview_finished', 'live_interview_available'];
+
+function prepState(prep, resume, vacancy, interview) {
+  const answers = prep.answers || {};
+  const reached = {
+    resume_selected: !!resume,
+    vacancy_selected: !!vacancy,
+    vacancy_requirements_ready: !!(vacancy && vacancy.requirements && vacancy.requirements.length),
+    match_ready: !!(prep.match && prep.match.length),
+    questions_ready: !!(prep.questions && prep.questions.length),
+    answers_started: Object.keys(answers).some(function (k) { return String(answers[k] || '').trim(); }),
+    feedback_ready: Object.keys(prep.feedback || {}).length > 0,
+    prep_card_ready: !!prep.card,
+    text_interview_started: !!(interview && interview.turns.length > 1),
+    text_interview_finished: !!(interview && interview.finished),
+    live_interview_available: !!(interview && interview.finished)
+  };
+  let current = 'resume_selected';
+  for (let i = 0; i < PREP_STATES.length; i++) {
+    if (reached[PREP_STATES[i]]) current = PREP_STATES[i]; else break;
+  }
+  return { current, reached };
+}
+
 function prepView(sid, prep) {
   const resume = db.resumes.get(sid, prep.resumeId);
   const vacancy = db.vacancies.get(sid, prep.vacancyId);
   const s = stale(prep, resume, vacancy);
   const interview = db.interviews.latestForPrep(sid, prep.id);
+  const state = prepState(prep, resume, vacancy, interview);
   return Object.assign({}, prep, {
-    stale: s.stale, staleReason: s.reason,
+    stale: s.stale, staleReason: s.reason, state: state.current, states: state.reached,
     resume: resume ? { id: resume.id, title: resume.title, rev: resume.rev } : null,
     vacancy: vacancy ? { id: vacancy.id, title: vacancy.title, company: vacancy.company, rev: vacancy.rev,
       requirements: vacancy.requirements } : null,
@@ -362,6 +391,49 @@ function register(r) {
     });
     const updated = db.preps.set(sid, prep.id, { answers, ready });
     sendJson(res, 200, { answers: updated.answers, ready: updated.ready });
+  });
+
+  /* Обратная связь на один ответ. Модели уходят только этот вопрос и этот
+     ответ. Результат хранится по questionId вместе с отпечатком ответа:
+     когда ответ меняется, прежняя обратная связь помечается устаревшей. */
+  const feedbacks = new Set();
+  r.post('/api/preps/:id/feedback', async function ({ res, params, body, ctx }) {
+    const sid = ctx.session.id;
+    const prep = db.preps.get(sid, params.id);
+    if (!prep) throw new HttpError(404, 'Подготовка не найдена');
+    const questionId = safeId(body.questionId, null);
+    const question = (prep.questions || []).find(function (q) { return q.id === questionId; });
+    if (!question) throw new HttpError(404, 'Вопрос не найден в этой подготовке');
+    const answer = String((prep.answers || {})[questionId] || '').trim();
+    if (!answer) throw new HttpError(400, 'Сначала напишите ответ на вопрос.', { code: 'empty_answer' });
+    const key = sid + ':' + prep.id + ':' + questionId;
+    if (feedbacks.has(key)) throw new HttpError(409, 'Обратная связь уже готовится. Дождитесь ответа.', { code: 'duplicate' });
+    feedbacks.add(key);
+    try {
+      const resume = db.resumes.get(sid, prep.resumeId);
+      const vacancy = db.vacancies.get(sid, prep.vacancyId);
+      const result = await ai.run(sid, 'answer.feedback', { resume, vacancy, prep, includeAnswers: true, questionId });
+      if (!result.ok) throw aiError(result);
+      const fb = result.json || {};
+      const clean = {
+        strong: (Array.isArray(fb.strong) ? fb.strong : []).map(function (x) { return str(x, 400, 'strong'); }).filter(Boolean).slice(0, 5),
+        gaps: (Array.isArray(fb.gaps) ? fb.gaps : []).map(function (x) { return str(x, 400, 'gaps'); }).filter(Boolean).slice(0, 5),
+        rewrite: str(fb.rewrite, 2000, 'rewrite')
+      };
+      if (!clean.strong.length && !clean.gaps.length && !clean.rewrite) {
+        throw new HttpError(502, 'Модель вернула пустую обратную связь. Повторите запрос.', { code: 'malformed_response' });
+      }
+      const current = db.preps.get(sid, prep.id);
+      const currentAnswer = String((current.answers || {})[questionId] || '').trim();
+      const entry = Object.assign(clean, {
+        answerText: currentAnswer.slice(0, 4000),
+        source: Object.assign({ mode: result.mock ? 'mock' : 'real', createdAt: Date.now() }, result.source || {})
+      });
+      const feedback = Object.assign({}, current.feedback || {});
+      feedback[questionId] = entry;
+      const saved = db.preps.set(sid, prep.id, { feedback });
+      sendJson(res, 200, { questionId, feedback: entry, mock: result.mock, source: entry.source, state: prepView(sid, saved).state });
+    } finally { feedbacks.delete(key); }
   });
 
   r.post('/api/preps/:id/card', async function ({ res, params, ctx }) {

@@ -604,6 +604,28 @@
     } catch (e) { liveFail(e); }
   }
 
+  /* Обратная связь на один ответ: запрос по вопросу, состояние и ошибка
+     хранятся по questionId, чтобы остальные вопросы не блокировались. */
+  async function liveFeedback(prep, questionId) {
+    var answer = String(prep.answers[questionId] || '').trim();
+    if (!answer) { UI.toast('Сначала напишите ответ на вопрос.'); return; }
+    if (prep.feedbackBusy[questionId]) return;
+    if (answersTimer) { clearTimeout(answersTimer); answersTimer = null; }
+    Store.update(function () { prep.feedbackBusy[questionId] = true; prep.feedbackError[questionId] = ''; });
+    try {
+      await Api.request('PUT', '/api/preps/' + prep.serverId + '/answers', { answers: prep.answers, ready: prep.ready });
+      var data = await Api.request('POST', '/api/preps/' + prep.serverId + '/feedback', { questionId: questionId }, { timeoutMs: 90000 });
+      Store.update(function () {
+        prep.feedback[questionId] = data.feedback;
+        if (data.state) prep.state = data.state;
+      });
+    } catch (e) {
+      Store.update(function () { prep.feedbackError[questionId] = e.message; });
+    } finally {
+      Store.update(function () { prep.feedbackBusy[questionId] = false; });
+    }
+  }
+
   var answersTimer = null;
   function liveScheduleAnswers(prep, immediate) {
     if (!prep || !prep.serverId) return;
@@ -1234,6 +1256,12 @@
         if (!prep6) return;
         Store.update(function () { prep6.ready[data.id] = !prep6.ready[data.id]; });
         if (prep6.live) liveScheduleAnswers(prep6, true);
+        return;
+      }
+      case 'q:feedback': {
+        var prepF = Store.activePrep();
+        if (prepF && prepF.live) liveFeedback(prepF, data.id);
+        else UI.toast('Обратная связь на ответ доступна в режиме сервера.');
         return;
       }
       case 'questions:generate': {
