@@ -8,6 +8,7 @@ const ai = require('../lib/ai.js');
 const Compact = require('../lib/context-compact.js');
 const UrlImport = require('../lib/url-import.js');
 const SttServer = require('../lib/stt-server.js');
+const TtsServer = require('../lib/tts-server.js');
 const log = require('../lib/log.js');
 
 /* Ошибка задачи модели → HTTP: переполнение контекста 422, таймаут 504,
@@ -506,6 +507,25 @@ function register(r) {
 
   r.get('/api/stt', function ({ res }) {
     sendJson(res, 200, SttServer.describe());
+  });
+
+  /* ---- Синтез речи на сервере ----
+     Фраза интервьюера (до 600 знаков) → аудио. Ключ сервиса синтеза на
+     сервере, текст не хранится. Заглушка отдаёт тишину с пометкой. */
+  r.post('/api/tts/speak', async function ({ res, body, ctx }) {
+    const text = str(body.text, TtsServer.MAX_TEXT + 1, 'text', true);
+    const voice = body.voice ? str(body.voice, 80, 'voice') : '';
+    if (voice && !/^[A-Za-z0-9_.-]+$/.test(voice)) throw new HttpError(400, 'Недопустимое имя голоса.');
+    const signal = require('../lib/request-scope.js').getStore()?.signal;
+    const out = await TtsServer.speak(text, { voice, signal });
+    log.info('tts.speak', { session: ctx.session.id.slice(0, 6), chars: text.length, ms: out.latencyMs, mock: out.mock, bytes: out.bytes.length });
+    res.writeHead(200, { 'content-type': out.type, 'content-length': out.bytes.length, 'cache-control': 'no-store',
+      'x-tts-mock': out.mock ? '1' : '0', 'x-tts-provider': out.provider });
+    res.end(out.bytes);
+  });
+
+  r.get('/api/tts', function ({ res }) {
+    sendJson(res, 200, TtsServer.describe());
   });
 
   /* ---- Помощник на собеседовании: текстовый контур через сервер ----

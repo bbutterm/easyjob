@@ -783,6 +783,18 @@ const VACANCY_TEXT = 'Ищем повара в ресторан.\n\nТребов
   ok('STT: недоступный whisper — 502 stt_unavailable', (await sttC.call('POST', '/api/stt/transcribe', { wavBase64: wavBytes.toString('base64'), consent: true })).data.code === 'stt_unavailable');
   const dbS = require('../server/lib/db.js');
   ok('STT: ни аудио, ни текст не попадают в базу', !/Привет|RIFF/.test(JSON.stringify(dbS.usage.summary(1))));
+  /* ---- Синтез речи на сервере ---- */
+  const prevTts = process.env.TTS_PROVIDER; process.env.TTS_PROVIDER = 'mock';
+  const ttsRes = await fetch(sttBase + '/api/tts/speak', { method: 'POST', headers: { 'content-type': 'application/json', cookie: sttC.cookie, origin: sttBase },
+    body: JSON.stringify({ text: 'Расскажите о себе.' }) });
+  const ttsBytes = Buffer.from(await ttsRes.arrayBuffer());
+  ok('TTS: заглушка отдаёт WAV с пометкой заглушки и без кэширования', ttsRes.status === 200 && ttsRes.headers.get('content-type') === 'audio/wav'
+    && ttsRes.headers.get('x-tts-mock') === '1' && ttsRes.headers.get('cache-control') === 'no-store' && ttsBytes.subarray(0, 4).toString() === 'RIFF',
+    ttsRes.status + ' ' + ttsRes.headers.get('content-type') + ' ' + ttsBytes.subarray(0, 80).toString());
+  ok('TTS: пустой текст — 400', (await sttC.call('POST', '/api/tts/speak', { text: '' })).status === 400);
+  ok('TTS: недопустимое имя голоса — 400', (await sttC.call('POST', '/api/tts/speak', { text: 'x', voice: '../x' })).status === 400);
+  ok('TTS: описание без секретов', (await sttC.call('GET', '/api/tts')).data.provider === 'mock');
+  if (prevTts === undefined) delete process.env.TTS_PROVIDER; else process.env.TTS_PROVIDER = prevTts;
   if (prevStt.p === undefined) delete process.env.STT_PROVIDER; else process.env.STT_PROVIDER = prevStt.p;
   if (prevStt.e === undefined) delete process.env.STT_ENDPOINT; else process.env.STT_ENDPOINT = prevStt.e;
   sttApp.server.close();
