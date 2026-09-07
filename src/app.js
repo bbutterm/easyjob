@@ -70,7 +70,8 @@
     if (!data) return out;
     var metrics = [['requests', 'Запросы'], ['failures', 'Ошибки'], ['tokensIn', 'Входные токены'],
       ['tokensOut', 'Выходные токены'], ['estimatedCostUsd', '≈ USD'], ['estimatedRequests', 'Оценка токенов'],
-      ['reportedRequests', 'Токены провайдера'], ['unpricedRequests', 'Без цены'], ['avgMs', 'Среднее мс']];
+      ['reportedRequests', 'Токены провайдера'], ['unpricedRequests', 'Без цены'], ['usageUnknown', 'Расход неизвестен'],
+      ['attempts', 'Попытки'], ['avgMs', 'Среднее мс']];
     function table(title, rows, dimensions) {
       var cols = dimensions.concat(metrics);
       return '<h2>' + title + '</h2><div class="usage-table" tabindex="0" role="region" aria-label="' + title + '"><table><caption class="sr-only">' + title + '</caption><thead><tr>'
@@ -83,6 +84,8 @@
       + table('По этапам', data.byStage, [['stage', 'Этап']])
       + table('По провайдерам', data.byProvider, [['provider', 'Провайдер']])
       + table('По моделям', data.byModel, [['provider', 'Провайдер'], ['model', 'Модель']])
+      + table('По задачам', data.byTask || [], [['task', 'Задача'], ['provider', 'Провайдер']])
+      + table('По фазам', data.byPhase || [], [['phase', 'Фаза']])
       + table('По дням (UTC)', data.byDay, [['day', 'День']]);
   }
   function loadUsage() {
@@ -312,8 +315,11 @@
         + sidebar(section)
         + '  <div class="main">' + topbar()
         + '    <main class="content" id="main" tabindex="-1">'
-        + (state.pending ? '<div class="note note--info" role="status" aria-live="polite" style="margin-bottom:16px"><div>'
-            + '<span class="dots" aria-hidden="true"><span></span><span></span><span></span></span> ' + esc(state.pending) + '</div></div>' : '')
+        + (state.pending ? '<div class="note note--info op-status" role="status" aria-live="polite" style="margin-bottom:16px"><div>'
+            + '<span class="dots" aria-hidden="true"><span></span><span></span><span></span></span> ' + esc(state.pending)
+            + (state.pendingElapsed >= 2 ? ' <span class="muted">· ' + esc(String(state.pendingElapsed)) + ' с</span>' : '')
+            + (currentOp ? ' <button type="button" class="btn btn--sm" data-act="op:cancel" style="margin-left:12px">Отменить</button>' : '')
+            + '</div></div>' : '')
         + content + '</main>'
         + '  </div>'
         + '</div>'
@@ -453,8 +459,35 @@
     Store.notify();
   }
 
+  /* Долгая операция с сервером: одна за раз, с отменой и временем ожидания.
+     Сигнал уходит в запросы; сервер по обрыву соединения отменяет вызов
+     модели. Введённые данные не теряются: экран остаётся тем же. */
+  var currentOp = null;
+  function beginOperation(text) {
+    if (currentOp) return null;
+    var controller = new AbortController();
+    var started = Date.now();
+    currentOp = { controller: controller, started: started, ticker: setInterval(function () {
+      Store.get().pendingElapsed = Math.floor((Date.now() - started) / 1000);
+      Store.notify();
+    }, 1000) };
+    Store.get().pendingElapsed = 0;
+    setPending(text);
+    return { signal: controller.signal, timeoutMs: 100000 };
+  }
+  function endOperation() {
+    if (currentOp) { clearInterval(currentOp.ticker); currentOp = null; }
+    Store.get().pendingElapsed = 0;
+    setPending(null);
+  }
+  function cancelOperation() {
+    if (currentOp) currentOp.controller.abort();
+  }
+
   function liveFail(e) {
     setPending(null);
+    if (e && e.extra && e.extra.code === 'cancelled') { UI.toast('Операция отменена. Данные на экране сохранены.'); return; }
+    if (e && e.extra && e.extra.code === 'timeout') { UI.toast(e.message + ' Нажмите кнопку ещё раз, чтобы повторить.'); return; }
     if (e && e.status === 429) {
       var limits = e.extra && e.extra.limits;
       UI.openModal({
@@ -515,18 +548,19 @@
   async function liveCreatePrep(draft) {
     var resume = Store.resumeById(draft.resumeId);
     if (!resume) { UI.toast('Выберите резюме.'); return; }
+    var op = beginOperation('Отправляю резюме и вакансию на сервер…');
+    if (!op) return;
     try {
-      setPending('Отправляю резюме и вакансию на сервер…');
       var resumeSid = await liveEnsureResume(resume);
       var origin = draft.imported && draft.imported.sourceUrl
         ? { sourceUrl: draft.imported.sourceUrl, source: draft.imported.source, retrievedAt: draft.imported.retrievedAt } : {};
       var vacancy = Api.vacancyFromServer(await Api.request('POST', '/api/vacancies', Object.assign({
         title: draft.title, company: draft.company || '', rawText: draft.text
-      }, origin)));
+      }, origin), op));
       setPending('Сопоставляю резюме с требованиями…');
       var prep = Api.prepFromServer(await Api.request('POST', '/api/preps', {
         resumeId: resumeSid, vacancyId: vacancy.id, profession: resume.profession || draft.title
-      }));
+      }, op));
       prep.resumeId = resume.id;
       Store.update(function (s) {
         s.vacancies.unshift(vacancy);
@@ -537,7 +571,7 @@
         Store.addHistory('Создана подготовка по вакансии', '#/prep/' + prep.id + '/match', prep.id);
       });
       go('#/prep/' + prep.id + '/match');
-    } catch (e) { liveFail(e); }
+    } catch (e) { liveFail(e); } finally { endOperation(); }
   }
 
   /* Импорт вакансии по ссылке: сервер читает страницу, пользователь видит
@@ -584,24 +618,26 @@
   }
 
   async function liveRebuild(prep) {
+    var op = beginOperation('Пересобираю сопоставление…');
+    if (!op) return;
     try {
-      setPending('Пересобираю сопоставление…');
-      var fresh = Api.prepFromServer(await Api.request('POST', '/api/preps/' + prep.serverId + '/rebuild'));
+      var fresh = Api.prepFromServer(await Api.request('POST', '/api/preps/' + prep.serverId + '/rebuild', undefined, op));
       Store.update(function () {
         prep.match = fresh.match; prep.questions = null; prep.card = null;
         prep.stale = false; prep.staleReason = ''; prep.resumeRev = fresh.resumeRev; prep.vacancyRev = fresh.vacancyRev;
         Store.get().pending = null;
       });
       UI.toast('Сопоставление пересобрано для текущих версий.');
-    } catch (e) { liveFail(e); }
+    } catch (e) { liveFail(e); } finally { endOperation(); }
   }
 
   async function liveGenerateQuestions(prep) {
+    var op = beginOperation('Подбираю вопросы…');
+    if (!op) return;
     try {
-      setPending('Подбираю вопросы…');
-      var data = await Api.request('POST', '/api/preps/' + prep.serverId + '/questions');
-      Store.update(function () { prep.questions = data.questions; Store.get().pending = null; });
-    } catch (e) { liveFail(e); }
+      var data = await Api.request('POST', '/api/preps/' + prep.serverId + '/questions', undefined, op);
+      Store.update(function () { prep.questions = data.questions; if (data.source) prep.sources.questions = data.source; });
+    } catch (e) { liveFail(e); } finally { endOperation(); }
   }
 
   /* Обратная связь на один ответ: запрос по вопросу, состояние и ошибка
@@ -639,9 +675,10 @@
   }
 
   async function liveStartChat(prep) {
+    var op = beginOperation('Интервьюер готовит первый вопрос…');
+    if (!op) return;
     try {
-      setPending('Интервьюер готовит первый вопрос…');
-      var first = await Api.request('POST', '/api/preps/' + prep.serverId + '/interviews');
+      var first = await Api.request('POST', '/api/preps/' + prep.serverId + '/interviews', undefined, op);
       Store.update(function () {
         var chat = ScreensPrep.ensureChat(prep);
         chat.started = true; chat.index = 0; chat.finished = false; chat.failed = false;
@@ -655,7 +692,7 @@
         ];
         Store.get().pending = null;
       });
-    } catch (e) { liveFail(e); }
+    } catch (e) { liveFail(e); } finally { endOperation(); }
   }
 
   /* Идентификатор реплики от клиента: повтор после обрыва сети уходит с
@@ -713,15 +750,16 @@
 
   async function liveFinishChat(prep) {
     var chat = prep.chat;
+    var op = beginOperation('Готовлю итог интервью…');
+    if (!op) return;
     try {
-      setPending('Готовлю итог интервью…');
-      var data = await Api.request('POST', '/api/interviews/' + chat.interviewId + '/finish');
+      var data = await Api.request('POST', '/api/interviews/' + chat.interviewId + '/finish', undefined, op);
       Store.update(function () {
         chat.summary = data.summary; chat.finished = true;
         Store.get().pending = null;
         Store.addHistory('Текстовое пробное интервью', '#/prep/' + prep.id + '/interview', prep.id);
       });
-    } catch (e) { liveFail(e); }
+    } catch (e) { liveFail(e); } finally { endOperation(); }
   }
 
   async function liveReview() {
@@ -1524,6 +1562,9 @@
         return;
       case 'vacancy:import-cancel':
         cancelImport();
+        return;
+      case 'op:cancel':
+        cancelOperation();
         return;
       case 'stub:import':
         UI.openModal({

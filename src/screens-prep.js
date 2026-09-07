@@ -34,14 +34,27 @@ var ScreensPrep = (function () {
           'Добавить вакансию', 'go:#/vacancy/new');
   }
 
-  function sourcesBar(prep) {
+  function sourcesBar(prep, kind) {
     var resume = Store.resumeById(prep.resumeId);
     var vacancy = Store.vacancyById(prep.vacancyId);
     return ''
       + '<div class="toolbar">'
       + '  <span><b>Вакансия:</b> ' + esc(vacancy ? vacancy.title + ' · ' + vacancy.company : 'не выбрана') + '</span>'
       + '  <span><b>Резюме:</b> ' + esc(resume ? resume.title : 'не выбрано') + '</span>'
+      + (kind ? modelSourceLine(prep, kind) : '')
       + '</div>';
+  }
+
+  /* Кто сделал результат: заглушка или модель, провайдер, этап, когда.
+     Демонстрационный результат никогда не подписывается как настоящий. */
+  function modelSourceLine(prep, kind) {
+    if (!isLivePrep(prep)) return '<span class="muted model-source">Источник: демонстрационные данные макета</span>';
+    var src = (prep.sources || {})[kind];
+    if (!src) return '';
+    var when = src.createdAt ? new Date(src.createdAt).toLocaleString('ru-RU', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }) : '';
+    return '<span class="muted model-source">Источник: ' + (src.mode === 'mock' ? 'заглушка модели' : 'модель')
+      + (src.provider ? ' · ' + esc(src.provider) : '') + (src.model && src.mode !== 'mock' ? ' · ' + esc(src.model) : '')
+      + (src.stage ? ' · ' + esc(src.stage) : '') + (when ? ' · ' + esc(when) : '') + '</span>';
   }
 
   /* ---------------- Сопоставление ---------------- */
@@ -85,7 +98,7 @@ var ScreensPrep = (function () {
     return ''
       + pageHead('Сопоставление резюме с вакансией',
           'Требования вакансии и то, что подтверждается демонстрационным резюме.')
-      + sourcesBar(prep)
+      + sourcesBar(prep, 'match')
       + staleBanner(prep)
       + (liveMatch
           ? (Api.live.ai && Api.live.ai.live
@@ -131,7 +144,7 @@ var ScreensPrep = (function () {
     if (isLivePrep(prep) && !(prep.questions && prep.questions.length)) {
       return ''
         + pageHead('Вероятные вопросы для подготовки', 'Вопросы подбираются по требованиям вакансии и вашему резюме.')
-        + sourcesBar(prep)
+        + sourcesBar(prep, 'questions')
         + staleBanner(prep)
         + '<div class="card stack">'
         + '  <p class="muted">Вопросы ещё не собраны для этой подготовки.</p>'
@@ -194,7 +207,7 @@ var ScreensPrep = (function () {
           isLivePrep(prep)
             ? 'Подобраны по требованиям вакансии и вашему резюме. Никаких обещаний, что спросят именно это.'
             : 'Список подготовлен для демонстрации. Никаких обещаний, что спросят именно это.')
-      + sourcesBar(prep)
+      + sourcesBar(prep, 'questions')
       + staleBanner(prep)
       + '<div class="toolbar">'
       + '  <label for="q-topic">Тема</label>'
@@ -863,7 +876,7 @@ var ScreensPrep = (function () {
     return ''
       + pageHead('Карточка подготовки',
           'Шпаргалка на время разговора: откройте её на телефоне или втором экране.')
-      + sourcesBar(prep)
+      + sourcesBar(prep, 'card')
       + staleBanner(prep)
       + note('info', '<div>Карточка собрана из ваших собственных ответов и результата '
         + 'сопоставления. Она ничего не читает с экрана, не слушает звук и не требует '

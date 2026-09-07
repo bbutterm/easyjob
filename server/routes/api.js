@@ -129,7 +129,19 @@ async function buildMatch(sid, prep, resume, vacancy) {
         advice: 'Проверьте вручную, есть ли подтверждение в резюме.' });
     }
   });
-  return { items, mock: result.mock, dropped: result.dropped };
+  return { items, mock: result.mock, dropped: result.dropped, source: sourceOf(result) };
+}
+
+/* Метаданные источника результата: режим, провайдер, модель, этап, время.
+   Без секретов, промптов и текстов. */
+function sourceOf(result) {
+  return Object.assign({ mode: result.mock ? 'mock' : 'real', createdAt: Date.now() }, result.source || {});
+}
+
+function withSource(prep, key, source) {
+  const sources = Object.assign({}, prep.sources || {});
+  sources[key] = source;
+  return sources;
 }
 
 function register(r) {
@@ -224,8 +236,11 @@ function register(r) {
       if (!result.ok) throw aiError(result);
       const current = db.resumes.get(sid, resume.id);
       if (!current || current.rev !== resume.rev) throw new HttpError(409, 'Резюме изменилось во время разбора. Повторите запрос.');
-      db.resumes.setReview(sid, resume.id, result.json);
-      sendJson(res, 200, { review: result.json, mock: result.mock, source: result.source, dropped: result.dropped });
+      /* В базе разбор лежит вместе с источником (переживает перезагрузку);
+         в ответе контракт разбора остаётся чистым, источник — отдельным полем. */
+      const source = sourceOf(result);
+      db.resumes.setReview(sid, resume.id, Object.assign({}, result.json, { source }));
+      sendJson(res, 200, { review: result.json, mock: result.mock, source, dropped: result.dropped });
     } finally { reviews.delete(key); }
   });
 
@@ -321,8 +336,8 @@ function register(r) {
     const profession = str(body.profession || resume.data.profession || vacancy.title, 200, 'profession');
     let prep = db.preps.create(sid, resume, vacancy, profession);
     const match = await buildMatch(sid, prep, resume, vacancy);
-    prep = db.preps.set(sid, prep.id, { match: match.items });
-    sendJson(res, 201, Object.assign(prepView(sid, prep), { mock: match.mock, dropped: match.dropped }));
+    prep = db.preps.set(sid, prep.id, { match: match.items, sources: withSource(prep, 'match', match.source) });
+    sendJson(res, 201, Object.assign(prepView(sid, prep), { mock: match.mock, dropped: match.dropped, source: match.source }));
   });
 
   r.get('/api/preps', function ({ res, ctx }) {
@@ -352,8 +367,8 @@ function register(r) {
     vacancy = await ensureRequirements(sid, vacancy);
     prep = db.preps.rebuild(sid, prep.id, resume, vacancy);
     const match = await buildMatch(sid, prep, resume, vacancy);
-    prep = db.preps.set(sid, prep.id, { match: match.items });
-    sendJson(res, 200, Object.assign(prepView(sid, prep), { mock: match.mock }));
+    prep = db.preps.set(sid, prep.id, { match: match.items, sources: withSource(prep, 'match', match.source) });
+    sendJson(res, 200, Object.assign(prepView(sid, prep), { mock: match.mock, source: match.source }));
   });
 
   r.post('/api/preps/:id/questions', async function ({ res, params, ctx }) {
@@ -370,7 +385,8 @@ function register(r) {
     });
     if (!questions.length) throw new HttpError(502, 'Модель не вернула ни одного вопроса.');
     db.preps.set(sid, prep.id, { questions });
-    sendJson(res, 200, { questions, mock: result.mock, dropped: result.dropped });
+    db.preps.set(sid, prep.id, { sources: withSource(db.preps.get(sid, prep.id), 'questions', sourceOf(result)) });
+    sendJson(res, 200, { questions, mock: result.mock, dropped: result.dropped, source: sourceOf(result) });
   });
 
   r.put('/api/preps/:id/answers', function ({ res, params, body, ctx }) {
@@ -445,7 +461,8 @@ function register(r) {
     const result = await ai.run(sid, 'prep.card', { resume, vacancy, prep, includeAnswers: true });
     if (!result.ok) throw aiError(result);
     db.preps.set(sid, prep.id, { card: result.json });
-    sendJson(res, 200, { card: result.json, mock: result.mock, dropped: result.dropped });
+    db.preps.set(sid, prep.id, { sources: withSource(db.preps.get(sid, prep.id), 'card', sourceOf(result)) });
+    sendJson(res, 200, { card: result.json, mock: result.mock, dropped: result.dropped, source: sourceOf(result) });
   });
 
   /* ---- Интервью ---- */
@@ -555,8 +572,8 @@ function register(r) {
     const vacancy = db.vacancies.get(sid, prep.vacancyId);
     const result = await ai.run(sid, 'interview.summary', { resume, vacancy, prep, interview });
     if (!result.ok) throw aiError(result);
-    const finished = db.interviews.finish(sid, interview.id, result.json);
-    sendJson(res, 200, Object.assign({}, finished, { mock: result.mock, context: result.context }));
+    const finished = db.interviews.finish(sid, interview.id, Object.assign({}, result.json, { source: sourceOf(result) }));
+    sendJson(res, 200, Object.assign({}, finished, { mock: result.mock, context: result.context, source: finished.summary.source }));
   });
 
   async function interviewerTurn(sid, prep, interview, onDelta, onStatus, signal) {

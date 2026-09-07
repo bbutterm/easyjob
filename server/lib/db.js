@@ -145,6 +145,8 @@ function open(file) {
   if (pcols.indexOf('snapshot') < 0) db.exec('ALTER TABLE preps ADD COLUMN snapshot TEXT');
   /* Обратная связь на ответы: по questionId, с источником и отпечатком ответа. */
   if (pcols.indexOf('feedback') < 0) db.exec("ALTER TABLE preps ADD COLUMN feedback TEXT NOT NULL DEFAULT '{}'");
+  /* Источник каждого результата модели: режим, провайдер, модель, этап, время. */
+  if (pcols.indexOf('sources') < 0) db.exec("ALTER TABLE preps ADD COLUMN sources TEXT NOT NULL DEFAULT '{}'");
   /* Источник вакансии: адрес без токенов, способ получения, время. */
   const vcols = db.prepare('PRAGMA table_info(vacancies)').all().map(function (c) { return c.name; });
   if (vcols.indexOf('source_url') < 0) db.exec('ALTER TABLE vacancies ADD COLUMN source_url TEXT');
@@ -416,6 +418,7 @@ function rowToPrep(row) {
     match: parse(row.match, null), questions: parse(row.questions, null),
     answers: parse(row.answers, {}), ready: parse(row.ready, {}),
     card: parse(row.card, null), snapshot: parse(row.snapshot, null), feedback: parse(row.feedback, {}),
+    sources: parse(row.sources, {}),
     createdAt: row.created_at, updatedAt: row.updated_at
   };
 }
@@ -436,7 +439,7 @@ const preps = {
     return db.prepare('SELECT * FROM preps WHERE session_id = ? ORDER BY updated_at DESC').all(sid).map(rowToPrep);
   },
   set(sid, pid, fields) {
-    const allowed = ['match', 'questions', 'answers', 'ready', 'card', 'feedback'];
+    const allowed = ['match', 'questions', 'answers', 'ready', 'card', 'feedback', 'sources'];
     const sets = [];
     const values = [];
     allowed.forEach(function (key) {
@@ -459,7 +462,7 @@ const preps = {
   /* Пересборка под текущие версии исходников: старые отчёты и снимок сбрасываются. */
   rebuild(sid, pid, resume, vacancy) {
     db.prepare(`UPDATE preps SET resume_rev = ?, vacancy_rev = ?, match = NULL, questions = NULL, card = NULL,
-      snapshot = NULL, updated_at = ? WHERE id = ? AND session_id = ?`).run(resume.rev, vacancy.rev, now(), pid, sid);
+      snapshot = NULL, sources = '{}', updated_at = ? WHERE id = ? AND session_id = ?`).run(resume.rev, vacancy.rev, now(), pid, sid);
     return preps.get(sid, pid);
   },
   remove(sid, pid) {

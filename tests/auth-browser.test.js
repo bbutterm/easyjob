@@ -58,7 +58,7 @@ Object.assign(process.env, { NODE_ENV: 'test', HOST: '127.0.0.1', DEMO_AUTH: '1'
       await page.waitForSelector('.usage-table');
       await page.selectOption('#usage-days', '7');
       await page.waitForFunction(() => !document.querySelector('#usage-days').disabled);
-      assert.equal(await page.locator('.usage-table').count(), 6);
+      assert.equal(await page.locator('.usage-table').count(), 8);
       await page.emulateMedia({ reducedMotion: 'reduce' });
       await layout();
       if (width < 900) {

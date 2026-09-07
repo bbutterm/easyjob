@@ -707,6 +707,16 @@ const VACANCY_TEXT = 'Ищем повара в ресторан.\n\nТребов
   ok('Состояние: text_interview_started после первой реплики кандидата', (await fc.call('GET', '/api/preps/' + fp.data.id)).data.state === 'text_interview_started');
   await fc.call('POST', '/api/interviews/' + fi.data.interviewId + '/finish');
   ok('Состояние: live_interview_available после итога', (await fc.call('GET', '/api/preps/' + fp.data.id)).data.state === 'live_interview_available');
+  const fpFinal = (await fc.call('GET', '/api/preps/' + fp.data.id)).data;
+  ok('Источники результатов сохранены: сопоставление, вопросы, карточка — заглушка, этап подготовки',
+    ['match', 'questions', 'card'].every(function (k) { return fpFinal.sources[k] && fpFinal.sources[k].mode === 'mock' && fpFinal.sources[k].stage === 'pre_interview' && fpFinal.sources[k].createdAt > 0; }),
+    JSON.stringify(fpFinal.sources));
+  ok('Источник не содержит промптов, текстов и ключей', !/резюме|KEY|prompt|rawText/i.test(JSON.stringify(fpFinal.sources)));
+  const frv = await fc.call('POST', '/api/resumes/' + fr.data.id + '/review');
+  ok('Разбор резюме хранится с источником', frv.status === 200 && frv.data.source && frv.data.source.mode === 'mock'
+    && (await fc.call('GET', '/api/resumes/' + fr.data.id)).data.review.source.provider === 'mock');
+  const fint = await fc.call('GET', '/api/interviews/' + fi.data.interviewId);
+  ok('Итог интервью хранится с источником', fint.data.summary && fint.data.summary.source && fint.data.summary.source.stage === 'pre_interview');
   fApp.server.close();
 
   /* ---- Обмен ключа GigaChat на токен ---- */

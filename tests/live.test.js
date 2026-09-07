@@ -95,6 +95,8 @@ const VACANCY_TEXT = 'Ищем повара в ресторан полного �
   await page.waitForSelector('text=Сопоставление резюме с вакансией', { timeout: 15000 });
   const matchText = await page.locator('#main').innerText();
   ok('Требования взяты из вставленного текста', matchText.indexOf('медицинская книжка') >= 0);
+  ok('Сопоставление подписано источником: заглушка модели, этап подготовки',
+    /Источник: заглушка модели · mock · pre_interview/.test(await page.locator('.model-source').first().innerText()));
   /* Источник импортированной вакансии сохранён вместе с ней (адрес локальной страницы). */
   const vacanciesOnServer = await (await fetch(base + '/api/vacancies', { headers: { cookie: await cookieHeader(ctx) } })).json();
   ok('Вакансия хранит адрес источника и способ получения', vacanciesOnServer.length === 1
