@@ -113,7 +113,7 @@ async function execute(request, runtime, fetchImpl) {
 
   var rt = runtimeFor(request.provider, runtime);
   if (impl.run) {
-    var canned = impl.run(request, rt);
+    var canned = await impl.run(request, rt);
     canned.attempts = 1;
     canned.attemptLog = [{ attempt: 1, ok: true, ms: 0, usageStatus: 'not_applicable' }];
     return canned;

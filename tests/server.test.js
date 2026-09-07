@@ -787,6 +787,50 @@ const VACANCY_TEXT = 'Ищем повара в ресторан.\n\nТребов
   if (prevStt.e === undefined) delete process.env.STT_ENDPOINT; else process.env.STT_ENDPOINT = prevStt.e;
   sttApp.server.close();
 
+  /* ---- Неполный JSON от модели ни в одной задаче не становится результатом ---- */
+  const mApp = createApp({ dbFile: ':memory:', freePrepsPerDay: 100, secure: false, retention: false,
+    rateLimit: { perMinute: 10000, expensivePerMinute: 10000, sessionsPerHour: 1000 } });
+  await new Promise(function (r) { mApp.server.listen(0, '127.0.0.1', r); });
+  const mbase = 'http://127.0.0.1:' + mApp.server.address().port;
+  const mc = client(mbase); await mc.call('GET', '/api/me');
+  const mr = await mc.call('POST', '/api/resumes', { title: 'Р', data: RESUME });
+  const mv = await mc.call('POST', '/api/vacancies', { title: 'Повар', rawText: VACANCY_TEXT });
+  const mp = await mc.call('POST', '/api/preps', { resumeId: mr.data.id, vacancyId: mv.data.id });
+  await mc.call('POST', '/api/preps/' + mp.data.id + '/questions');
+  const mockM = require('../shared/ai/providers/mock.js');
+  const realM = mockM.run;
+  const broken = function (task) {
+    mockM.run = function (request) { return request.task === task ? { ok: true, text: '{"a": [1, 2', mock: true, usage: null, stopReason: 'length' } : realM(request); };
+  };
+  broken('vacancy.parse');
+  const mvBad = await mc.call('POST', '/api/vacancies', { title: 'Повар', rawText: VACANCY_TEXT });
+  ok('Обрыв JSON: vacancy.parse — 502 malformed_response', mvBad.status === 502 && mvBad.data.code === 'malformed_response');
+  broken('match.requirements');
+  const mpBad = await mc.call('POST', '/api/preps/' + mp.data.id + '/rebuild');
+  ok('Обрыв JSON: сопоставление — 502, прежний результат подготовки сохранён', mpBad.status === 502 && mpBad.data.code === 'malformed_response'
+    && (await mc.call('GET', '/api/preps/' + mp.data.id)).data.questions.length > 0);
+  broken('questions.generate');
+  const mqBad = await mc.call('POST', '/api/preps/' + mp.data.id + '/questions');
+  ok('Обрыв JSON: вопросы — 502, прежние вопросы на месте', mqBad.status === 502 && (await mc.call('GET', '/api/preps/' + mp.data.id)).data.questions.length > 0);
+  broken('prep.card');
+  const mcBad = await mc.call('POST', '/api/preps/' + mp.data.id + '/card');
+  ok('Обрыв JSON: карточка — 502, карточка не сохранена', mcBad.status === 502 && !(await mc.call('GET', '/api/preps/' + mp.data.id)).data.card);
+  mockM.run = realM;
+  const mi = await mc.call('POST', '/api/preps/' + mp.data.id + '/interviews');
+  broken('interview.summary');
+  const mfBad = await mc.call('POST', '/api/interviews/' + mi.data.interviewId + '/finish');
+  ok('Обрыв JSON: итог интервью — 502, интервью не завершено', mfBad.status === 502 && (await mc.call('GET', '/api/interviews/' + mi.data.interviewId)).data.finished === false);
+  mockM.run = realM;
+  const mUsage = require('../server/lib/db.js').usage.summary(1).byTask.filter(function (t) { return t.task !== 'interview.turn'; });
+  ok('Обрыв JSON: каждая неудача учтена в расходе', mUsage.reduce(function (n, t) { return n + t.failures; }, 0) >= 5);
+  /* Дубли: второй запрос во время первого — 409. */
+  mockM.run = function (request) { return request.task === 'questions.generate' ? new Promise(function (r) { setTimeout(function () { r(realM(request)); }, 300); }) : realM(request); };
+  const dupPair = await Promise.all([mc.call('POST', '/api/preps/' + mp.data.id + '/questions'), new Promise(function (r) { setTimeout(function () { r(mc.call('POST', '/api/preps/' + mp.data.id + '/questions')); }, 50); })]);
+  mockM.run = realM;
+  ok('Дубль дорогой операции — 409 duplicate, первый запрос завершается', dupPair.some(function (x) { return x.status === 200; }) && dupPair.some(function (x) { return x.status === 409 && x.data.code === 'duplicate'; }),
+    dupPair.map(function (x) { return x.status; }).join(','));
+  mApp.server.close();
+
   /* ---- Обмен ключа GigaChat на токен ---- */
   const GigaChatAuth = require('../server/lib/gigachat-auth.js');
   GigaChatAuth.reset();

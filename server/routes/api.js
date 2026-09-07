@@ -146,6 +146,15 @@ function withSource(prep, key, source) {
   return sources;
 }
 
+/* Дорогие операции не дублируются: повторный запрос, пока первый в работе,
+   получает 409 duplicate, а не второй платный вызов. */
+const inflight = new Set();
+function hold(key) {
+  if (inflight.has(key)) throw new HttpError(409, 'Операция уже выполняется. Дождитесь ответа или отмените запрос.', { code: 'duplicate' });
+  inflight.add(key);
+  return function () { inflight.delete(key); };
+}
+
 function register(r) {
   const reviews = new Set();
   r.get('/api/health', function ({ res }) {
@@ -363,32 +372,40 @@ function register(r) {
     const sid = ctx.session.id;
     let prep = db.preps.get(sid, params.id);
     if (!prep) throw new HttpError(404, 'Подготовка не найдена');
-    const resume = db.resumes.get(sid, prep.resumeId);
-    let vacancy = db.vacancies.get(sid, prep.vacancyId);
-    if (!resume || !vacancy) throw new HttpError(409, 'Исходники удалены: пересобрать нельзя.');
-    vacancy = await ensureRequirements(sid, vacancy);
-    prep = db.preps.rebuild(sid, prep.id, resume, vacancy);
-    const match = await buildMatch(sid, prep, resume, vacancy);
-    prep = db.preps.set(sid, prep.id, { match: match.items, sources: withSource(prep, 'match', match.source) });
-    sendJson(res, 200, Object.assign(prepView(sid, prep), { mock: match.mock, source: match.source }));
+    const release = hold(sid + ':rebuild:' + params.id);
+    try {
+      const resume = db.resumes.get(sid, prep.resumeId);
+      let vacancy = db.vacancies.get(sid, prep.vacancyId);
+      if (!resume || !vacancy) throw new HttpError(409, 'Исходники удалены: пересобрать нельзя.');
+      vacancy = await ensureRequirements(sid, vacancy);
+      /* Сначала новое сопоставление, потом сброс старого: неудачный вызов
+         модели не стирает прежний результат подготовки. */
+      const match = await buildMatch(sid, prep, resume, vacancy);
+      prep = db.preps.rebuild(sid, prep.id, resume, vacancy);
+      prep = db.preps.set(sid, prep.id, { match: match.items, sources: withSource(prep, 'match', match.source) });
+      sendJson(res, 200, Object.assign(prepView(sid, prep), { mock: match.mock, source: match.source }));
+    } finally { release(); }
   });
 
   r.post('/api/preps/:id/questions', async function ({ res, params, ctx }) {
     const sid = ctx.session.id;
     const prep = db.preps.get(sid, params.id);
     if (!prep) throw new HttpError(404, 'Подготовка не найдена');
-    const resume = db.resumes.get(sid, prep.resumeId);
-    const vacancy = db.vacancies.get(sid, prep.vacancyId);
-    const result = await ai.run(sid, 'questions.generate', { resume, vacancy, prep });
-    if (!result.ok) throw aiError(result);
-    const questions = (result.json.questions || []).map(function (q, i) {
-      return { id: safeId(q.id, 'q' + (i + 1)), topic: str(q.topic, 60, 'topic') || 'Общее',
-        text: str(q.text, 500, 'text', true), why: str(q.why, 500, 'why'), guidance: str(q.guidance, 800, 'guidance') };
-    });
-    if (!questions.length) throw new HttpError(502, 'Модель не вернула ни одного вопроса.');
-    db.preps.set(sid, prep.id, { questions });
-    db.preps.set(sid, prep.id, { sources: withSource(db.preps.get(sid, prep.id), 'questions', sourceOf(result)) });
-    sendJson(res, 200, { questions, mock: result.mock, dropped: result.dropped, source: sourceOf(result) });
+    const release = hold(sid + ':questions:' + params.id);
+    try {
+      const resume = db.resumes.get(sid, prep.resumeId);
+      const vacancy = db.vacancies.get(sid, prep.vacancyId);
+      const result = await ai.run(sid, 'questions.generate', { resume, vacancy, prep });
+      if (!result.ok) throw aiError(result);
+      const questions = (result.json.questions || []).map(function (q, i) {
+        return { id: safeId(q.id, 'q' + (i + 1)), topic: str(q.topic, 60, 'topic') || 'Общее',
+          text: str(q.text, 500, 'text', true), why: str(q.why, 500, 'why'), guidance: str(q.guidance, 800, 'guidance') };
+      });
+      if (!questions.length) throw new HttpError(502, 'Модель не вернула ни одного вопроса.');
+      db.preps.set(sid, prep.id, { questions });
+      db.preps.set(sid, prep.id, { sources: withSource(db.preps.get(sid, prep.id), 'questions', sourceOf(result)) });
+      sendJson(res, 200, { questions, mock: result.mock, dropped: result.dropped, source: sourceOf(result) });
+    } finally { release(); }
   });
 
   r.put('/api/preps/:id/answers', function ({ res, params, body, ctx }) {
@@ -458,13 +475,16 @@ function register(r) {
     const sid = ctx.session.id;
     const prep = db.preps.get(sid, params.id);
     if (!prep) throw new HttpError(404, 'Подготовка не найдена');
-    const resume = db.resumes.get(sid, prep.resumeId);
-    const vacancy = db.vacancies.get(sid, prep.vacancyId);
-    const result = await ai.run(sid, 'prep.card', { resume, vacancy, prep, includeAnswers: true });
-    if (!result.ok) throw aiError(result);
-    db.preps.set(sid, prep.id, { card: result.json });
-    db.preps.set(sid, prep.id, { sources: withSource(db.preps.get(sid, prep.id), 'card', sourceOf(result)) });
-    sendJson(res, 200, { card: result.json, mock: result.mock, dropped: result.dropped, source: sourceOf(result) });
+    const release = hold(sid + ':card:' + params.id);
+    try {
+      const resume = db.resumes.get(sid, prep.resumeId);
+      const vacancy = db.vacancies.get(sid, prep.vacancyId);
+      const result = await ai.run(sid, 'prep.card', { resume, vacancy, prep, includeAnswers: true });
+      if (!result.ok) throw aiError(result);
+      db.preps.set(sid, prep.id, { card: result.json });
+      db.preps.set(sid, prep.id, { sources: withSource(db.preps.get(sid, prep.id), 'card', sourceOf(result)) });
+      sendJson(res, 200, { card: result.json, mock: result.mock, dropped: result.dropped, source: sourceOf(result) });
+    } finally { release(); }
   });
 
   /* ---- Распознавание речи на сервере ----
@@ -627,13 +647,16 @@ function register(r) {
     const sid = ctx.session.id;
     const interview = db.interviews.get(sid, params.id);
     if (!interview) throw new HttpError(404, 'Интервью не найдено');
-    const prep = db.preps.get(sid, interview.prepId);
-    const resume = db.resumes.get(sid, prep.resumeId);
-    const vacancy = db.vacancies.get(sid, prep.vacancyId);
-    const result = await ai.run(sid, 'interview.summary', { resume, vacancy, prep, interview });
-    if (!result.ok) throw aiError(result);
-    const finished = db.interviews.finish(sid, interview.id, Object.assign({}, result.json, { source: sourceOf(result) }));
-    sendJson(res, 200, Object.assign({}, finished, { mock: result.mock, context: result.context, source: finished.summary.source }));
+    const release = hold(sid + ':finish:' + params.id);
+    try {
+      const prep = db.preps.get(sid, interview.prepId);
+      const resume = db.resumes.get(sid, prep.resumeId);
+      const vacancy = db.vacancies.get(sid, prep.vacancyId);
+      const result = await ai.run(sid, 'interview.summary', { resume, vacancy, prep, interview });
+      if (!result.ok) throw aiError(result);
+      const finished = db.interviews.finish(sid, interview.id, Object.assign({}, result.json, { source: sourceOf(result) }));
+      sendJson(res, 200, Object.assign({}, finished, { mock: result.mock, context: result.context, source: finished.summary.source }));
+    } finally { release(); }
   });
 
   async function interviewerTurn(sid, prep, interview, onDelta, onStatus, signal) {
