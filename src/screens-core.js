@@ -634,7 +634,11 @@ var ScreensCore = (function () {
         + '    <div class="row-item__title">' + esc(vacancy ? vacancy.title : 'Вакансия удалена') + ' '
         + (p.stale ? '<span class="tag tag--alert">Исходники изменились</span>' : '') + '</div>'
         + '    <div class="row-item__meta">' + esc(vacancy ? vacancy.company : '—')
-        + ' · резюме: ' + esc(resume ? resume.title : 'не выбрано') + '</div>'
+        + ' · резюме: ' + esc(resume ? resume.title : 'не выбрано')
+        + (vacancy && vacancy.sourceUrl ? ' · <span class="vacancy-source">источник: ' + esc(hostOf(vacancy.sourceUrl))
+          + (vacancy.retrievedAt ? ', ' + esc(new Date(vacancy.retrievedAt).toLocaleDateString('ru-RU')) : '') + '</span>' : '')
+        + (isLiveList() && p.state ? ' · <span class="prep-state">' + esc(stateLabel(p.state)) + '</span>' : '')
+        + '</div>'
         + '  </div>'
         + '  <div class="btn-row">'
         + '    <button type="button" class="btn btn--sm" data-act="go:#/prep/' + esc(p.id) + '/match">Сопоставление</button>'
@@ -649,6 +653,13 @@ var ScreensCore = (function () {
       + '<div class="btn-row" style="margin-bottom:16px"><a class="btn btn--primary" href="#/vacancy/new">Добавить вакансию</a></div>'
       + '<ul class="list">' + rows + '</ul>';
   }
+
+  function isLiveList() { return Api.live.enabled; }
+  var STATE_LABELS = { resume_selected: 'выбрано резюме', vacancy_selected: 'выбрана вакансия', vacancy_requirements_ready: 'требования выделены',
+    match_ready: 'сопоставление готово', questions_ready: 'вопросы собраны', answers_started: 'ответы начаты', feedback_ready: 'есть обратная связь',
+    prep_card_ready: 'карточка собрана', text_interview_started: 'интервью начато', text_interview_finished: 'интервью завершено',
+    live_interview_available: 'готово к живому интервью' };
+  function stateLabel(state) { return STATE_LABELS[state] || state; }
 
   function hostOf(url) {
     try { return new URL(url).hostname.replace(/^www\./, ''); } catch (e) { return String(url || ''); }

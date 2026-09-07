@@ -235,6 +235,33 @@ var ScreensPrep = (function () {
       + '</div></div>';
   }
 
+  /* Карточка от модели (задача prep.card): собирается на сервере из ответов
+     пользователя и слабых мест, хранится в подготовке, подписана источником.
+     Ниже неё остаётся локальная сборка из ответов без модели. */
+  function modelCardBlock(prep) {
+    if (!isLivePrep(prep)) return '';
+    var state = Store.get();
+    var c = prep.card;
+    var list = function (items) { return items && items.length ? '<ul>' + items.map(function (t) { return '<li>' + esc(t) + '</li>'; }).join('') + '</ul>' : ''; };
+    var head = '<div class="card no-print card-model">'
+      + '<div class="btn-row btn-row--between"><h2 style="margin:0">Карточка от модели</h2>'
+      + '<button type="button" class="btn' + (c ? '' : ' btn--primary') + '" data-act="card:build" data-id="' + esc(prep.id) + '"' + (state.pending ? ' disabled' : '') + '>'
+      + (state.pending ? 'Подождите…' : (c ? 'Собрать заново' : 'Собрать карточку с помощью модели')) + '</button></div>';
+    if (!c) {
+      return head + '<p class="muted">Модель соберёт вступление, сильные стороны, рискованные темы и вопросы работодателю '
+        + 'из ваших ответов и сопоставления. Ниже — сборка из ваших ответов без модели.</p></div>';
+    }
+    return head
+      + (c.opening ? '<h3>Вступление</h3><p>' + escLines(c.opening) + '</p>' : '')
+      + (c.strongPoints && c.strongPoints.length ? '<h3>Сильные стороны</h3>' + list(c.strongPoints) : '')
+      + (c.risky && c.risky.length ? '<h3>Рискованные темы</h3><ul>' + c.risky.map(function (r) {
+          return '<li><b>' + esc(r.topic || '') + '</b>' + (r.howToAnswer ? ': ' + esc(r.howToAnswer) : '') + '</li>'; }).join('') + '</ul>' : '')
+      + (c.askThem && c.askThem.length ? '<h3>Спросить у работодателя</h3>' + list(c.askThem) : '')
+      + (c.reminders && c.reminders.length ? '<h3>Напоминания</h3>' + list(c.reminders) : '')
+      + '<p class="model-source-card">' + modelSourceLine(prep, 'card') + '</p>'
+      + '</div>';
+  }
+
   /* Обратная связь на ответ: только в режиме сервера. Показывает сильные
      стороны, пробелы и вариант переформулировки с источником; если ответ
      изменился после оценки — пометка «устарело». */
@@ -821,6 +848,7 @@ var ScreensPrep = (function () {
     var risky = requirements.filter(function (r) { return r.status !== 'confirmed'; });
 
     var body = ''
+      + modelCardBlock(prep)
       + '<div class="card card--print">'
       + '  <div class="card__head">'
       + '    <div class="card__title"><h2>' + esc(vacancy ? vacancy.title : 'Вакансия') + '</h2>'

@@ -3642,7 +3642,11 @@ var ScreensCore = (function () {
         + '    <div class="row-item__title">' + esc(vacancy ? vacancy.title : 'Вакансия удалена') + ' '
         + (p.stale ? '<span class="tag tag--alert">Исходники изменились</span>' : '') + '</div>'
         + '    <div class="row-item__meta">' + esc(vacancy ? vacancy.company : '—')
-        + ' · резюме: ' + esc(resume ? resume.title : 'не выбрано') + '</div>'
+        + ' · резюме: ' + esc(resume ? resume.title : 'не выбрано')
+        + (vacancy && vacancy.sourceUrl ? ' · <span class="vacancy-source">источник: ' + esc(hostOf(vacancy.sourceUrl))
+          + (vacancy.retrievedAt ? ', ' + esc(new Date(vacancy.retrievedAt).toLocaleDateString('ru-RU')) : '') + '</span>' : '')
+        + (isLiveList() && p.state ? ' · <span class="prep-state">' + esc(stateLabel(p.state)) + '</span>' : '')
+        + '</div>'
         + '  </div>'
         + '  <div class="btn-row">'
         + '    <button type="button" class="btn btn--sm" data-act="go:#/prep/' + esc(p.id) + '/match">Сопоставление</button>'
@@ -3657,6 +3661,13 @@ var ScreensCore = (function () {
       + '<div class="btn-row" style="margin-bottom:16px"><a class="btn btn--primary" href="#/vacancy/new">Добавить вакансию</a></div>'
       + '<ul class="list">' + rows + '</ul>';
   }
+
+  function isLiveList() { return Api.live.enabled; }
+  var STATE_LABELS = { resume_selected: 'выбрано резюме', vacancy_selected: 'выбрана вакансия', vacancy_requirements_ready: 'требования выделены',
+    match_ready: 'сопоставление готово', questions_ready: 'вопросы собраны', answers_started: 'ответы начаты', feedback_ready: 'есть обратная связь',
+    prep_card_ready: 'карточка собрана', text_interview_started: 'интервью начато', text_interview_finished: 'интервью завершено',
+    live_interview_available: 'готово к живому интервью' };
+  function stateLabel(state) { return STATE_LABELS[state] || state; }
 
   function hostOf(url) {
     try { return new URL(url).hostname.replace(/^www\./, ''); } catch (e) { return String(url || ''); }
@@ -4047,6 +4058,33 @@ var ScreensPrep = (function () {
       + '    Собрать карточку подготовки</button>'
       + '  <button type="button" class="btn" data-act="go:#/prep/' + esc(prep.id) + '/match">Вернуться к сопоставлению</button>'
       + '</div></div>';
+  }
+
+  /* Карточка от модели (задача prep.card): собирается на сервере из ответов
+     пользователя и слабых мест, хранится в подготовке, подписана источником.
+     Ниже неё остаётся локальная сборка из ответов без модели. */
+  function modelCardBlock(prep) {
+    if (!isLivePrep(prep)) return '';
+    var state = Store.get();
+    var c = prep.card;
+    var list = function (items) { return items && items.length ? '<ul>' + items.map(function (t) { return '<li>' + esc(t) + '</li>'; }).join('') + '</ul>' : ''; };
+    var head = '<div class="card no-print card-model">'
+      + '<div class="btn-row btn-row--between"><h2 style="margin:0">Карточка от модели</h2>'
+      + '<button type="button" class="btn' + (c ? '' : ' btn--primary') + '" data-act="card:build" data-id="' + esc(prep.id) + '"' + (state.pending ? ' disabled' : '') + '>'
+      + (state.pending ? 'Подождите…' : (c ? 'Собрать заново' : 'Собрать карточку с помощью модели')) + '</button></div>';
+    if (!c) {
+      return head + '<p class="muted">Модель соберёт вступление, сильные стороны, рискованные темы и вопросы работодателю '
+        + 'из ваших ответов и сопоставления. Ниже — сборка из ваших ответов без модели.</p></div>';
+    }
+    return head
+      + (c.opening ? '<h3>Вступление</h3><p>' + escLines(c.opening) + '</p>' : '')
+      + (c.strongPoints && c.strongPoints.length ? '<h3>Сильные стороны</h3>' + list(c.strongPoints) : '')
+      + (c.risky && c.risky.length ? '<h3>Рискованные темы</h3><ul>' + c.risky.map(function (r) {
+          return '<li><b>' + esc(r.topic || '') + '</b>' + (r.howToAnswer ? ': ' + esc(r.howToAnswer) : '') + '</li>'; }).join('') + '</ul>' : '')
+      + (c.askThem && c.askThem.length ? '<h3>Спросить у работодателя</h3>' + list(c.askThem) : '')
+      + (c.reminders && c.reminders.length ? '<h3>Напоминания</h3>' + list(c.reminders) : '')
+      + '<p class="model-source-card">' + modelSourceLine(prep, 'card') + '</p>'
+      + '</div>';
   }
 
   /* Обратная связь на ответ: только в режиме сервера. Показывает сильные
@@ -4635,6 +4673,7 @@ var ScreensPrep = (function () {
     var risky = requirements.filter(function (r) { return r.status !== 'confirmed'; });
 
     var body = ''
+      + modelCardBlock(prep)
       + '<div class="card card--print">'
       + '  <div class="card__head">'
       + '    <div class="card__title"><h2>' + esc(vacancy ? vacancy.title : 'Вакансия') + '</h2>'
@@ -5619,6 +5658,17 @@ var QuickStart = (function () {
     } catch (e) { liveFail(e); } finally { endOperation(); }
   }
 
+  async function liveBuildCard(prep) {
+    var op = beginOperation('Собираю карточку подготовки…');
+    if (!op) return;
+    try {
+      if (answersTimer) { clearTimeout(answersTimer); answersTimer = null; }
+      await Api.request('PUT', '/api/preps/' + prep.serverId + '/answers', { answers: prep.answers, ready: prep.ready }, op);
+      var data = await Api.request('POST', '/api/preps/' + prep.serverId + '/card', undefined, op);
+      Store.update(function () { prep.card = data.card; if (data.source) prep.sources.card = data.source; });
+    } catch (e) { liveFail(e); } finally { endOperation(); }
+  }
+
   async function liveGenerateQuestions(prep) {
     var op = beginOperation('Подбираю вопросы…');
     if (!op) return;
@@ -6282,6 +6332,11 @@ var QuickStart = (function () {
         if (!prep6) return;
         Store.update(function () { prep6.ready[data.id] = !prep6.ready[data.id]; });
         if (prep6.live) liveScheduleAnswers(prep6, true);
+        return;
+      }
+      case 'card:build': {
+        var prepC = Store.prepById(data.id) || Store.activePrep();
+        if (prepC && prepC.live && !state.pending) liveBuildCard(prepC);
         return;
       }
       case 'q:feedback': {

@@ -631,6 +631,17 @@
     } catch (e) { liveFail(e); } finally { endOperation(); }
   }
 
+  async function liveBuildCard(prep) {
+    var op = beginOperation('Собираю карточку подготовки…');
+    if (!op) return;
+    try {
+      if (answersTimer) { clearTimeout(answersTimer); answersTimer = null; }
+      await Api.request('PUT', '/api/preps/' + prep.serverId + '/answers', { answers: prep.answers, ready: prep.ready }, op);
+      var data = await Api.request('POST', '/api/preps/' + prep.serverId + '/card', undefined, op);
+      Store.update(function () { prep.card = data.card; if (data.source) prep.sources.card = data.source; });
+    } catch (e) { liveFail(e); } finally { endOperation(); }
+  }
+
   async function liveGenerateQuestions(prep) {
     var op = beginOperation('Подбираю вопросы…');
     if (!op) return;
@@ -1294,6 +1305,11 @@
         if (!prep6) return;
         Store.update(function () { prep6.ready[data.id] = !prep6.ready[data.id]; });
         if (prep6.live) liveScheduleAnswers(prep6, true);
+        return;
+      }
+      case 'card:build': {
+        var prepC = Store.prepById(data.id) || Store.activePrep();
+        if (prepC && prepC.live && !state.pending) liveBuildCard(prepC);
         return;
       }
       case 'q:feedback': {

@@ -193,6 +193,13 @@ const VACANCY_TEXT = 'Ищем повара в ресторан полного �
   await page.click('button:has-text("Собрать карточку подготовки")');
   await page.waitForSelector('text=Карточка подготовки');
   ok('Карточка содержит сохранённый ответ', (await page.locator('#main').innerText()).indexOf('сорок столов') >= 0);
+  await page.click('button:has-text("Собрать карточку с помощью модели")');
+  await page.waitForSelector('.card-model h3', { timeout: 20000 });
+  const modelCard = await page.locator('.card-model').innerText();
+  ok('Карточка от модели собрана сервером и подписана источником', /Вступление/.test(modelCard) && /Источник: заглушка модели/.test(modelCard));
+  await page.reload();
+  await page.waitForSelector('.card-model h3', { timeout: 15000 });
+  ok('Карточка от модели переживает перезагрузку', (await page.locator('.card-model h3').count()) >= 1);
 
   /* ---- Разбор вставленного резюме ---- */
   await page.goto(base + '/#/resume/upload');
