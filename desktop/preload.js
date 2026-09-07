@@ -7,6 +7,12 @@
 const { contextBridge, ipcRenderer } = require('electron');
 
 contextBridge.exposeInMainWorld('assistant', {
+  audio: {
+    config: () => ipcRenderer.invoke('audio:config'),
+    authorize: consent => ipcRenderer.invoke('audio:authorize', consent),
+    stop: () => ipcRenderer.invoke('audio:stop'),
+    hint: payload => ipcRenderer.invoke('audio:hint', payload)
+  },
   consent: {
     accept: function () { return ipcRenderer.invoke('consent:accept'); },
     decline: function () { return ipcRenderer.invoke('consent:decline'); }
@@ -30,7 +36,7 @@ contextBridge.exposeInMainWorld('assistant', {
   },
   openExternal: function (url) { return ipcRenderer.invoke('app:openExternal', url); },
   on: function (channel, handler) {
-    const allowed = ['session:status', 'session:hint'];
+    const allowed = ['session:status', 'session:hint', 'audio:hint'];
     if (allowed.indexOf(channel) < 0) return;
     ipcRenderer.on(channel, function (event, payload) { handler(payload); });
   }

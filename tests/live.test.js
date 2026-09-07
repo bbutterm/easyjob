@@ -102,6 +102,16 @@ const VACANCY_TEXT = 'Ищем повара в ресторан полного �
     return document.querySelectorAll('.msg:not(.msg--sys)').length >= 3;
   }, null, { timeout: 15000 });
   ok('Ответ ушёл и интервьюер продолжил', (await page.locator('.msg--user').count()) === 1);
+  await page.check('[data-stt="consent"]');
+  await page.click('[data-stt="start"]');
+  await page.click('[data-stt="stop"]');
+  await page.waitForFunction(() => document.querySelector('[data-stt="state"]').textContent.startsWith('ready'));
+  const transcript = await page.inputValue('[data-stt="text"]');
+  await page.click('[data-stt="send"]');
+  await page.waitForFunction(() => document.querySelectorAll('.msg--user').length === 2);
+  await page.waitForFunction(() => document.querySelector('[data-stt="feedback"]').textContent.includes('передан'));
+  ok('STT-заглушка → обычный API turns → interview.turn → ответ интервьюера',
+    (await page.locator('.msg--user').last().innerText()).includes(transcript));
   await page.click('button:has-text("Завершить и выйти")');
   await page.click('.modal button:has-text("Завершить")');
   await page.waitForSelector('text=Итог пробного интервью', { timeout: 15000 });

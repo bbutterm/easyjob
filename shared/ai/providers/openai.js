@@ -6,6 +6,8 @@
 
 'use strict';
 
+var Caps = require('../capabilities.js');
+
 function toWire(request, runtime) {
   var userContent;
   if (request.image) {
@@ -27,14 +29,18 @@ function toWire(request, runtime) {
 
   /* Имя поля различается между версиями: max_tokens в старых,
      max_completion_tokens в новых. Настраивается в конфигурации. */
-  var field = (runtime && runtime.maxTokensField) || 'max_completion_tokens';
+  var field = (runtime && runtime.maxTokensField) || Caps.profile(request.provider || 'openai').maxTokensField;
   body[field] = request.maxOutputTokens;
 
   if (request.outputFormat === 'json') body.response_format = { type: 'json_object' };
-  if (request.streaming) body.stream = true;
+  if (request.provider === 'openrouter' && runtime && runtime.disableReasoning === true) body.reasoning = { enabled: false };
+  if (request.streaming) {
+    body.stream = true;
+    if (['openai', 'openrouter', 'cerebras'].includes(request.provider)) body.stream_options = { include_usage: true };
+  }
 
   return {
-    url: (runtime && runtime.endpoint) || 'https://api.openai.com/v1/chat/completions',
+    url: (runtime && runtime.endpoint) || Caps.profile(request.provider || 'openai').endpoint,
     method: 'POST',
     headers: {
       'content-type': 'application/json',
@@ -53,6 +59,7 @@ function fromWire(json) {
     ok: true,
     text: String((choice.message && choice.message.content) || '').trim(),
     stopReason: choice.finish_reason || null,
+    truncated: ['length', 'max_tokens'].includes(choice.finish_reason),
     usage: json.usage
       ? { input: json.usage.prompt_tokens, output: json.usage.completion_tokens, cacheRead: 0 }
       : null

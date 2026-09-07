@@ -14,6 +14,8 @@ var mock = require('./mock.js');
 var ADAPTERS = {
   anthropic: anthropic,
   openai: openai,
+  openrouter: openai,
+  cerebras: openai,
   /* Локальные и совместимые сервисы используют тот же формат запроса,
      что и OpenAI, но с другим адресом и часто без ключа. */
   openai_compatible: openai,
@@ -51,6 +53,15 @@ function retryDelay(attempt, response) {
   return Math.min(500 * Math.pow(2, attempt), 8000);
 }
 
+// Usage may arrive even in a refusal/error or in a usage-only SSE event.
+function wireUsage(json) {
+  if (!json) return null;
+  var u = json.usage || (json.message && json.message.usage);
+  if (u) return { input: u.prompt_tokens ?? u.input_tokens, output: u.completion_tokens ?? u.output_tokens };
+  if (json.usageMetadata) return { input: json.usageMetadata.promptTokenCount, output: json.usageMetadata.candidatesTokenCount };
+  return null;
+}
+
 /* execute — единственное место, где происходит сетевой вызов.
    fetchImpl передаётся снаружи, чтобы код оставался проверяемым
    и не тянул зависимости в браузерную часть.
@@ -58,6 +69,7 @@ function retryDelay(attempt, response) {
    Запрос ограничен по времени и повторяется при временных отказах:
    без этого цикл помощника встаёт при первом же 429 или зависании. */
 async function execute(request, runtime, fetchImpl) {
+  if (runtime && runtime.signal && runtime.signal.aborted) return { ok: false, error: 'Запрос отменён', aborted: true };
   var impl = adapter(request.provider);
 
   if (impl.run) return impl.run(request, runtime);
@@ -75,7 +87,9 @@ async function execute(request, runtime, fetchImpl) {
   var attempts = 0;
 
   for (var attempt = 0; attempt <= maxRetries; attempt++) {
+    if (rt.signal && rt.signal.aborted) return { ok: false, error: 'Запрос отменён', aborted: true, attempts: attempts };
     attempts = attempt + 1;
+    var attemptStarted = Date.now();
     var controller = typeof AbortController === 'function' ? new AbortController() : null;
     /* Внешняя отмена: сессия остановлена, ответ уже не нужен. */
     if (controller && rt.signal && typeof rt.signal.addEventListener === 'function') {
@@ -100,7 +114,7 @@ async function execute(request, runtime, fetchImpl) {
       lastError = aborted
         ? 'Превышено время ожидания ответа ('
           + (timeoutMs >= 1000 ? Math.round(timeoutMs / 1000) + ' с' : timeoutMs + ' мс') + ')'
-        : 'Сеть недоступна: ' + e.message;
+        : 'Сеть недоступна';
     } finally {
       if (timer) clearTimeout(timer);
     }
@@ -111,6 +125,13 @@ async function execute(request, runtime, fetchImpl) {
 
     if (!shouldRetry) break;
     if (attempt === maxRetries) break;
+    if (typeof rt.onAttemptFailure === 'function') {
+      var failedUsage = null;
+      try { var failedBody = response && await response.json();
+        failedUsage = wireUsage(failedBody);
+      } catch (_) { /* No provider usage available. */ }
+      rt.onAttemptFailure({ ok: false, usage: failedUsage, ms: Date.now() - attemptStarted });
+    }
     await wait(retryDelay(attempt, response));
   }
 
@@ -134,12 +155,13 @@ async function execute(request, runtime, fetchImpl) {
   }
 
   if (!response.ok) {
-    var parsed = impl.fromWire(json);
-    return { ok: false, status: response.status, attempts: attempts,
+    return { ok: false, usage: wireUsage(json), status: response.status, attempts: attempts,
       retriable: RETRIABLE.indexOf(response.status) >= 0,
-      error: parsed.error || ('Ошибка сервиса, код ' + response.status) };
+      error: 'Ошибка сервиса, код ' + response.status };
   }
   var result = impl.fromWire(json);
+  if (!result.usage) result.usage = wireUsage(json);
+  if (!result.ok) result.error = 'Ошибка ответа сервиса';
   result.attempts = attempts;
   return result;
 }
@@ -156,6 +178,7 @@ async function readStream(response, impl, request) {
   var buffer = '';
   var text = '';
   var stopReason = null;
+  var usage = null;
   var onDelta = request && typeof request.onDelta === 'function' ? request.onDelta : null;
 
   try {
@@ -176,9 +199,11 @@ async function readStream(response, impl, request) {
         var event;
         try { event = JSON.parse(payload); } catch (e) { continue; }
 
+        var eventUsage = wireUsage(event);
+        if (eventUsage) usage = { input: eventUsage.input ?? usage?.input, output: eventUsage.output ?? usage?.output };
         if (event.type === 'error' || event.error) {
           return { ok: false,
-            error: (event.error && event.error.message) || 'Ошибка в потоке ответа' };
+            text: text, usage: usage, error: 'Ошибка в потоке ответа' };
         }
         var delta = impl.streamDelta ? impl.streamDelta(event) : '';
         if (delta) {
@@ -190,16 +215,16 @@ async function readStream(response, impl, request) {
       }
     }
   } catch (e) {
-    return { ok: false, error: 'Поток ответа прервался: ' + e.message };
+    return { ok: false, text: text, usage: usage, error: 'Поток ответа прервался' };
   }
 
   if (stopReason === 'refusal') {
-    return { ok: false, refused: true, error: 'Запрос отклонён моделью' };
+    return { ok: false, text: text, usage: usage, refused: true, error: 'Запрос отклонён моделью' };
   }
   if (stopReason === 'max_tokens' || stopReason === 'length') {
-    return { ok: true, text: text.trim(), stopReason: stopReason, truncated: true, usage: null };
+    return { ok: true, text: text.trim(), stopReason: stopReason, truncated: true, usage: usage };
   }
-  return { ok: true, text: text.trim(), stopReason: stopReason, usage: null };
+  return { ok: true, text: text.trim(), stopReason: stopReason, usage: usage };
 }
 
 module.exports = { adapter: adapter, execute: execute, ids: Object.keys(ADAPTERS),

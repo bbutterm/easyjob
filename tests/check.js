@@ -262,9 +262,12 @@ async function noOverflow(page) {
   await page.setInputFiles('#file-input', tmpFile);
   await page.waitForTimeout(200);
   ok('Имя файла показано', (await page.locator('#main').innerText()).includes('rezume-test.txt'));
-  ok('Есть предупреждение о нечитаемых форматах',
-    await page.locator('text=Чтение PDF и DOCX ещё не реализовано').isVisible());
-  await page.click('button:has-text("Показать пример анализа")');
+  ok('В file-демо чтение требует сервера',
+    await page.locator('#upload-error').isVisible());
+  ok('После выбора файла демо-анализ недоступен', await page.locator('[data-act="upload:show-analysis"]').count() === 0);
+  await page.click('.row-item button:has-text("Удалить")');
+  ok('Выбор файла удаляется', !(await page.locator('#main').innerText()).includes('rezume-test.txt'));
+  await page.click('[data-act="upload:show-analysis"]');
   await page.waitForSelector('text=Демонстрационный разбор резюме');
   await page.click('.q-item >> nth=0 >> button:has-text("Принять")');
   ok('Принятое предложение попало в демо-версию',
@@ -272,9 +275,6 @@ async function noOverflow(page) {
     && (await page.locator('.tag--ok:has-text("Принято")').count()) > 0);
   await page.click('.q-item >> nth=1 >> button:has-text("Отклонить")');
   await shot(page, '10-upload-analysis-desktop.png', { fullPage: true });
-  await page.click('.row-item button:has-text("Заменить")');
-  await page.click('.row-item button:has-text("Удалить")');
-  ok('Выбор файла удаляется', !(await page.locator('#main').innerText()).includes('rezume-test.txt'));
 
   /* ---- 7. Пустое состояние, подтверждение удаления, сброс демо ---- */
   await setScenario(page, 'empty');
@@ -423,17 +423,30 @@ async function noOverflow(page) {
   await mp.waitForTimeout(250);
   ok('Мобильное меню открывается', await mp.locator('.sidebar').isVisible());
   await shot(mp, '13-menu-mobile.png', { fullPage: true });
-  await mp.click('.nav-scrim', { position: { x: 350, y: 500 } });
+  await mp.keyboard.press('Escape');
   await mp.waitForTimeout(250);
-  ok('Меню закрывается по клику вне', !(await mp.locator('.nav-scrim').count()));
+  ok('Меню закрывается по Escape и возвращает фокус', !(await mp.locator('.sidebar').isVisible())
+    && await mp.locator('.menu-btn').evaluate(el => el === document.activeElement));
   await mp.goto(FILE + '#/prep/prep-1/questions');
   await mp.waitForSelector('.q-item');
   ok('Мобильный: вопросы без переполнения', await mp.evaluate(() =>
     document.documentElement.scrollWidth <= document.documentElement.clientWidth + 1));
   await shot(mp, '14-questions-mobile.png', { fullPage: true });
   await mp.goto(FILE + '#/assistant');
-  await mp.waitForSelector('text=Помощник на собеседовании');
+  await mp.waitForSelector('.page-head h1:has-text("Помощник на собеседовании")');
   await shot(mp, '15-assistant-mobile.png', { fullPage: true });
+
+  for (const width of [390, 360]) {
+    await mp.setViewportSize({ width, height: 844 });
+    for (const route of ['start', 'auth/login', 'auth/register', 'overview']) {
+      await mp.goto(FILE + '#/' + route);
+      await mp.waitForSelector('#main');
+      ok('Standalone ' + width + 'px ' + route + ': no overflow', await noOverflow(mp));
+    }
+    await mp.goto(FILE + '#/auth/login');
+    await mp.waitForSelector('.auth-card');
+    ok('Standalone auth never collects a password', await mp.locator('input[type="password"]').count() === 0);
+  }
 
   /* ---- Тёмная тема ---- */
   await page.goto(FILE + '#/overview');

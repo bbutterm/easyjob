@@ -1,6 +1,6 @@
 /* ============================================================
    Маршрутизация, отрисовка оболочки и обработка действий.
-   Никаких сетевых запросов: макет работает полностью локально.
+   HTTP uses the local API; file:// keeps the standalone demo.
    ============================================================ */
 
 (function () {
@@ -8,6 +8,10 @@
 
   var esc = UI.esc;
   var root = document.getElementById('app');
+  var lastRenderRoute = null;
+  var authBusy = false;
+  var bootComplete = false;
+  var authError = '';
 
   var NAV = [
     { section: 'overview', href: '#/overview', label: 'Обзор' },
@@ -48,13 +52,58 @@
   }
 
   var KNOWN = ['start', 'auth', 'onboarding', 'overview', 'resumes', 'resume', 'vacancies',
-    'vacancy', 'prep', 'interviews', 'assistant', 'plans', 'history', 'settings', 'privacy'];
+    'vacancy', 'prep', 'interviews', 'assistant', 'plans', 'history', 'settings', 'privacy', 'admin', 'quickstart'];
 
   /* ---------------- Отрисовка ---------------- */
+
+  var adminUsage = { days: 30, data: null, error: '', loading: false, owner: null };
+  function isAdmin() { return Api.isHttp() && Api.live.user && Api.live.user.role === 'admin'; }
+  function usageScreen() {
+    if (!isAdmin()) { adminUsage.data = null; return '<h1>Доступ запрещён</h1>'; }
+    if (adminUsage.owner !== Api.live.user.id) { adminUsage.owner = Api.live.user.id; adminUsage.data = null; }
+    if (!adminUsage.data && !adminUsage.loading && !adminUsage.error) loadUsage();
+    var out = '<h1>Расходы AI</h1><p>Приблизительная стоимость USD. Ненастроенные цены не включены в сумму.</p>'
+      + '<label for="usage-days">Период</label> <select id="usage-days"' + (adminUsage.loading ? ' disabled' : '') + '>'
+      + [7, 30, 90, 365].map(function (d) { return '<option value="' + d + '"' + (d === adminUsage.days ? ' selected' : '') + '>' + d + ' дней</option>'; }).join('')
+      + '</select><p role="status">' + esc(adminUsage.loading ? 'Загрузка…' : adminUsage.error) + '</p>';
+    var data = adminUsage.data;
+    if (!data) return out;
+    var metrics = [['requests', 'Запросы'], ['failures', 'Ошибки'], ['tokensIn', 'Входные токены'],
+      ['tokensOut', 'Выходные токены'], ['estimatedCostUsd', '≈ USD'], ['estimatedRequests', 'Оценка токенов'],
+      ['reportedRequests', 'Токены провайдера'], ['unpricedRequests', 'Без цены'], ['avgMs', 'Среднее мс']];
+    function table(title, rows, dimensions) {
+      var cols = dimensions.concat(metrics);
+      return '<h2>' + title + '</h2><div class="usage-table" tabindex="0" role="region" aria-label="' + title + '"><table><caption class="sr-only">' + title + '</caption><thead><tr>'
+        + cols.map(function (c) { return '<th scope="col">' + c[1] + '</th>'; }).join('') + '</tr></thead><tbody>'
+        + rows.map(function (r) { return '<tr>' + cols.map(function (c) { return '<td>' + esc(c[0] === 'estimatedCostUsd' ? Number(r[c[0]]).toFixed(6) : String(r[c[0]] == null ? '—' : r[c[0]])) + '</td>'; }).join('') + '</tr>'; }).join('')
+        + '</tbody></table></div>';
+    }
+    return out + table('Всего', [data.totals], [])
+      + table('По пользователям', data.byUser, [['username', 'Логин'], ['userId', 'ID']])
+      + table('По этапам', data.byStage, [['stage', 'Этап']])
+      + table('По провайдерам', data.byProvider, [['provider', 'Провайдер']])
+      + table('По моделям', data.byModel, [['provider', 'Провайдер'], ['model', 'Модель']])
+      + table('По дням (UTC)', data.byDay, [['day', 'День']]);
+  }
+  function loadUsage() {
+    if (!isAdmin()) return;
+    adminUsage.loading = true;
+    var owner = Api.live.user.id;
+    Api.request('GET', '/api/admin/usage?days=' + adminUsage.days).then(function (data) {
+      if (isAdmin() && Api.live.user.id === owner) adminUsage.data = data;
+    }).catch(function () { adminUsage.error = 'Не удалось загрузить статистику. Выберите период для повтора.'; })
+      .finally(function () { adminUsage.loading = false; if (parseRoute().name === 'admin') render(); });
+  }
+  document.addEventListener('change', function (event) {
+    if (event.target.id !== 'usage-days' || !isAdmin() || adminUsage.loading) return;
+    adminUsage.days = Number(event.target.value); adminUsage.data = null; adminUsage.error = ''; render();
+  });
 
   function screenFor(route) {
     var parts = route.parts;
     switch (route.name) {
+      case 'quickstart': return QuickStart.screen();
+      case 'admin': return usageScreen();
       case 'start': return ScreensCore.start();
       case 'auth': return ScreensCore.auth(parts[1] || 'login');
       case 'onboarding': return ScreensCore.onboarding();
@@ -105,16 +154,19 @@
     }).join('');
 
     return ''
-      + '<nav class="sidebar" aria-label="Основная навигация">'
+      + '<nav class="sidebar" id="site-nav" aria-label="Основная навигация">'
       + '  <div class="sidebar__brand">'
-      + '    <b>Карьерный помощник</b>'
-      + '    <span class="tag tag--demo">Демо-макет</span>'
+      + '    <b class="wordmark">easyjob</b>'
+      + '    <span class="muted">Карьерный помощник</span>'
       + '  </div>'
       + '  <div class="sidebar__nav">' + links + '</div>'
       + '  <div class="sidebar__foot">'
+      + (QuickStart.eligible() ? '<a class="navlink" href="#/quickstart">Продолжить Quick Start</a><button class="btn" data-act="qs:restart">Начать Quick Start заново</button>' : '')
+      + (isAdmin() ? '<a class="navlink" href="#/admin">Расходы AI</a>' : '')
       + '    <a class="navlink" href="#/history"><span>История</span></a>'
       + '    <a class="navlink" href="#/privacy"><span>Обработка данных</span></a>'
-      + '    <a class="navlink" href="#/start"><span>Выйти из демо</span></a>'
+      + (Api.live.user ? '<button id="account-logout" class="btn btn--block" data-act="auth:logout">Выйти из аккаунта</button>'
+          : '<a class="navlink" href="' + (Api.isHttp() ? '#/auth/login' : '#/start') + '"><span>' + (Api.isHttp() ? 'Войти в аккаунт' : 'Выйти из демо') + '</span></a>')
       + '  </div>'
       + '</nav>';
   }
@@ -130,8 +182,9 @@
 
     return ''
       + '<div class="topbar">'
-      + '  <button type="button" class="btn btn--sm menu-btn" data-act="nav:toggle" aria-label="Открыть меню">☰</button>'
+      + '  <button type="button" class="btn btn--sm menu-btn" id="menu-toggle" data-act="nav:toggle" aria-controls="site-nav" aria-expanded="' + (document.body.getAttribute('data-nav') === 'open') + '" aria-label="Открыть меню">☰ Меню</button>'
       + '  <div class="topbar__ctx">' + ctx + '</div>'
+      + '<span class="account-label">' + (Api.live.user ? esc(Api.live.user.username) : (Api.isHttp() ? 'Гость' : 'Демо')) + '</span>'
       + (Api.live.enabled
           ? (Api.live.ai && Api.live.ai.live
               ? '<span class="tag tag--ok"><span class="badge-full">Сервер · ' + esc(Api.live.ai.title) + '</span><span class="badge-short">Сервер</span></span>'
@@ -152,11 +205,12 @@
       var ai = Api.live.ai || {};
       return ''
         + '<aside class="demo-panel' + (open ? '' : ' demo-panel--collapsed') + '" aria-label="Режим сервера">'
-        + '  <button type="button" class="demo-panel__head" data-act="demopanel:toggle" aria-expanded="'
+        + '  <button type="button" class="demo-panel__head" data-act="demopanel:toggle" aria-controls="demo-panel-body" aria-expanded="'
         + (open ? 'true' : 'false') + '"><span>Режим сервера</span><span aria-hidden="true">' + (open ? '▾' : '▴') + '</span></button>'
-        + '  <div class="demo-panel__body">'
+        + '  <div class="demo-panel__body" id="demo-panel-body"><button type="button" class="btn btn--sm" data-act="demopanel:close">Свернуть панель</button>'
         + '    <p><b>' + esc(ai.title || ai.provider || '') + '</b>' + (ai.model ? ' · ' + esc(ai.model) : '')
         + (ai.live ? '' : ' — заглушка, ключ не задан') + '</p>'
+        + (ai.stages ? '<p>pre_interview: ' + esc(ai.stages.pre_interview.provider) + ' · ' + esc(ai.stages.pre_interview.model) + '<br>live_interview: ' + esc(ai.stages.live_interview.provider) + ' · ' + esc(ai.stages.live_interview.model) + '</p>' : '')
         + '    <p>Данные хранятся на сервере' + (ai.dataRegion === 'ru' ? ' и обрабатываются в РФ' : '') + '.</p>'
         + (Api.live.limits ? '<p>Подготовок сегодня: ' + esc(Api.live.limits.usedToday) + ' из '
             + esc(Api.live.limits.freePerDay) + '.</p>' : '')
@@ -178,11 +232,11 @@
     ];
     return ''
       + '<aside class="demo-panel' + (open ? '' : ' demo-panel--collapsed') + '" aria-label="Состояния демо">'
-      + '  <button type="button" class="demo-panel__head" data-act="demopanel:toggle" aria-expanded="'
+      + '  <button type="button" class="demo-panel__head" data-act="demopanel:toggle" aria-controls="demo-panel-body" aria-expanded="'
       + (open ? 'true' : 'false') + '">'
       + '    <span>Состояния демо</span><span aria-hidden="true">' + (open ? '▾' : '▴') + '</span>'
       + '  </button>'
-      + '  <div class="demo-panel__body">'
+      + '  <div class="demo-panel__body" id="demo-panel-body"><button type="button" class="btn btn--sm" data-act="demopanel:close">Свернуть панель</button>'
       + '    <label class="field" for="demo-scenario"><span class="field__label">Сценарий</span>'
       + '      <select id="demo-scenario" data-change-act="demo:scenario">'
       + options.map(function (o) {
@@ -211,9 +265,22 @@
       + '</aside>';
   }
 
+  var speechWidget = null;
+  var speechTextAborter = null;
   function render() {
     var state = Store.get();
     var route = parseRoute();
+    if (route.name === 'quickstart' && !QuickStart.eligible()) {
+      window.location.hash = Api.isHttp() ? '#/auth/login' : '#/overview'; return;
+    }
+    QuickStart.sync();
+    var routeKey = window.location.hash;
+    var entering = lastRenderRoute !== routeKey;
+    var authDraft = !entering && document.getElementById('auth-form') ? {
+      username: document.getElementById('auth-username').value,
+      password: document.getElementById('auth-password').value
+    } : null;
+    if (entering) authError = '';
 
     document.documentElement.setAttribute('data-theme', state.theme);
 
@@ -223,6 +290,8 @@
     }
 
     var focusId = document.activeElement ? document.activeElement.id : null;
+    var focusAction = document.activeElement && document.activeElement.getAttribute('data-act');
+    var focusIndex = focusAction ? Array.from(root.querySelectorAll('[data-act]')).indexOf(document.activeElement) : -1;
     var selection = null;
     if (document.activeElement && typeof document.activeElement.selectionStart === 'number') {
       selection = document.activeElement.selectionStart;
@@ -235,7 +304,7 @@
       html = screenFor(route);
     } else {
       var section = sectionForRoute(route.name);
-      var content = Store.sectionAllowed(section) || section === 'settings' || section === 'plans'
+      var content = Store.sectionAllowed(section) || section === 'settings' || section === 'plans' || section === 'admin' || section === 'quickstart'
         ? screenFor(route)
         : ScreensPrep.locked(navLabel(section), section === 'assistant' ? 'assistant' : 'training');
       html = ''
@@ -248,12 +317,38 @@
         + content + '</main>'
         + '  </div>'
         + '</div>'
-        + (document.body.getAttribute('data-nav') === 'open'
-            ? '<button type="button" class="nav-scrim" data-act="nav:close" aria-label="Закрыть меню"></button>' : '')
         + demoPanel();
     }
 
+    if (speechWidget) speechWidget.element.remove();
     root.innerHTML = html + UI.renderModal(state.modal) + UI.renderToasts(state.toasts);
+    var speechSlot = document.getElementById('stt-slot');
+    if (speechWidget && (entering || !speechSlot)) { speechWidget.dispose(); speechWidget = null; }
+    if (speechSlot) {
+      if (!speechWidget) speechWidget = SttWidget({ onCancel: function () { if (speechTextAborter) speechTextAborter.abort(); }, onSend: async function (text) {
+        var prep = Store.activePrep();
+        if (!prep || !prep.chat || prep.chat.pending || prep.chat.failed || prep.chat.finished) throw new Error('Интервью недоступно');
+        prep.chat.draft = text;
+        if (prep.live) {
+          speechTextAborter = new AbortController();
+          try { await liveSendChat(prep, speechTextAborter.signal); if (prep.chat.failed) throw new Error('Ответ интервьюера не получен'); } finally { speechTextAborter = null; }
+        }
+        else dispatch('chat:send', {});
+      } });
+      speechSlot.appendChild(speechWidget.element);
+    }
+    if (authDraft) {
+      document.getElementById('auth-username').value = authDraft.username;
+      document.getElementById('auth-password').value = authDraft.password;
+    }
+    var authForm = document.getElementById('auth-form');
+    if (authForm) {
+      document.getElementById('auth-submit').disabled = authBusy;
+      document.getElementById('auth-error').textContent = authError;
+      authForm.setAttribute('aria-busy', String(authBusy));
+    }
+    UI.reveal(root, entering);
+    lastRenderRoute = routeKey;
 
     if (state.modal) UI.trapFocus(root);
     if (focusId && !state.modal) {
@@ -264,6 +359,10 @@
           try { node.setSelectionRange(selection, selection); } catch (e) { /* не текстовое поле */ }
         }
       }
+    }
+    if (!entering && !focusId && focusIndex >= 0 && !state.modal) {
+      var control = root.querySelectorAll('[data-act]')[focusIndex];
+      if (control && control.getAttribute('data-act') === focusAction) control.focus({ preventScroll: true });
     }
     var newLog = document.getElementById('chat-log');
     if (newLog && chatAtBottom) newLog.scrollTop = newLog.scrollHeight;
@@ -279,37 +378,60 @@
 
   /* ---------------- Локальный выбор файла ---------------- */
 
+  var uploadOperation = null;
+  var selectedFile = null;
+  function uploadPhase(phase) {
+    Store.update(function (s) { s.upload.phase = phase; });
+  }
+  function cancelUpload() {
+    if (uploadOperation) uploadOperation.abort();
+  }
+  async function readResumeFile(file) {
+    if (uploadOperation || Store.get().pending) return;
+    selectedFile = file;
+    var op = new AbortController(); uploadOperation = op;
+    Store.update(function (s) { s.upload = { fileName: file.name, text: '', decisions: {}, phase: 'Файл выбран', busy: true }; });
+    try {
+      if (!/\.(pdf|docx|doc|rtf|txt)$/i.test(file.name)) throw new Error('Недопустимый формат. Выберите PDF, DOCX или TXT.');
+      if (!file.size || file.size > 2 * 1024 * 1024) throw new Error('Размер файла: от 1 байта до 2 МБ.');
+      if (!Api.live.enabled) throw new Error('Для чтения файла нужен доступный сервер. Запустите сервер и откройте приложение через HTTP.');
+      uploadPhase('Чтение файла…');
+      var base64 = await new Promise(function (resolve, reject) {
+        var reader = new FileReader();
+        var abort = function () { reader.abort(); reject(new Error('Запрос отменён.')); };
+        op.signal.addEventListener('abort', abort, { once: true });
+        reader.onload = function () { resolve(String(reader.result).split(',')[1]); };
+        reader.onerror = function () { reject(new Error('Не удалось прочитать файл. Выберите его снова.')); };
+        reader.onloadend = function () { op.signal.removeEventListener('abort', abort); };
+        reader.readAsDataURL(file);
+      });
+      if (op.signal.aborted) throw new Error('Запрос отменён.');
+      uploadPhase('Загрузка и извлечение текста на сервере…');
+      var data = await Api.request('POST', '/api/resumes/extract', { name: file.name, base64: base64 }, { signal: op.signal, timeoutMs: 25000 });
+      if (op.signal.aborted) throw new Error('Запрос отменён.');
+      Store.update(function (s) { s.upload.text = data.rawText; s.upload.phase = 'Текст извлечён — проверьте его и нажмите «Разобрать резюме»'; });
+    } catch (e) {
+      Store.update(function (s) { s.upload.error = e.message; s.upload.phase = 'Ошибка чтения файла'; s.upload.fileError = true; });
+    } finally {
+      if (uploadOperation === op) uploadOperation = null;
+      Store.update(function (s) { s.upload.busy = false; s.pending = null; });
+    }
+  }
   function bindFileInput() {
     var input = document.getElementById('file-input');
     var zone = document.getElementById('dropzone');
     if (!input) return;
-
-    input.addEventListener('change', function () {
-      if (input.files && input.files[0]) {
-        Store.update(function (s) { s.upload.fileName = input.files[0].name; });
-        UI.toast('Файл выбран локально. Он не отправляется и не читается макетом.');
-      }
-    });
-
+    input.addEventListener('change', function () { if (input.files && input.files[0]) readResumeFile(input.files[0]); });
     if (!zone) return;
-    ['dragenter', 'dragover'].forEach(function (type) {
+    ['dragenter', 'dragover', 'dragleave', 'drop'].forEach(function (type) {
       zone.addEventListener(type, function (event) {
         event.preventDefault();
-        zone.classList.add('dropzone--over');
-      });
-    });
-    ['dragleave', 'drop'].forEach(function (type) {
-      zone.addEventListener(type, function (event) {
-        event.preventDefault();
-        zone.classList.remove('dropzone--over');
+        zone.classList.toggle('dropzone--over', type === 'dragenter' || type === 'dragover');
       });
     });
     zone.addEventListener('drop', function (event) {
       var files = event.dataTransfer && event.dataTransfer.files;
-      if (files && files[0]) {
-        Store.update(function (s) { s.upload.fileName = files[0].name; });
-        UI.toast('Файл выбран локально. Он не отправляется и не читается макетом.');
-      }
+      if (files && files[0]) readResumeFile(files[0]);
     });
   }
 
@@ -355,6 +477,10 @@
 
   async function liveHydrate() {
     var me = await Api.request('GET', '/api/me');
+    Api.live.enabled = true;
+    Api.live.user = me.user;
+    Api.live.auth = me.auth;
+    Api.live.ai = me.ai;
     Api.live.limits = me.limits;
     Api.live.professions = me.professions;
     var resumes = [];
@@ -362,8 +488,9 @@
       var full = await Api.request('GET', '/api/resumes/' + me.resumes[i].id);
       resumes.push(Api.resumeFromServer(full));
     }
-    var vacancies = [];
+    var vacancies = (await Api.request('GET', '/api/vacancies')).map(Api.vacancyFromServer);
     var seen = {};
+    vacancies.forEach(function (v) { seen[v.id] = true; });
     me.preps.forEach(function (p) {
       if (p.vacancy && !seen[p.vacancy.id]) {
         seen[p.vacancy.id] = true;
@@ -373,6 +500,7 @@
       }
     });
     Store.replaceData({ resumes: resumes, vacancies: vacancies, preps: me.preps.map(Api.prepFromServer) });
+    QuickStart.bind();
   }
 
   async function liveEnsureResume(resume) {
@@ -462,7 +590,7 @@
     } catch (e) { liveFail(e); }
   }
 
-  async function liveSendChat(prep) {
+  async function liveSendChat(prep, signal) {
     var chat = prep.chat;
     var text = String(chat.draft || '').trim();
     if (!text) { UI.toast('Введите ответ, чтобы отправить его.'); return; }
@@ -474,7 +602,7 @@
       var done = await Api.stream('/api/interviews/' + chat.interviewId + '/turns', { text: text }, function (delta) {
         chat.partial += delta;
         Store.notify();
-      });
+      }, signal);
       Store.update(function () {
         chat.pending = false; chat.partial = ''; chat.index += 1;
         chat.messages.push({ who: 'bot', text: done.turn.text });
@@ -509,22 +637,43 @@
   }
 
   async function liveReview() {
+    if (uploadOperation || Store.get().pending || !Api.live.enabled) return;
     var up = Store.get().upload;
     var text = String(up.text || '').trim();
-    if (text.length < 40) { UI.toast('Вставьте текст резюме — хотя бы несколько строк.'); return; }
+    if (text.length < 40 || text.length > 40000) {
+      Store.update(function (s) { s.upload.error = 'Нужно от 40 до 40 000 символов текста резюме.'; }); return;
+    }
+    var op = new AbortController(); uploadOperation = op;
+    var started = Date.now();
+    Store.update(function (s) { s.upload.busy = true; s.upload.error = ''; s.upload.fileError = false;
+      s.upload.report = null; s.upload.analysisShown = false; s.upload.phase = 'Сохранение текста…'; s.upload.elapsed = 0; });
+    var ticker = setInterval(function () { Store.update(function (s) { s.upload.elapsed = Math.floor((Date.now() - started) / 1000); }); }, 1000);
     try {
       setPending('Отправляю резюме…');
-      var created = await Api.request('POST', '/api/resumes', {
-        title: 'Резюме из текста ' + Api.label(), data: { rawText: text }
-      });
+      var created = up.created;
+      if (!created || created.data.rawText !== text) {
+        created = await Api.request('POST', '/api/resumes', {
+          title: up.fileName || ('Резюме из текста ' + Api.label()), data: { rawText: text }
+        }, { signal: op.signal });
+        up.created = created;
+      }
+      if (op.signal.aborted) throw new Error('Запрос отменён.');
+      uploadPhase('Анализ моделью — ожидание ответа');
       setPending('Разбираю резюме…');
-      var data = await Api.request('POST', '/api/resumes/' + created.id + '/review');
+      var data = await Api.request('POST', '/api/resumes/' + created.id + '/review', undefined, { signal: op.signal });
+      if (op.signal.aborted) throw new Error('Запрос отменён.');
       Store.update(function (s) {
         s.upload.report = data.review; s.upload.decisions = {}; s.upload.analysisShown = true;
+        s.upload.source = data.source; s.upload.mock = data.mock === true; s.upload.phase = 'Разбор завершён';
         s.upload.serverResume = Api.resumeFromServer(Object.assign({}, created, { review: data.review }));
-        s.pending = null;
       });
-    } catch (e) { liveFail(e); }
+    } catch (e) {
+      Store.update(function (s) { s.upload.error = e.message; s.upload.phase = 'Разбор не завершён'; s.upload.analysisShown = false; });
+    } finally {
+      clearInterval(ticker);
+      if (uploadOperation === op) uploadOperation = null;
+      Store.update(function (s) { s.pending = null; s.upload.busy = false; });
+    }
   }
 
   async function liveSaveResume(resume) {
@@ -537,6 +686,7 @@
 
   function dispatch(act, data, element) {
     var state = Store.get();
+    if (act.indexOf('qs:') === 0) { QuickStart.act(act.slice(3)); return; }
 
     if (act.indexOf('go:') === 0) {
       var target = act.slice(3);
@@ -547,6 +697,21 @@
 
     switch (act) {
       /* -------- Оболочка -------- */
+      case 'auth:logout':
+        cancelUpload(); selectedFile = null;
+        if (authBusy) return;
+        authBusy = true;
+        adminUsage.data = null; adminUsage.owner = null; adminUsage.error = '';
+        Api.request('POST', '/api/auth/logout').then(async function () {
+          QuickStart.resetMemory();
+          QuickStart.announceAccountChange();
+          if (answersTimer) { clearTimeout(answersTimer); answersTimer = null; }
+          Api.live.user = null;
+          Store.replaceData({});
+          await liveHydrate();
+          go('#/auth/login');
+        }).catch(liveFail).finally(function () { authBusy = false; render(); });
+        return;
       case 'nav:toggle':
         document.body.setAttribute('data-nav',
           document.body.getAttribute('data-nav') === 'open' ? 'closed' : 'open');
@@ -555,9 +720,14 @@
       case 'nav:close':
         document.body.setAttribute('data-nav', 'closed');
         render();
+        document.getElementById('menu-toggle').focus();
         return;
       case 'theme:toggle':
         Store.setPref('theme', state.theme === 'dark' ? 'light' : 'dark');
+        return;
+      case 'demopanel:close':
+        Store.setPref('demoPanelOpen', false);
+        document.querySelector('[data-act="demopanel:toggle"]')?.focus();
         return;
       case 'demopanel:toggle':
         Store.setPref('demoPanelOpen', !state.demoPanelOpen);
@@ -746,14 +916,21 @@
         if (input) input.click();
         return;
       }
+      case 'upload:cancel':
+        cancelUpload(); return;
+      case 'upload:retry-file':
+        if (selectedFile) readResumeFile(selectedFile); return;
       case 'upload:clear':
-        Store.update(function (s) { s.upload.fileName = ''; });
+        if (uploadOperation) return;
+        selectedFile = null;
+        Store.update(function (s) { s.upload = { fileName: '', text: '', decisions: {} }; });
         UI.toast('Выбор файла удалён.');
         return;
       case 'upload:review':
         if (!state.pending) liveReview();
         return;
       case 'upload:show-analysis':
+        if (Api.isHttp() || state.upload.fileName || state.upload.text || uploadOperation) return;
         Store.update(function (s) { s.upload.analysisShown = true; s.upload.report = null; s.upload.decisions = {}; });
         UI.toast('Открыт демонстрационный отчёт на подготовленном примере.');
         return;
@@ -769,6 +946,7 @@
           go('#/vacancy/new');
           return;
         }
+        if (Api.isHttp()) return;
         var accepted = Object.keys(state.upload.decisions).filter(function (k) {
           return state.upload.decisions[k] === 'accepted';
         });
@@ -1287,6 +1465,39 @@
 
   /* ---------------- Обработчики событий ---------------- */
 
+  document.addEventListener('submit', async function (event) {
+    if (event.target.id !== 'auth-form') return;
+    event.preventDefault();
+    if (authBusy) return;
+    var form = event.target;
+    var routeAtSubmit = window.location.hash;
+    authBusy = true;
+    authError = '';
+    document.getElementById('auth-error').textContent = '';
+    document.getElementById('auth-submit').disabled = true;
+    form.setAttribute('aria-busy', 'true');
+    try {
+      var result = await Api.request('POST', '/api/auth/' + form.getAttribute('data-auth-mode'), {
+        username: form.elements.username.value, password: form.elements.password.value
+      });
+      Api.live.user = result.user;
+      QuickStart.announceAccountChange();
+      Store.replaceData({});
+      await liveHydrate();
+      var destination = QuickStart.afterLogin(form.getAttribute('data-auth-mode') === 'register');
+      if (window.location.hash === routeAtSubmit) go(destination);
+    } catch (e) {
+      if (window.location.hash === routeAtSubmit) authError = e.message || 'Не удалось войти. Повторите попытку.';
+    } finally {
+      authBusy = false;
+      if (form.elements.password) form.elements.password.value = '';
+      var password = document.getElementById('auth-password');
+      if (password) password.value = '';
+      render();
+      if (authError && password) document.getElementById('auth-password').focus();
+    }
+  });
+
   document.addEventListener('click', function (event) {
     var element = event.target.closest('[data-act]');
     if (!element) return;
@@ -1315,6 +1526,12 @@
       if (prep && prep.chat) prep.chat.draft = element.value;
       return;
     }
+    if (model === 'upload.text') {
+      if (uploadOperation) return;
+      Store.update(function (s) { s.upload.text = element.value; s.upload.analysisShown = false; s.upload.report = null;
+        s.upload.serverResume = null; s.upload.error = ''; s.upload.fileError = false; s.upload.phase = 'Текст изменён — готов к разбору'; });
+      return;
+    }
     setPath(model, element.value);
     if (/^preps\.\d+\.answers\./.test(model)) {
       var owner = Store.activePrep();
@@ -1338,16 +1555,27 @@
   });
 
   document.addEventListener('keydown', function (event) {
+    if (event.key === 'Escape' && document.body.getAttribute('data-nav') === 'open') dispatch('nav:close', {});
+    if (event.key === 'Escape' && Store.get().demoPanelOpen && !Store.get().modal) dispatch('demopanel:close', {});
     if (event.key === 'Escape' && Store.get().modal) {
       UI.closeModal();
     }
   });
 
+  window.addEventListener('storage', function (event) {
+    if (event.key !== 'easyjob:auth:change' && event.key !== null) return;
+    cancelUpload(); selectedFile = null;
+    if (answersTimer) { clearTimeout(answersTimer); answersTimer = null; }
+    adminUsage.data = null; adminUsage.owner = null; adminUsage.error = '';
+  });
+  window.addEventListener('pagehide', function () { cancelUpload(); if (speechWidget) { speechWidget.dispose(); speechWidget = null; } });
   window.addEventListener('hashchange', function () {
+    cancelUpload();
+    if (!bootComplete) return;
     document.body.setAttribute('data-nav', 'closed');
     render();
     var main = document.getElementById('main');
-    if (main) main.scrollIntoView({ block: 'start' });
+    if (main) { main.focus({ preventScroll: true }); main.scrollIntoView({ block: 'start' }); }
   });
 
   Store.subscribe(render);
@@ -1361,8 +1589,10 @@
     if (isLive) {
       try { await liveHydrate(); } catch (e) { UI.toast('Не удалось загрузить данные с сервера: ' + e.message); }
     }
+    bootComplete = true;
     render();
     window.setTimeout(function () {
+      if (PUBLIC_ROUTES.indexOf(parseRoute().name) >= 0) return;
       UI.toast(isLive
         ? 'Режим сервера: данные хранятся в базе' + (Api.live.ai && Api.live.ai.live ? ', ответы — от модели.' : ', модель пока на заглушке.')
         : 'Демо-макет: введённые данные хранятся только в этой вкладке и сбрасываются после перезагрузки.');

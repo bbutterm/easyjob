@@ -27,7 +27,7 @@
   <h2>Чего программа не делает</h2>
   <ul>
     <li>Не скрывает своё окно от демонстрации экрана. Собеседник увидит его, если вы делитесь экраном.</li>
-    <li>Не записывает звук и не слушает микрофон.</li>
+    <li>Микрофон включается только отдельной кнопкой после согласия на запись. Системный звук не захватывается.</li>
     <li>Не сохраняет кадры, распознанный текст и подсказки на диск.</li>
     <li>Не прячет свой процесс и не обходит правила площадок для видеозвонков.</li>
     <li>Не читает экран в фоне: чтение идёт только во время запущенной вами сессии.</li>
@@ -71,6 +71,7 @@
       accept.disabled = !boxes.every(function (b) { return b.checked; });
     });
   });
+  document.addEventListener('keydown', function (event) { if (event.key === 'Escape') window.assistant.consent.decline(); });
   accept.addEventListener('click', function () { window.assistant.consent.accept(); });
   document.getElementById('decline').addEventListener('click', function () {
     window.assistant.consent.decline();

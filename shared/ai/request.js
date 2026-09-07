@@ -124,7 +124,7 @@
      собирается из обоих: последнего сегмента ключа и явного
      contextField, если он задан в каталоге. */
   function redactForLog(payload) {
-    var sensitive = AiVariables.piiFields();
+    var sensitive = AiVariables.piiFields().concat(['apiKey', 'authKey', 'authorization', 'system', 'userText', 'prompt', 'messages', 'rawText', 'transcript', 'chunks', 'audio', 'wav', 'text', 'detectedQuestion']);
     function walk(value) {
       if (Array.isArray(value)) return value.map(walk);
       if (value && typeof value === 'object') {
@@ -154,7 +154,7 @@
       try {
         return { ok: true, value: JSON.parse(trimmed.slice(start, end + 1)) };
       } catch (e2) {
-        return { ok: false, error: 'Не удалось разобрать JSON: ' + e2.message };
+        return { ok: false, error: 'Не удалось разобрать JSON' };
       }
     }
     return { ok: false, error: 'В ответе нет объекта JSON' };

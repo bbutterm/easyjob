@@ -47,67 +47,82 @@ var ScreensCore = (function () {
 
   /* ---------------- Публичные страницы ---------------- */
 
+  function helper() {
+    return '<span class="ai-helper" aria-hidden="true"><i></i><i></i><b>⌣</b></span>';
+  }
+
+  function brand() {
+    return '<a class="wordmark" href="#/start">easyjob<span>Карьерный помощник</span></a>';
+  }
+
+  function modeLabel() {
+    return Api.isHttp() ? (Api.live.user ? 'Аккаунт · ' + esc(Api.live.user.username) : 'Сервер · гостевой доступ')
+      : 'Демо-режим · только в этой вкладке';
+  }
+
+  function sourceStory() {
+    return '<div class="source-story" aria-label="Как устроена подготовка">'
+      + '<div class="story-orbit" aria-hidden="true"></div>'
+      + '<article class="source-card source-card--resume" data-reveal="slide"><span class="eyebrow">01 / Ваш опыт</span>'
+      + '<h3>Резюме, в котором<br>видно главное.</h3><div class="paper-lines" aria-hidden="true"><i></i><i></i><i></i></div>'
+      + '<span class="source-chip">Навыки · Опыт · Достижения</span></article>'
+      + '<article class="source-card source-card--vacancy" data-reveal="slide"><span class="eyebrow">02 / Ваша цель</span>'
+      + '<h3>Та самая вакансия</h3><p>Что уже совпадает.<br>Что стоит подготовить.</p><span class="source-chip">Из требований — в план</span></article>'
+      + '<article class="source-card source-card--answer" data-reveal><span class="eyebrow">03 / Следующий шаг</span>'
+      + '<h3>Расскажите о себе.</h3><p>Соберите мысли. Попробуйте ответ.<br>Почувствуйте себя увереннее.</p></article>'
+      + '<div class="story-helper" data-reveal>' + helper() + '<span>Разберём по шагам</span></div></div>';
+  }
+
   function start() {
-    return ''
-      + '<div class="public"><div class="public__inner stack">'
-      + '  <div class="public__brand">'
-      + '    <h1>Карьерный помощник</h1>'
-      + '    <span class="tag tag--demo">Рабочее название</span>'
-      + '  </div>'
-      + note('demo', '<div><strong>Демо — ИИ и платежи не подключены.</strong> Это кликабельный макет интерфейса. '
-        + 'Тексты «от ИИ» — заранее подготовленные образцы. Введённые данные и файлы остаются в браузере.</div>')
-      + '  <div class="card stack">'
-      + '    <h2>Подготовка к поиску работы и собеседованиям</h2>'
-      + '    <p class="muted">Собрать или улучшить резюме, разобрать конкретную вакансию, подготовить ответы '
-      + '    на вероятные вопросы и потренироваться в пробном интервью — текстом или голосом.</p>'
-      + '    <ul class="muted">'
-      + '      <li>Резюме с нуля по шагам или разбор уже готового.</li>'
-      + '      <li>Сопоставление своего опыта с требованиями вакансии.</li>'
-      + '      <li>Вероятные вопросы и тренировочные интервью.</li>'
-      + '      <li>Отдельный раздел про помощника на реальном собеседовании.</li>'
-      + '    </ul>'
-      + '    <div class="btn-row">'
-      + '      <a class="btn btn--primary" href="#/onboarding">Открыть демо</a>'
-      + '      <a class="btn" href="#/auth/login">Экран входа (заглушка)</a>'
-      + '    </div>'
-      + '    <p class="faint" style="font-size:13px">Регистрация не требуется: макет открывается сразу.</p>'
-      + '  </div>'
-      + '</div></div>';
+    return '<main id="main" tabindex="-1" class="public story-page"><div class="story-container">'
+      + '<header class="story-header">' + brand() + '<a class="btn" href="#/auth/login">Войти <span aria-hidden="true">↗</span></a></header>'
+      + '<div class="hero-layout"><section class="hero-copy" data-reveal>'
+      + '<span class="eyebrow">Меньше сомнений. Больше ясности.</span>'
+      + '<h1>Ваш опыт.<br>Ваша история.<br><em>Новая работа.</em></h1>'
+      + '<p class="hero-lead">От первого резюме до уверенного ответа на собеседовании. Соберите всё для следующего шага в одном месте.</p>'
+      + '<div class="btn-row"><a class="btn btn--primary" href="' + (Api.isHttp() ? '#/auth/register' : '#/onboarding') + '">'
+      + (Api.isHttp() ? 'Начать подготовку' : 'Открыть демо') + ' <span aria-hidden="true">↗</span></a>'
+      + '<a class="btn btn--quiet" href="#/overview">' + (Api.isHttp() ? 'Продолжить как гость' : 'Посмотреть пример') + '</a></div>'
+      + '<p class="mode-label">' + modeLabel() + '</p></section>' + sourceStory() + '</div>'
+      + '<footer class="story-footer" data-reveal><span>Всё начинается с вашего опыта</span><span>Резюме <b>→</b> Вакансия <b>→</b> Практика</span></footer>'
+      + '</div></main>';
   }
 
   function auth(mode) {
     var isRegister = mode === 'register';
-    var isReset = mode === 'reset';
-    var title = isRegister ? 'Регистрация' : (isReset ? 'Восстановление доступа' : 'Вход');
-    var body;
-    if (isReset) {
-      body = UI.field({ id: 'auth-email', label: 'Электронная почта', model: '', value: '', placeholder: 'name@example.com', hint: 'Поле неактивно: письма не отправляются.' });
-    } else {
-      body = UI.field({ id: 'auth-email', label: 'Электронная почта', model: '', value: '', placeholder: 'name@example.com' })
-        + '<div class="field"><span class="field__label">Пароль</span>'
-        + '<div class="note note--info" style="margin-top:4px">Поле пароля в макете не показывается: '
-        + 'прототип не собирает и не хранит пароли.</div></div>';
-    }
-    return ''
-      + '<div class="public"><div class="public__inner stack">'
-      + '  <div class="public__brand"><h1>Карьерный помощник</h1><span class="tag tag--demo">Демо</span></div>'
-      + '  <div class="card stack">'
-      + '    <h2>' + esc(title) + '</h2>'
-      + note('alert', '<div><strong>Настоящей авторизации нет.</strong> Это визуальная заглушка: данные не '
-        + 'проверяются, аккаунт не создаётся, письма не отправляются.</div>')
-      + body
-      + '    <div class="btn-row">'
-      + '      <a class="btn btn--primary" href="#/onboarding">Продолжить в демо без входа</a>'
-      + (isReset
-          ? '<a class="btn" href="#/auth/login">Назад ко входу</a>'
-          : (isRegister
-              ? '<a class="btn" href="#/auth/login">У меня есть аккаунт</a>'
-              : '<a class="btn" href="#/auth/register">Создать аккаунт</a>'))
-      + '    </div>'
-      + (isReset ? '' : '<p><a href="#/auth/reset">Забыли пароль?</a></p>')
-      + '  </div>'
-      + '  <p><a href="#/start">← На начальную страницу</a></p>'
-      + '</div></div>';
+    var online = Api.isHttp();
+    return '<main id="main" tabindex="-1" class="public story-page"><div class="story-container">'
+      + '<header class="story-header">' + brand() + '<a class="btn btn--quiet" href="#/start">На главную</a></header>'
+      + '<div class="auth-layout"><section class="auth-story" data-reveal><span class="eyebrow">Ваш следующий шаг начинается здесь</span>'
+      + '<h1>Большие планы.<br><em>Спокойный старт.</em></h1>'
+      + '<p class="hero-lead">Сохраните свой опыт, найдите точки роста и подготовьтесь к разговору о будущем.</p>'
+      + '<div class="auth-helper">' + helper() + '<p>По одному шагу.<br><strong>В вашем темпе.</strong></p></div></section>'
+      + '<section class="card auth-card" data-reveal="slide"><span class="eyebrow">' + modeLabel() + '</span>'
+      + '<h2>' + (isRegister ? 'Создать аккаунт' : 'С возвращением') + '</h2>'
+      + (online ? '<p class="muted">' + (isRegister ? 'Ваши подготовки будут храниться на этом сервере.' : 'Войдите, чтобы продолжить свою подготовку.') + '</p>'
+        + (Api.live.auth && Api.live.auth.demo ? '<p class="demo-credentials">Пробный аккаунт: <strong>admin / admin</strong></p>' : '')
+        + '<form id="auth-form" data-auth-mode="' + (isRegister ? 'register' : 'login') + '">'
+        + '<div class="field"><label class="field__label" for="auth-username">Имя пользователя</label>'
+        + '<input id="auth-username" name="username" autocomplete="username" autocapitalize="none" spellcheck="false" required minlength="3" maxlength="32" pattern="[A-Za-z0-9_-]{3,32}" aria-describedby="username-hint">'
+        + '<small id="username-hint">3–32 латинские буквы, цифры, дефис или _</small></div>'
+        + '<div class="field"><label class="field__label" for="auth-password">Пароль</label>'
+        + '<input id="auth-password" name="password" type="password" autocomplete="' + (isRegister ? 'new-password' : 'current-password') + '" required minlength="' + (isRegister ? '8' : '1') + '" maxlength="128" aria-describedby="password-hint">'
+        + '<small id="password-hint">' + (isRegister ? 'От 8 до 128 символов' : 'Пароль вашего аккаунта') + '</small></div>'
+        + '<p id="auth-error" class="auth-error" role="alert"></p>'
+        + '<button id="auth-submit" class="btn btn--primary btn--block" type="submit">' + (isRegister ? 'Зарегистрироваться' : 'Войти') + '</button></form>'
+        : '<p class="muted">Демо без сервера: аккаунт не создаётся. Данные остаются в этой вкладке и сбрасываются при перезагрузке.</p>')
+      + '<div class="auth-links"><a href="#/auth/' + (isRegister ? 'login' : 'register') + '">' + (isRegister ? 'У меня есть аккаунт' : 'Создать аккаунт') + '</a>'
+      + '<a href="' + (online ? '#/overview' : '#/onboarding') + '">' + (online ? 'Продолжить как гость' : 'Продолжить в демо без входа') + '</a></div>'
+      + '</section></div></div></main>';
+  }
+
+  function dashboardIntro() {
+    return '<section class="dashboard-intro" data-reveal><div><span class="eyebrow">' + modeLabel() + '</span>'
+      + '<h1>Следующий шаг —<br><em>в ваших руках.</em></h1><p class="muted">Ваш опыт, планы и подготовка. Всё здесь.</p></div>' + helper() + '</section>'
+      + '<div class="dashboard-sources" data-reveal="slide">'
+      + '<a class="source-tile" href="#/resumes"><span class="eyebrow">01 / Исходники</span><h2>Мои резюме <span>↗</span></h2><p>Опыт, который стоит показать</p></a>'
+      + '<a class="source-tile" href="#/vacancies"><span class="eyebrow">02 / Направление</span><h2>Вакансии <span>↗</span></h2><p>От требований к плану действий</p></a>'
+      + '<a class="source-tile" href="#/interviews"><span class="eyebrow">03 / Практика</span><h2>Интервью <span>↗</span></h2><p>Уверенность приходит с подготовкой</p></a></div>';
   }
 
   function onboarding() {
@@ -144,7 +159,7 @@ var ScreensCore = (function () {
     if (state.scenario === 'error') return pageHead('Обзор') + UI.errorBlock();
 
     if (!state.preps.length && !state.resumes.length) {
-      return pageHead('Обзор', 'Здесь появятся ваши подготовки к собеседованиям.')
+      return dashboardIntro() + pageHead('Обзор', 'Здесь появятся ваши подготовки к собеседованиям.')
         + UI.emptyState(
           'Пока ничего нет',
           'Начните с резюме: соберите новое в мастере или загрузите готовое, чтобы посмотреть демонстрационный разбор.',
@@ -175,11 +190,11 @@ var ScreensCore = (function () {
     }).join('');
 
     return ''
-      + pageHead('Обзор', 'Последние подготовки и ближайший шаг.')
-      + note('demo', '<div>Демонстрационный комплект собран для профессии <strong>'
+      + dashboardIntro() + pageHead('Обзор', 'Последние подготовки и ближайший шаг.')
+      + (Api.live.enabled ? '' : note('demo', '<div>Демонстрационный комплект собран для профессии <strong>'
           + esc(DEMO_DATA.professionName) + '</strong>'
           + (DEMO_DATA.isGenericProfession ? ' (общий шаблон: этой профессии нет в библиотеке примеров)' : '')
-          + '. Профессию можно сменить в панели «Состояния демо» или создав резюме на другую профессию.</div>')
+          + '. Профессию можно сменить в панели «Состояния демо» или создав резюме на другую профессию.</div>'))
       + (prep && prep.stale ? staleBanner(prep) : '')
       + '<div class="card stack">'
       + '  <div class="card__head" style="margin-bottom:0">'
@@ -195,7 +210,7 @@ var ScreensCore = (function () {
       + '<div class="card"><div class="card__head"><div class="card__title"><h2>Мои подготовки</h2>'
       + '<small>Одна подготовка связывает резюме, вакансию, вопросы и интервью.</small></div></div>'
       + '<ul class="list">' + cards + '</ul></div>'
-      + '<div class="card stack">'
+      + (Api.live.enabled ? '' : '<div class="card stack">'
       + '  <h2>Режим демо</h2>'
       + '  <p class="muted">Можно переключиться между пустым и заполненным состоянием, чтобы посмотреть оба варианта.</p>'
       + '  <div class="btn-row">'
@@ -203,7 +218,7 @@ var ScreensCore = (function () {
       + '    <button type="button" class="btn" data-act="demo:scenario-filled">Показать заполненное состояние</button>'
       + '    <a class="btn" href="#/history">История</a>'
       + '  </div>'
-      + '</div>';
+      + '</div>');
   }
 
   /* ---------------- Мастер создания резюме ---------------- */
@@ -420,44 +435,47 @@ var ScreensCore = (function () {
     var fileRow = up.fileName
       ? '<div class="row-item" style="margin-top:16px"><div class="row-item__main">'
         + '<div class="row-item__title">' + esc(up.fileName) + '</div>'
-        + '<div class="row-item__meta">Файл выбран локально. Он не загружается на сервер и не читается макетом.</div>'
+        + '<div class="row-item__meta">' + esc(up.phase || 'Файл выбран') + '</div>'
         + '</div><div class="btn-row">'
-        + '<button type="button" class="btn btn--sm" data-act="upload:pick">Заменить</button>'
-        + '<button type="button" class="btn btn--sm btn--danger" data-act="upload:clear">Удалить</button>'
+        + '<button type="button" class="btn btn--sm" data-act="upload:pick"' + (up.busy ? ' disabled' : '') + '>Заменить</button>'
+        + '<button type="button" class="btn btn--sm btn--danger" data-act="upload:clear"' + (up.busy ? ' disabled' : '') + '>Удалить</button>'
         + '</div></div>'
       : '';
 
     return ''
-      + pageHead('Загрузка готового резюме', 'Выберите файл, чтобы посмотреть, как устроен разбор.')
-      + note('alert', '<div><strong>Чтение PDF и DOCX ещё не реализовано.</strong> Файл остаётся на вашем '
-        + 'устройстве: он не отправляется по сети и не анализируется. Отчёт ниже — общий демонстрационный образец, '
-        + 'а не разбор вашего документа.</div>')
+      + pageHead('Загрузка готового резюме', 'Загрузите документ или вставьте текст для разбора.')
+      + note('info', '<div>PDF с текстом, DOCX и TXT — до 2 МБ и 40 000 символов. Для DOC и RTF нужна конвертация. '
+        + 'Сканы не распознаются: OCR недоступен. Исходный файл не сохраняется; извлечённый текст сохраняется при запуске разбора.</div>')
       + '<div class="card">'
-      + '  <button type="button" class="dropzone" id="dropzone" data-act="upload:pick">'
+      + '  <button type="button" class="dropzone" id="dropzone" data-act="upload:pick"' + (up.busy ? ' disabled' : '') + '>'
       + '    <b>Перетащите файл сюда или нажмите, чтобы выбрать</b>'
-      + '    <span class="muted">Для демонстрации подойдут PDF или DOCX</span>'
+      + '    <span class="muted">PDF, DOCX, TXT · до 2 МБ</span>'
       + '  </button>'
       + '  <input type="file" id="file-input" class="visually-hidden" accept=".pdf,.docx,.doc,.rtf,.txt" '
       + '    aria-label="Выбрать файл резюме">'
       + fileRow
       + '  <hr class="divide">'
       + UI.field({ id: 'upload-text', label: 'Или вставьте текст резюме', type: 'textarea', rows: 8,
-          model: 'upload.text', value: up.text || '',
+          model: 'upload.text', value: up.text || '', disabled: !!up.busy,
           placeholder: 'Скопируйте текст из своего резюме',
           hint: Api.live.enabled
-            ? 'Текст уйдёт на сервер и будет разобран моделью. Файлы пока не читаются — только вставленный текст.'
+            ? 'Проверьте извлечённый текст. При запуске разбора он сохраняется на сервере и передаётся модели.'
             : 'В демо-режиме текст остаётся в браузере и не анализируется.' })
       + '  <div class="btn-row" style="margin-top:16px">'
       + (Api.live.enabled
-          ? '<button type="button" class="btn btn--primary" data-act="upload:review"'
-            + (state.pending ? ' disabled' : '') + '>'
-            + (state.pending ? 'Разбираю…' : 'Разобрать резюме') + '</button>'
+          ? '<button type="button" class="btn' + (up.fileError ? '' : ' btn--primary') + '" data-act="upload:review"'
+            + (state.pending || up.busy || up.fileError ? ' disabled' : '') + '>'
+            + (up.busy ? 'Обработка…' : up.error && !up.fileError ? 'Повторить разбор' : 'Разобрать резюме') + '</button>'
           : '')
-      + '    <button type="button" class="btn' + (Api.live.enabled ? '' : ' btn--primary')
-      + '" data-act="upload:show-analysis">Показать пример анализа</button>'
+      + (!Api.isHttp() && !up.fileName && !up.text
+        ? '<button type="button" class="btn" data-act="upload:show-analysis">Демо: показать пример анализа</button>' : '')
+      + (up.busy ? '<button type="button" class="btn" data-act="upload:cancel">Отменить</button>' : '')
+      + (up.fileError && !up.busy ? '<button type="button" class="btn btn--primary" data-act="upload:retry-file">Повторить чтение файла</button>' : '')
       + '    <a class="btn" href="#/resumes">К списку резюме</a>'
       + '  </div>'
       + '</div>'
+      + (up.phase ? '<p role="status">' + esc(up.phase) + (up.busy && up.elapsed !== undefined ? ' · ' + up.elapsed + ' с' : '') + '</p>' : '')
+      + (up.error ? '<div class="note note--alert" role="alert" id="upload-error">' + esc(up.error) + '</div>' : '')
       + (up.analysisShown ? analysisReport() : '');
   }
 
@@ -482,6 +500,7 @@ var ScreensCore = (function () {
 
   function analysisReport() {
     var state = Store.get();
+    if (Api.isHttp() && !state.upload.report) return '';
     var report = state.upload.report || DEMO_DATA.analysisReport;
     var real = !!state.upload.report;
     var decisions = state.upload.decisions;
@@ -493,8 +512,8 @@ var ScreensCore = (function () {
       + '<div class="card stack">'
       + (real
           ? '<div class="card__head"><div class="card__title"><h2>Разбор вашего резюме</h2>'
-            + '<small>' + (Api.live.ai && Api.live.ai.live ? 'Выполнен моделью по вставленному тексту' : 'Сервер на заглушке: структура настоящая, содержание фиксированное') + '</small></div>'
-            + (Api.live.ai && Api.live.ai.live ? '' : UI.demoBadge('Заглушка')) + '</div>'
+            + '<small>' + (state.upload.mock ? 'Демо-ответ сервера: содержание фиксированное' : 'Реальный анализ · ' + esc((state.upload.source || {}).provider || '') + ' · ' + esc((state.upload.source || {}).model || '') + ' · pre_interview') + '</small></div>'
+            + (state.upload.mock ? UI.demoBadge('Заглушка') : '') + '</div>'
             + note('info', '<div>Модель предлагает формулировки, но не имеет права добавлять факты. '
               + 'Принимайте только то, что соответствует действительности.</div>')
           : '<div class="card__head"><div class="card__title"><h2>Демонстрационный разбор резюме</h2>'
@@ -509,15 +528,15 @@ var ScreensCore = (function () {
       + (report.missing || []).map(function (s, i) { s.id = s.id || ('sug-m' + i); return suggestionBlock(s, decisions[s.id]); }).join('')
       + '</div>'
       + '<div class="card stack">'
-      + '  <div class="card__head"><div class="card__title"><h2>Демонстрационная версия резюме</h2>'
-      + '  <small>Принятые предложения применяются к образцу</small></div></div>'
+      + '  <div class="card__head"><div class="card__title"><h2>' + (real ? 'Выбранные рекомендации' : 'Демонстрационная версия резюме') + '</h2>'
+      + '  <small>' + (real ? 'Резюме и разбор сохранены. Рекомендации пока отмечены только в браузере; внесите правки в текст вручную.' : 'Принятые предложения применяются к образцу') + '</small></div></div>'
       + (accepted.length
           ? '<ul class="list">' + accepted.map(function (s) {
               return '<li><b>' + esc(s.title) + '</b><div class="diff-new">' + esc(s.after) + '</div></li>';
             }).join('') + '</ul>'
-          : '<p class="muted">Ни одно предложение пока не принято. Нажмите «Принять», чтобы увидеть изменение в образце.</p>')
+          : '<p class="muted">Ни одно предложение пока не принято. Нажмите «Принять», чтобы отметить рекомендацию.</p>')
       + '  <div class="btn-row">'
-      + '    <button type="button" class="btn btn--primary" data-act="upload:save">Сохранить как версию резюме</button>'
+      + '    <button type="button" class="btn btn--primary" data-act="upload:save">' + (real ? 'Использовать резюме для подготовки' : 'Сохранить как версию резюме') + '</button>'
       + '    <a class="btn" href="#/vacancy/new">Перейти к вакансии</a>'
       + '  </div>'
       + '</div>';

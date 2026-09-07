@@ -10,7 +10,7 @@
 
    Чего программа намеренно НЕ делает:
      — не скрывает своё окно от захвата экрана и демонстрации;
-     — не записывает звук;
+     — записывает микрофон только по отдельному явному согласию;
      — не сохраняет кадры, распознанный текст и подсказки на диск;
      — не прячет свой процесс и не обходит правила площадок;
      — не начинает читать экран без нажатия кнопки в этой сессии.
@@ -32,6 +32,18 @@ let controlWindow = null;
 let overlayWindow = null;
 let consentWindow = null;
 let session = null;
+let speechSession = null;
+let nextSpeechRequestAt = 0;
+const { pathToFileURL } = require('node:url');
+function isControl(sender) {
+  return !!controlWindow && !controlWindow.isDestroyed() && sender === controlWindow.webContents
+    && sender.getURL() === pathToFileURL(path.join(__dirname, 'renderer', 'control.html')).href;
+}
+const audioPermission = require('./lib/audio-permission.js').create(isControl);
+function stopSpeech() {
+  audioPermission.revoke();
+  if (speechSession) { speechSession.stop(); speechSession = null; }
+}
 
 const isTest = process.env.ASSISTANT_TEST_MODE === '1';
 
@@ -74,7 +86,9 @@ function createControlWindow() {
     }
   });
   controlWindow.loadFile(path.join(__dirname, 'renderer', 'control.html'));
-  controlWindow.on('closed', function () { controlWindow = null; });
+  controlWindow.on('closed', function () { stopSpeech(); controlWindow = null; });
+  controlWindow.webContents.on('render-process-gone', stopSpeech);
+  controlWindow.webContents.on('did-start-navigation', stopSpeech);
   return controlWindow;
 }
 
@@ -131,6 +145,9 @@ function sendToControl(channel, payload) {
 
 app.whenReady().then(function () {
   Settings.init(app.getPath('userData'));
+  const permissions = require('electron').session.defaultSession;
+  permissions.setPermissionCheckHandler((sender, permission, origin, details) => audioPermission.check(sender, permission, details));
+  permissions.setPermissionRequestHandler((sender, permission, callback, details) => callback(audioPermission.request(sender, permission, details)));
 
   if (!Settings.get().consentAccepted) createConsentWindow();
   else createControlWindow();
@@ -268,6 +285,29 @@ ipcMain.handle('overlay:setOpacity', function (event, value) {
 ipcMain.handle('app:openExternal', function (event, url) {
   if (/^https:\/\//.test(String(url))) shell.openExternal(url);
   return { ok: true };
+});
+
+ipcMain.handle('audio:config', function (event) {
+  if (!isControl(event.sender)) return {};
+  return { provider: process.env.STT_PROVIDER || 'mock', endpoint: process.env.STT_ENDPOINT || 'http://127.0.0.1:8080/inference' };
+});
+ipcMain.handle('audio:authorize', function (event, consent) {
+  return { ok: Settings.get().consentAccepted && audioPermission.arm(event.sender, consent) };
+});
+ipcMain.handle('audio:stop', function (event) {
+  if (!isControl(event.sender)) return { ok: false };
+  stopSpeech(); return { ok: true };
+});
+ipcMain.handle('audio:hint', async function (event, payload) {
+  if (!isControl(event.sender) || !Settings.get().consentAccepted || !payload || payload.consent !== true) return { ok: false };
+  if (Date.now() < nextSpeechRequestAt) return { ok: false };
+  nextSpeechRequestAt = Date.now() + 5000;
+  if (!speechSession) {
+    speechSession = Session.create({ settings: Settings, audioOnly: true, prep: payload.prep || null,
+      onHint: hint => { sendToControl('audio:hint', hint); } });
+    await speechSession.start();
+  }
+  return speechSession.transcript(payload.text, true);
 });
 
 /* ---------------- Снимок экрана ---------------- */

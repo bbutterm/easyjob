@@ -14,39 +14,35 @@ const Capabilities = require('../../shared/ai/capabilities.js');
 const Variables = require('../../shared/ai/variables.js');
 const db = require('./db.js');
 const log = require('./log.js');
+const Pricing = require('./pricing.js');
 
 const GigaChatAuth = require('./gigachat-auth.js');
 
-function config() {
-  return {
-    provider: process.env.AI_PROVIDER || 'mock',
-    model: process.env.AI_MODEL || '',
-    apiKey: process.env.AI_API_KEY || '',
-    /* GigaChat: ключ авторизации обменивается на временный токен сам. */
-    authKey: process.env.AI_AUTH_KEY || '',
-    scope: process.env.AI_SCOPE || '',
-    endpoint: process.env.AI_ENDPOINT || '',
-    folderId: process.env.AI_FOLDER_ID || '',
-    locale: process.env.AI_LOCALE || 'ru-RU',
-    timeoutMs: Number(process.env.AI_TIMEOUT_MS) || 60000
-  };
-}
-
-function isLive() {
-  const c = config();
-  return c.provider !== 'mock';
-}
+const Routing = require('../../shared/ai/routing.js');
+function config(taskId) { return Routing.load().resolve(taskId); }
+function isLive() { return Routing.load().isLive(); }
 
 function describe() {
-  const c = config();
-  const profile = Capabilities.profile(c.provider);
+  const routing = Routing.load();
+  const pre = routing.resolve('resume.review');
+  const live = routing.resolve('interview.turn');
+  const primary = pre.provider !== 'mock' ? pre : routing.resolve();
+  const primaryProfile = Capabilities.profile(primary.provider);
+  const liveProfile = Capabilities.profile(live.provider);
+  const mixed = pre.provider !== live.provider || pre.model !== live.model;
   return {
-    provider: c.provider,
-    title: profile.title,
-    model: c.model || profile.defaultModel || '',
-    live: c.provider !== 'mock',
-    dataRegion: profile.dataRegion,
-    hasKey: !!(c.apiKey || c.authKey)
+    provider: primary.provider,
+    title: mixed
+      ? primaryProfile.title + ' (pre-interview) · ' + liveProfile.title + ' (live)'
+      : primaryProfile.title,
+    model: primary.model || primaryProfile.defaultModel || '',
+    live: routing.isLive(),
+    dataRegion: primaryProfile.dataRegion,
+    hasKey: !!(primary.apiKey || primary.authKey),
+    stages: {
+      pre_interview: { provider: pre.provider, model: pre.model || '', live: pre.provider !== 'mock' },
+      live_interview: { provider: live.provider, model: live.model || '', live: live.provider !== 'mock' }
+    }
   };
 }
 
@@ -62,7 +58,9 @@ async function resolveApiKey(c) {
    ({ profession, summary, experience, skills, achievements, education }
    либо { rawText }). */
 function buildStore(taskId, parts) {
-  const store = ContextStore.create({ contextBudget: AiRequest.defaultsFor(taskId).contextBudget });
+  const preparing = Routing.STAGES[taskId] === 'pre_interview' && taskId !== 'interview.summary';
+  const store = ContextStore.create({ contextBudget: AiRequest.defaultsFor(taskId).contextBudget,
+    shares: preparing ? { identity: 0.05, preparation: 0.90, session: 0, moment: 0 } : undefined });
   const resume = parts.resume ? parts.resume.data : {};
   const prep = parts.prep || {};
   const vacancy = parts.vacancy || null;
@@ -100,50 +98,88 @@ function buildStore(taskId, parts) {
 
 /* Выполнить задачу. Возвращает { ok, text, json, usage, error, truncated }. */
 async function run(sessionId, taskId, parts, options) {
-  const c = config();
+  const c = config(taskId);
+  const recordUsage = db.usage.forSession(sessionId);
   const opts = options || {};
   const store = buildStore(taskId, parts);
   const built = store.build();
+  if (c.stage === 'pre_interview' && built.report.dropped.some(x => /^preparation\.(rawResumeText|vacancyRawText):/.test(x))) {
+    return { ok: false, code: 'context_limit', error: 'Исходный текст не помещается в контекст модели. Сократите резюме или вакансию и повторите запрос.', dropped: built.report.dropped };
+  }
   const request = AiRequest.build(taskId, built.context, {
     provider: c.provider, model: c.model, locale: c.locale,
-    endpoint: c.endpoint || undefined, streaming: opts.streaming
+    maxOutputTokens: c.maxOutputTokens, streaming: opts.streaming
   });
   if (opts.onDelta) request.onDelta = opts.onDelta;
 
+  const pre = c.stage === 'pre_interview';
+  const outerSignal = opts.signal || require('./request-scope.js').getStore()?.signal;
+  const controller = new AbortController();
+  const cancel = () => controller.abort();
+  outerSignal?.addEventListener('abort', cancel, { once: true });
+  if (outerSignal?.aborted) cancel();
+  let timedOut = false;
+  const timeoutMs = Math.min(c.timeoutMs || 60000, 90000);
+  const timer = pre ? setTimeout(() => { timedOut = true; controller.abort(); }, timeoutMs) : null;
   const started = Date.now();
-  let apiKey;
+  const pricing = Pricing.load();
+  let result;
   try {
-    apiKey = await resolveApiKey(c);
-  } catch (e) {
-    log.error('ai.auth', { provider: c.provider, error: e.message });
-    return { ok: false, error: e.message, dropped: built.report.dropped };
+
+    const execute = async () => Providers.execute(request, {
+      apiKey: await resolveApiKey(c), endpoint: c.endpoint || undefined, folderId: c.folderId || undefined,
+      timeoutMs: c.timeoutMs, maxTokensField: c.maxTokensField, signal: pre ? controller.signal : outerSignal,
+      retries: pre ? 0 : undefined,
+      disableReasoning: pre && request.outputFormat === 'json',
+      onAttemptFailure: failure => recordUsage({
+        task: taskId, stage: c.stage, provider: c.provider, model: request.model,
+        ...Pricing.account(request, failure, pricing), ok: false, ms: failure.ms
+      })
+    });
+    result = pre ? await new Promise(resolve => {
+      const aborted = () => resolve({ ok: false, code: timedOut ? 'timeout' : 'cancelled',
+        error: timedOut ? 'Превышено время ожидания модели. Повторите запрос.' : 'Запрос отменён.' });
+      if (controller.signal.aborted) return aborted();
+      controller.signal.addEventListener('abort', aborted, { once: true });
+      execute().then(resolve, () => resolve({ ok: false, code: 'provider_failure', error: 'Сервис модели не ответил' }))
+        .finally(() => controller.signal.removeEventListener('abort', aborted));
+    }) : await execute();
+  } catch (_) {
+    result = { ok: false, error: 'Сервис модели не ответил' };
   }
-  const result = await Providers.execute(request, {
-    apiKey, endpoint: c.endpoint || undefined, folderId: c.folderId || undefined,
-    timeoutMs: c.timeoutMs, signal: opts.signal
-  });
+  if (timer) clearTimeout(timer);
+  outerSignal?.removeEventListener('abort', cancel);
+  if (outerSignal?.aborted) result = { ...result, ok: false, code: 'cancelled', error: 'Запрос отменён.' };
   const ms = Date.now() - started;
-
-  db.usage.record(sessionId, {
-    task: taskId, provider: c.provider, model: request.model,
-    tokensIn: result.usage ? result.usage.input : 0,
-    tokensOut: result.usage ? result.usage.output : 0,
-    ok: result.ok, ms
-  });
-  log.info('ai.task', { task: taskId, provider: c.provider, ok: result.ok, ms,
-    attempts: result.attempts, dropped: built.report.dropped, error: result.error });
-
-  if (!result.ok) return { ok: false, error: result.error || 'Сервис модели не ответил', dropped: built.report.dropped };
-
   const task = Variables.task(taskId);
   let json = null;
-  if (task && task.output === 'json') {
-    const parsed = AiRequest.parseJson(result.text);
-    if (!parsed.ok) return { ok: false, error: 'Ответ модели не удалось разобрать: ' + parsed.error, raw: result.text };
-    json = parsed.value;
+  if (result.ok && task && task.output === 'json') {
+    let parsed;
+    try { parsed = { ok: true, value: JSON.parse(result.text) }; } catch (_) { parsed = { ok: false }; }
+    if (!parsed.ok || result.truncated || ['length', 'max_tokens'].includes(result.stopReason)
+      || (taskId === 'resume.review' && !validReview(parsed.value))) {
+      result = { ...result, ok: false, code: 'malformed_response',
+        error: 'Модель вернула неполный или некорректный структурированный ответ. Повторите разбор.' };
+    }
+    else json = parsed.value;
   }
+  recordUsage({
+    task: taskId, stage: c.stage, provider: c.provider, model: request.model,
+    ...Pricing.account(request, result, pricing), ok: result.ok, ms
+  });
+  log.info('ai.task', { task: taskId, stage: c.stage, provider: c.provider, ok: result.ok, ms });
+
+  if (!result.ok) return { ok: false, error: result.error || 'Сервис модели не ответил', code: result.code || 'provider_failure', dropped: built.report.dropped };
+
   return { ok: true, text: result.text, json, truncated: result.truncated === true,
+    source: { provider: c.provider, model: request.model, stage: c.stage },
     mock: result.mock === true, dropped: built.report.dropped, usage: result.usage };
 }
 
-module.exports = { run, config, isLive, describe };
+function validReview(value) {
+  return value && typeof value === 'object' && ['strengths', 'vague', 'missing'].every(k => Array.isArray(value[k]))
+    && value.strengths.every(x => typeof x === 'string')
+    && value.vague.every(x => x && ['title', 'before', 'after', 'why'].every(k => typeof x[k] === 'string'))
+    && value.missing.every(x => x && ['title', 'after', 'why'].every(k => typeof x[k] === 'string'));
+}
+module.exports = { validReview, run, config, isLive, describe };

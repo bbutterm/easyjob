@@ -55,12 +55,12 @@ function listFiles(dir) {
 
   const app = await electron.launch({
     executablePath: executablePath,
-    args: [DESKTOP, '--no-sandbox', '--user-data-dir=' + userData],
+    args: [DESKTOP, '--no-sandbox', '--use-fake-device-for-media-stream', '--user-data-dir=' + userData],
     cwd: DESKTOP,
     /* Настоящий захват экрана в сборочной среде без графической оболочки
        недоступен, поэтому цикл сессии проверяется на тестовом источнике.
        В обычном запуске этот режим выключен. */
-    env: Object.assign({}, process.env, { ASSISTANT_TEST_MODE: '', ASSISTANT_FAKE_CAPTURE: '1' })
+    env: Object.assign({}, process.env, { ASSISTANT_TEST_MODE: '', ASSISTANT_FAKE_CAPTURE: '1', STT_PROVIDER: 'mock' })
   });
 
   /* ---- Экран согласия ---- */
@@ -101,6 +101,55 @@ function listFiles(dir) {
     (await control.inputValue('#readMode')) === 'mock');
   ok('Сказано, что ключ не пишется на диск',
     (await control.locator('body').innerText()).includes('не записывается на диск'));
+
+  await control.waitForSelector('[data-stt="start"]');
+  ok('Микрофон требует отдельное согласие', await control.locator('[data-stt="start"]').isDisabled());
+  await control.check('[data-stt="consent"]');
+  await control.click('[data-stt="start"]');
+  ok('Состояние демо-записи видно, микрофон выключен',
+    (await control.locator('[data-stt="state"]').innerText()).includes('Демо: микрофон выключен'));
+  await control.click('[data-stt="stop"]');
+  await control.waitForFunction(() => document.querySelector('[data-stt="state"]').textContent.startsWith('ready'));
+  await control.fill('[data-stt="text"]', 'STT-PRIVATE-MARKER: расскажите об опыте');
+  await control.click('[data-stt="send"]');
+  await control.waitForFunction(() => document.querySelector('#audio-hint').textContent.length > 0);
+  ok('Транскрипт дал assistant.hint без экранной сессии',
+    (await control.locator('#audio-hint').innerText()).includes('Заглушка'));
+  ok('Транскрипт не попадает в журнал', !(await control.locator('#log').innerText()).includes('STT-PRIVATE-MARKER'));
+  await control.click('[data-stt="cancel"]');
+  ok('Отмена очистила транскрипт и подсказку', (await control.inputValue('[data-stt="text"]')) === ''
+    && (await control.locator('#audio-hint').innerText()) === '');
+  ok('Транскрипт не записан в файлы профиля', !listFiles(userData).some(file => {
+    try { return fs.readFileSync(file).includes(Buffer.from('STT-PRIVATE-MARKER')); } catch (_) { return false; }
+  }));
+
+  ok('Electron отклоняет микрофон без отдельного разрешения', await control.evaluate(async () => {
+    try { const stream = await navigator.mediaDevices.getUserMedia({ audio: true }); stream.getTracks().forEach(t => t.stop()); return false; }
+    catch (_) { return true; }
+  }));
+  await control.evaluate(() => {
+    window.__sttTracks = [];
+    const original = navigator.mediaDevices.getUserMedia.bind(navigator.mediaDevices);
+    navigator.mediaDevices.getUserMedia = async constraints => {
+      const stream = await original(constraints); window.__sttTracks.push(...stream.getTracks()); return stream;
+    };
+  });
+  await control.route('http://127.0.0.1:8080/inference', async route => {
+    if (route.request().method() === 'OPTIONS') {
+      await route.fulfill({ status: 204, headers: { 'access-control-allow-origin': '*', 'access-control-allow-methods': 'POST, OPTIONS', 'access-control-allow-headers': 'content-type', 'access-control-allow-private-network': 'true' } }); return;
+    }
+    if (!route.request().postDataBuffer().includes(Buffer.from('RIFF'))) throw new Error('Expected WAV');
+    await route.fulfill({ contentType: 'application/json', headers: { 'access-control-allow-origin': '*' }, body: '{"text":"Синтетическое устройство, фикстура STT"}' });
+  });
+  await control.selectOption('[data-stt="provider"]', 'whisper_cpp');
+  await control.check('[data-stt="consent"]'); await control.click('[data-stt="start"]');
+  await control.waitForFunction(() => document.querySelector('[data-stt="state"]').textContent.startsWith('recording'));
+  await control.waitForTimeout(400); await control.click('[data-stt="stop"]');
+  await control.waitForFunction(() => document.querySelector('[data-stt="state"]').textContent.startsWith('ready'));
+  ok('Electron: синтетический микрофон → WAV → STT-фикстура, дорожки остановлены',
+    (await control.inputValue('[data-stt="text"]')).includes('Синтетическое')
+    && await control.evaluate(() => window.__sttTracks.length > 0 && window.__sttTracks.every(t => t.readyState === 'ended')));
+  await control.click('[data-stt="cancel"]');
 
   /* ---- Ключ доступа не попадает на диск ---- */
   await control.fill('#apikey', 'секретный-ключ-для-проверки');

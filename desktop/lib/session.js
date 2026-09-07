@@ -16,6 +16,7 @@
 const ContextStore = require('../../shared/context/store.js');
 const AiRequest = require('../../shared/ai/request.js');
 const Providers = require('../../shared/ai/providers/index.js');
+const Routing = require('../../shared/ai/routing.js');
 const Ocr = require('./ocr.js');
 
 function create(options) {
@@ -35,6 +36,8 @@ function create(options) {
   let startedAt = 0;
   let aborter = null;
   let lastDropped = [];
+  let generation = 0;
+  let nextTranscriptAt = 0;
   const stats = { frames: 0, requests: 0, hints: 0, errors: 0, retries: 0 };
 
   /* Подготовка приходит из веб-сервиса: резюме, вакансия, требования,
@@ -77,11 +80,14 @@ function create(options) {
   }
 
   async function start() {
-    if (!options.sourceId) {
+    if (!options.sourceId && !options.audioOnly) {
       return { ok: false, error: 'Не выбран экран или окно для чтения.' };
     }
     running = true;
+    generation++;
+    aborter = null;
     startedAt = Date.now();
+    if (options.audioOnly) { status('running', 'Готов к отправке проверенного транскрипта. Захват экрана выключен.'); return { ok: true, startedAt }; }
     status('running', 'Сессия запущена. Чтение экрана идёт по вашему запуску и видно в этом окне.');
     timer = setInterval(function () { tick(false); }, Math.max(5, cfg.intervalSec) * 1000);
     /* Первый снимок сразу, чтобы окно не выглядело зависшим. */
@@ -91,6 +97,7 @@ function create(options) {
 
   function stop() {
     running = false;
+    generation++;
     if (timer) { clearInterval(timer); timer = null; }
     /* Незавершённый запрос отменяется: ответ на остановленную сессию
        не нужен, а платить за него не за что. */
@@ -200,21 +207,41 @@ function create(options) {
     }
   }
 
+  // Final, reviewed text only. Reuses context, task routing, provider retries and timeout.
+  async function transcript(text, consent) {
+    if (consent !== true || !running || !options.audioOnly) return { ok: false, error: 'Нужно согласие и голосовая сессия.' };
+    if (typeof text !== 'string' || !text.trim() || text.length > 4000) return { ok: false, error: 'Некорректный транскрипт.' };
+    if (busy || Date.now() < nextTranscriptAt) return { ok: false, error: 'Подождите завершения запроса и минимум 5 секунд между отправками.' };
+    busy = true; nextTranscriptAt = Date.now() + 5000; const token = generation;
+    aborter = new AbortController();
+    try {
+      store.set('moment', { text: text.trim(), detectedQuestion: text.trim(), captureConsent: true });
+      store.addTurn({ role: 'interviewer', text: text.trim() });
+      const hint = await run('assistant.hint');
+      if (token !== generation || !running) return { ok: false, error: 'Отменено.' };
+      if (!hint.ok) return { ok: false, error: 'Не удалось получить подсказку.' };
+      const parsed = AiRequest.parseJson(hint.text);
+      if (!parsed.ok) return { ok: false, error: 'Некорректный ответ модели.' };
+      stats.hints++;
+      onHint({ question: text.trim(), direction: parsed.value.direction || '', remind: parsed.value.remind || '',
+        avoid: parsed.value.avoid || '', at: Date.now(), demo: hint.mock === true, truncated: lastDropped.length > 0 });
+      return { ok: true };
+    } catch (_) { return { ok: false, error: 'Ошибка запроса подсказки.' }; }
+    finally { busy = false; if (token === generation) aborter = null; }
+  }
+
   /* Выполнение одной задачи через общий слой. */
   async function run(taskId) {
     const built = store.build();
     lastDropped = built.report.dropped.slice();
-    const request = AiRequest.build(taskId, built.context, {
-      provider: cfg.provider,
-      model: cfg.model,
-      locale: cfg.locale,
-      endpoint: cfg.endpoint || undefined
-    });
+    const route = Routing.load(process.env, {
+      ...cfg, apiKey: settings.getApiKey(), timeoutMs: 30000
+    }).resolve(taskId);
+    const request = AiRequest.build(taskId, built.context, route);
     stats.requests += 1;
     if (!aborter && typeof AbortController === 'function') aborter = new AbortController();
     const result = await Providers.execute(request, {
-      apiKey: settings.getApiKey(),
-      endpoint: cfg.endpoint || undefined,
+      ...route,
       signal: aborter ? aborter.signal : undefined
     });
     if (result && result.attempts > 1) stats.retries += result.attempts - 1;
@@ -237,7 +264,7 @@ function create(options) {
     };
   }
 
-  return { start, stop, tick, report, loadPrep };
+  return { start, stop, tick, report, loadPrep, transcript };
 }
 
 module.exports = { create };
