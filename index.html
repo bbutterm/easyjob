@@ -964,14 +964,29 @@ em { font-style: normal; color: var(--accent); }
   }
   function provider(config = {}, fetcher = globalThis.fetch) {
     const id = config.provider || 'mock';
-    if (!['mock', 'whisper_cpp'].includes(id)) throw new Error('Неизвестный STT-провайдер.');
-    const url = id === 'whisper_cpp' ? endpoint(config.endpoint) : null;
+    if (!['mock', 'whisper_cpp', 'server'].includes(id)) throw new Error('Неизвестный STT-провайдер.');
+    const url = id === 'whisper_cpp' ? endpoint(config.endpoint) : (id === 'server' ? '/api/stt/transcribe' : null);
     return {
       id,
       async transcribe(wav, signal) {
         if (signal && signal.aborted) throw new Error('Отменено.');
         if (id === 'mock') return { chunks: [MOCK_TEXT], mock: true };
         if (!(wav instanceof Blob) || wav.type !== 'audio/wav' || wav.size > 1000000 || wav.size <= 44) throw new Error('Некорректное аудио STT.');
+        if (id === 'server') {
+          /* Сервер Easyjob держит whisper.cpp у себя: фрагмент уходит как base64
+             в JSON с cookie сессии; аудио не хранится. */
+          const buf = new Uint8Array(await wav.arrayBuffer());
+          let bin = ''; for (let i = 0; i < buf.length; i += 0x8000) bin += String.fromCharCode.apply(null, buf.subarray(i, i + 0x8000));
+          let sres;
+          try {
+            sres = await fetcher(url, { method: 'POST', headers: { 'content-type': 'application/json', accept: 'application/json' },
+              body: JSON.stringify({ wavBase64: btoa(bin), consent: true }), signal, credentials: 'same-origin' });
+          } catch (_) { throw new Error('STT сервера недоступен или запрос отменён.'); }
+          let sdata = null;
+          try { sdata = await sres.json(); } catch (_) { sdata = null; }
+          if (!sres.ok || !sdata || sdata.ok !== true) throw new Error((sdata && sdata.error) || 'STT сервера недоступен.');
+          return { chunks: parse({ text: sdata.text }), mock: sdata.mock === true };
+        }
         const body = new FormData();
         body.append('file', wav, 'utterance.wav');
         body.append('response_format', 'json'); body.append('language', 'ru');
@@ -1103,7 +1118,7 @@ em { font-style: normal; color: var(--accent); }
     const host = document.createElement('section'); host.className = 'card stack stt-widget';
     host.innerHTML = '<h2>Голос → текст</h2>'
       + '<p>Только микрофон, до 30 секунд. Системный звук не поддерживается. Для записи чужой речи нужно согласие участников.</p>'
-      + '<label>STT-провайдер <select data-stt="provider"><option value="mock">Заглушка — НЕ распознаёт речь</option><option value="whisper_cpp">Локальный whisper.cpp</option></select></label>'
+      + '<label>STT-провайдер <select data-stt="provider"><option value="mock">Заглушка — НЕ распознаёт речь</option><option value="whisper_cpp">Локальный whisper.cpp</option><option value="server">Сервер Easyjob (whisper.cpp на сервере)</option></select></label>'
       + '<label>Адрес локального STT <input data-stt="endpoint" value="http://127.0.0.1:8080/inference" spellcheck="false"></label>'
       + '<label><input type="checkbox" data-stt="consent"> Разрешаю запись микрофона и локальную транскрипцию; после проверки отправлю текст выбранной AI-модели. Согласие участников получено.</label>'
       + '<p data-stt="capability"></p><p role="status" aria-live="polite" data-stt="state">idle — Микрофон выключен</p>'
@@ -2323,7 +2338,8 @@ var Store = (function () {
       builder: emptyBuilder(),
       upload: { fileName: '', analysisShown: false, decisions: {} },
       vacancyDraft: { title: '', company: '', text: '', resumeId: '', url: '', imported: null, importError: '', importBusy: false, importElapsed: 0 },
-      assistant: { status: 'disconnected', prepId: filled ? 'prep-1' : null, hintIndex: 0, hintsOpen: false },
+      assistant: { status: 'disconnected', prepId: filled ? 'prep-1' : null, hintIndex: 0, hintsOpen: false,
+        screenText: '', question: '', consent: false, busy: '', error: '', hint: null, hints: [] },
       settings: {
         emailUpdates: true,
         weeklyDigest: false,
@@ -4423,10 +4439,12 @@ var ScreensPrep = (function () {
 
     return ''
       + pageHead('Помощник на собеседовании',
-          'Отдельный компонент, который по замыслу работает во время реального интервью.')
-      + note('alert', '<div><strong>Функции пока нет.</strong> Формат файла, операционные системы, способ установки и '
+          Api.live.enabled ? 'Текстовый контур работает через сервер; чтение экрана — отдельная программа для компьютера.'
+            : 'Отдельный компонент, который по замыслу работает во время реального интервью.')
+      + (Api.live.enabled ? serverAssistantCard(a, prepOptions)
+        : note('alert', '<div><strong>Функции пока нет.</strong> Формат файла, операционные системы, способ установки и '
         + 'протокол соединения не определены. В макете показан только предполагаемый порядок работы: '
-        + 'ничего не скачивается, звук и экран не захватываются, подсказки не генерируются.</div>')
+        + 'ничего не скачивается, звук и экран не захватываются, подсказки не генерируются.</div>'))
       + '<div class="card stack">'
       + '  <h2>Зачем нужен отдельный компонент</h2>'
       + '  <p class="muted">Собеседование обычно идёт в стороннем приложении для видеозвонков. Веб-страница не имеет '
@@ -4496,6 +4514,56 @@ var ScreensPrep = (function () {
         + 'без согласия участников может нарушать закон и правила площадки. Использование такого помощника — '
         + 'ответственность пользователя. Макет не обещает, что окно помощника невидимо при демонстрации экрана '
         + 'или незаметно для собеседника: это нерешённый технический и правовой вопрос.</div>')
+      + '</div>';
+  }
+
+  /* Текстовый помощник через сервер: пользователь вставляет (или диктует
+     через STT) то, что сказал собеседующий; сервер выделяет вопрос и даёт
+     направление ответа по подготовке. Экран и звук не захватываются. */
+  function effectiveAssistantPrep(a) {
+    var s = Store.get();
+    var chosen = a.prepId && Store.prepById(a.prepId) ? a.prepId : null;
+    return chosen || s.activePrepId || (s.preps[0] ? s.preps[0].id : '');
+  }
+
+  function serverAssistantCard(a, prepOptions) {
+    var prepId = effectiveAssistantPrep(a);
+    var hasPrep = !!prepId;
+    var busy = a.busy;
+    return '<div class="card stack assistant-live">'
+      + '  <h2>Текстовый помощник</h2>'
+      + '  <p class="muted">Вставьте или продиктуйте, что сказал собеседующий. Сервер выделит вопрос и подскажет направление ответа '
+      + 'по вашей подготовке. Подсказка — опора для своего ответа, не текст для зачитывания.</p>'
+      + UI.select({ id: 'assistant-prep', label: 'Резюме и вакансия', value: prepId || '', options: prepOptions, act: 'assistant:prep' })
+      + '  <label class="check"><input type="checkbox" id="asst-consent" data-act-change="assistant:consent"' + (a.consent ? ' checked' : '') + '> '
+      + 'Использование помощника согласовано с работодателем и участниками разговора.</label>'
+      + UI.field({ id: 'asst-text', label: 'Что сказал собеседующий', type: 'textarea', model: 'assistant.screenText', value: a.screenText || '',
+          rows: 4, placeholder: 'Например: «Расскажите про самую сложную задачу в вашей работе»' })
+      + '  <div class="btn-row">'
+      + '    <button type="button" class="btn" data-act="assistant:extract"' + (busy || !a.consent || !(a.screenText || '').trim() ? ' disabled' : '') + '>'
+      + (busy === 'extract' ? 'Выделяю вопрос…' : 'Выделить вопрос') + '</button>'
+      + '  </div>'
+      + UI.field({ id: 'asst-question', label: 'Вопрос собеседующего (можно поправить)', model: 'assistant.question', value: a.question || '',
+          hint: 'Подсказка строится по этому тексту.' })
+      + '  <div class="btn-row">'
+      + '    <button type="button" class="btn btn--primary" data-act="assistant:hint"' + (busy || !a.consent || !hasPrep || !(a.question || '').trim() ? ' disabled' : '') + '>'
+      + (busy === 'hint' ? 'Готовлю подсказку…' : 'Получить подсказку') + '</button>'
+      + (busy ? '<button type="button" class="btn" data-act="assistant:cancel">Отменить</button>' : '')
+      + (!hasPrep ? '<span class="muted small">Выберите подготовку.</span>' : '')
+      + '  </div>'
+      + (a.error ? note('alert', '<div class="asst-error"><strong>Не получилось.</strong> ' + esc(a.error) + '</div>') : '')
+      + (a.hint ? '<div class="note note--info asst-hint"><div>'
+          + '<p><b>Вопрос:</b> ' + esc(a.hint.question) + '</p>'
+          + '<p><b>Направление ответа:</b> ' + esc(a.hint.direction) + '</p>'
+          + (a.hint.remind ? '<p><b>Напоминание:</b> ' + esc(a.hint.remind) + '</p>' : '')
+          + (a.hint.avoid ? '<p><b>Чего избегать:</b> ' + esc(a.hint.avoid) + '</p>' : '')
+          + '<p class="muted small">' + (a.hint.source && a.hint.source.mode === 'mock' ? 'Заглушка модели, не настоящая подсказка' : 'Подсказка модели')
+          + (a.hint.source && a.hint.source.provider ? ': ' + esc(a.hint.source.provider) + (a.hint.source.model && a.hint.source.mode !== 'mock' ? ' · ' + esc(a.hint.source.model) : '') : '')
+          + (a.hint.source && a.hint.source.stage ? ' · ' + esc(a.hint.source.stage) : '') + '</p>'
+          + '</div></div>' : '')
+      + (a.hints.length > 1 ? '<details><summary>Прошлые подсказки (' + (a.hints.length - 1) + ')</summary><ul>'
+          + a.hints.slice(0, -1).reverse().map(function (h) { return '<li><b>' + esc(h.question) + '</b>: ' + esc(h.direction) + '</li>'; }).join('') + '</ul></details>' : '')
+      + '  <p class="small muted">Текст уходит на сервер и сервису модели только по кнопке; на сервере он не хранится. Затронутые темы передаются, чтобы подсказки не повторялись.</p>'
       + '</div>';
   }
 
@@ -5147,6 +5215,8 @@ var QuickStart = (function () {
       .finally(function () { adminUsage.loading = false; if (parseRoute().name === 'admin') render(); });
   }
   document.addEventListener('change', function (event) {
+    var actChange = event.target.getAttribute && event.target.getAttribute('data-act-change');
+    if (actChange) { dispatch(actChange, { checked: !!event.target.checked, value: event.target.value }); return; }
     if (event.target.id !== 'usage-days' || !isAdmin() || adminUsage.loading) return;
     adminUsage.days = Number(event.target.value); adminUsage.data = null; adminUsage.error = ''; render();
   });
@@ -5678,6 +5748,41 @@ var QuickStart = (function () {
       });
       UI.toast('Сопоставление пересобрано для текущих версий.');
     } catch (e) { liveFail(e); } finally { endOperation(); }
+  }
+
+  /* Помощник через сервер: выделение вопроса и подсказка по подготовке.
+     Согласие обязательно; текст не хранится ни в браузере, ни на сервере. */
+  var assistantOp = null;
+  async function liveAssistant(kind) {
+    var a = Store.get().assistant;
+    if (!a.consent) { UI.toast('Подтвердите согласие участников разговора.'); return; }
+    if (assistantOp) return;
+    var op = new AbortController(); assistantOp = op;
+    Store.update(function (s) { s.assistant.busy = kind; s.assistant.error = ''; });
+    try {
+      if (kind === 'extract') {
+        var ex = await Api.request('POST', '/api/assistant/extract', { text: a.screenText, consent: true }, { signal: op.signal, timeoutMs: 30000 });
+        Store.update(function (s) {
+          s.assistant.question = ex.question || '';
+          if (!ex.question) s.assistant.error = 'В тексте не нашлось вопроса собеседующего. Сформулируйте его сами в поле ниже.';
+        });
+      } else {
+        var prep = Store.prepById(a.prepId) || Store.activePrep() || Store.get().preps[0];
+        if (!prep || !prep.serverId) throw new Error('Выберите подготовку.');
+        var asked = a.hints.map(function (h) { return h.question; }).slice(-30);
+        var hint = await Api.request('POST', '/api/assistant/hint', { prepId: prep.serverId, question: a.question, consent: true, askedTopics: asked },
+          { signal: op.signal, timeoutMs: 30000 });
+        Store.update(function (s) {
+          s.assistant.hint = { question: hint.question, direction: hint.direction, remind: hint.remind, avoid: hint.avoid, source: hint.source, at: Date.now() };
+          s.assistant.hints = s.assistant.hints.concat([s.assistant.hint]).slice(-20);
+        });
+      }
+    } catch (e) {
+      Store.update(function (s) { s.assistant.error = e.message; });
+    } finally {
+      if (assistantOp === op) assistantOp = null;
+      Store.update(function (s) { s.assistant.busy = ''; });
+    }
   }
 
   async function liveBuildCard(prep) {
@@ -6586,6 +6691,18 @@ var QuickStart = (function () {
         return;
       case 'assistant:prep':
         Store.update(function (s) { s.assistant.prepId = data.value; s.activePrepId = data.value; });
+        return;
+      case 'assistant:consent':
+        Store.update(function (s) { s.assistant.consent = !!data.checked; });
+        return;
+      case 'assistant:extract':
+        liveAssistant('extract');
+        return;
+      case 'assistant:hint':
+        liveAssistant('hint');
+        return;
+      case 'assistant:cancel':
+        if (assistantOp) assistantOp.abort();
         return;
 
       /* -------- Тарифы -------- */

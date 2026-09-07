@@ -719,6 +719,74 @@ const VACANCY_TEXT = 'Ищем повара в ресторан.\n\nТребов
   ok('Итог интервью хранится с источником', fint.data.summary && fint.data.summary.source && fint.data.summary.source.stage === 'pre_interview');
   fApp.server.close();
 
+  /* ---- Помощник через сервер ---- */
+  const aApp = createApp({ dbFile: ':memory:', freePrepsPerDay: 100, secure: false, retention: false,
+    rateLimit: { perMinute: 10000, expensivePerMinute: 10000, sessionsPerHour: 1000 } });
+  await new Promise(function (r) { aApp.server.listen(0, '127.0.0.1', r); });
+  const abase = 'http://127.0.0.1:' + aApp.server.address().port;
+  const ac = client(abase);
+  await ac.call('GET', '/api/me');
+  const noConsent = await ac.call('POST', '/api/assistant/extract', { text: 'Расскажите о себе?' });
+  ok('Помощник: без согласия участников — 400 consent_required', noConsent.status === 400 && noConsent.data.code === 'consent_required');
+  const ex = await ac.call('POST', '/api/assistant/extract', { text: 'Итак. Расскажите про самую сложную задачу в вашей работе. Спасибо.', consent: true });
+  ok('Помощник: вопрос выделен, ответ подписан источником этапа живого интервью',
+    ex.status === 200 && typeof ex.data.question === 'string' && ex.data.question.length > 5 && ex.data.source.stage === 'live_interview' && ex.data.source.mode === 'mock', JSON.stringify(ex.data));
+  const ar = await ac.call('POST', '/api/resumes', { title: 'Р', data: RESUME });
+  const av = await ac.call('POST', '/api/vacancies', { title: 'Повар', rawText: VACANCY_TEXT });
+  const ap = await ac.call('POST', '/api/preps', { resumeId: ar.data.id, vacancyId: av.data.id });
+  const hintNoPrep = await ac.call('POST', '/api/assistant/hint', { prepId: 'prep_nope', question: ex.data.question, consent: true });
+  ok('Помощник: чужая или несуществующая подготовка — 404', hintNoPrep.status === 404);
+  const hint = await ac.call('POST', '/api/assistant/hint', { prepId: ap.data.id, question: ex.data.question, consent: true, askedTopics: ['опыт'] });
+  ok('Помощник: подсказка содержит направление и подписана источником', hint.status === 200 && hint.data.direction.length > 10
+    && hint.data.question === ex.data.question && hint.data.source.stage === 'live_interview', JSON.stringify(hint.data).slice(0, 160));
+  const dbA = require('../server/lib/db.js');
+  const stages = dbA.usage.summary(1).byStage.map(function (s) { return s.stage; });
+  ok('Помощник: расход учтён на этапе live_interview', stages.indexOf('live_interview') >= 0);
+  ok('Помощник: текст экрана в базе не хранится', !/сложную задачу/.test(JSON.stringify(dbA.usage.summary(1))));
+  const strangerA = client(abase); await strangerA.call('GET', '/api/me');
+  ok('Помощник: подготовка другого пользователя недоступна', (await strangerA.call('POST', '/api/assistant/hint', { prepId: ap.data.id, question: 'x?', consent: true })).status === 404);
+  aApp.server.close();
+
+  /* ---- Распознавание речи на сервере ---- */
+  const httpS = require('node:http');
+  const wavBytes = Buffer.alloc(200); wavBytes.write('RIFF', 0, 'latin1'); wavBytes.write('WAVE', 8, 'latin1');
+  const sttApp = createApp({ dbFile: ':memory:', freePrepsPerDay: 100, secure: false, retention: false,
+    rateLimit: { perMinute: 10000, expensivePerMinute: 10000, sessionsPerHour: 1000 } });
+  await new Promise(function (r) { sttApp.server.listen(0, '127.0.0.1', r); });
+  const sttBase = 'http://127.0.0.1:' + sttApp.server.address().port;
+  const sttC = client(sttBase); await sttC.call('GET', '/api/me');
+  const prevStt = { p: process.env.STT_PROVIDER, e: process.env.STT_ENDPOINT };
+  process.env.STT_PROVIDER = 'mock';
+  ok('STT: без согласия — 400', (await sttC.call('POST', '/api/stt/transcribe', { wavBase64: wavBytes.toString('base64') })).status === 400);
+  ok('STT: не WAV — 422 bad_audio', (await sttC.call('POST', '/api/stt/transcribe', { wavBase64: Buffer.alloc(100, 1).toString('base64'), consent: true })).data.code === 'bad_audio');
+  const sttMock = await sttC.call('POST', '/api/stt/transcribe', { wavBase64: wavBytes.toString('base64'), consent: true });
+  ok('STT: заглушка помечена как заглушка, текст демонстрационный', sttMock.status === 200 && sttMock.data.mock === true && /Демонстрационная/.test(sttMock.data.text));
+  ok('STT: описание сервиса без секретов', (await sttC.call('GET', '/api/stt')).data.live === false);
+  /* Поддельный whisper.cpp на loopback. */
+  let sawFile = false;
+  const whisper = httpS.createServer(function (req, res) {
+    let size = 0; req.on('data', function (c) { size += c.length; sawFile = sawFile || /filename="utterance.wav"/.test(c.toString('latin1')); });
+    req.on('end', function () {
+      if (req.url === '/inference') { res.writeHead(200, { 'content-type': 'application/json' }); res.end(JSON.stringify({ text: ' Привет,  это   тест. ' })); }
+      else { res.writeHead(404); res.end(); }
+    });
+  });
+  await new Promise(function (r) { whisper.listen(0, '127.0.0.1', r); });
+  process.env.STT_PROVIDER = 'whisper_cpp'; process.env.STT_ENDPOINT = 'http://127.0.0.1:' + whisper.address().port + '/inference';
+  const sttReal = await sttC.call('POST', '/api/stt/transcribe', { wavBase64: wavBytes.toString('base64'), consent: true });
+  ok('STT: WAV уходит в whisper.cpp как multipart, текст нормализован, не заглушка',
+    sttReal.status === 200 && sttReal.data.mock === false && sttReal.data.text === 'Привет, это тест.' && sawFile && sttReal.data.latencyMs >= 0, JSON.stringify(sttReal.data));
+  process.env.STT_ENDPOINT = 'http://example.com/inference';
+  ok('STT: нелокальный адрес whisper — 503 stt_unconfigured', (await sttC.call('POST', '/api/stt/transcribe', { wavBase64: wavBytes.toString('base64'), consent: true })).data.code === 'stt_unconfigured');
+  whisper.close();
+  process.env.STT_ENDPOINT = 'http://127.0.0.1:1/inference';
+  ok('STT: недоступный whisper — 502 stt_unavailable', (await sttC.call('POST', '/api/stt/transcribe', { wavBase64: wavBytes.toString('base64'), consent: true })).data.code === 'stt_unavailable');
+  const dbS = require('../server/lib/db.js');
+  ok('STT: ни аудио, ни текст не попадают в базу', !/Привет|RIFF/.test(JSON.stringify(dbS.usage.summary(1))));
+  if (prevStt.p === undefined) delete process.env.STT_PROVIDER; else process.env.STT_PROVIDER = prevStt.p;
+  if (prevStt.e === undefined) delete process.env.STT_ENDPOINT; else process.env.STT_ENDPOINT = prevStt.e;
+  sttApp.server.close();
+
   /* ---- Обмен ключа GigaChat на токен ---- */
   const GigaChatAuth = require('../server/lib/gigachat-auth.js');
   GigaChatAuth.reset();

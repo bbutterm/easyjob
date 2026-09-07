@@ -98,6 +98,8 @@
       .finally(function () { adminUsage.loading = false; if (parseRoute().name === 'admin') render(); });
   }
   document.addEventListener('change', function (event) {
+    var actChange = event.target.getAttribute && event.target.getAttribute('data-act-change');
+    if (actChange) { dispatch(actChange, { checked: !!event.target.checked, value: event.target.value }); return; }
     if (event.target.id !== 'usage-days' || !isAdmin() || adminUsage.loading) return;
     adminUsage.days = Number(event.target.value); adminUsage.data = null; adminUsage.error = ''; render();
   });
@@ -629,6 +631,41 @@
       });
       UI.toast('Сопоставление пересобрано для текущих версий.');
     } catch (e) { liveFail(e); } finally { endOperation(); }
+  }
+
+  /* Помощник через сервер: выделение вопроса и подсказка по подготовке.
+     Согласие обязательно; текст не хранится ни в браузере, ни на сервере. */
+  var assistantOp = null;
+  async function liveAssistant(kind) {
+    var a = Store.get().assistant;
+    if (!a.consent) { UI.toast('Подтвердите согласие участников разговора.'); return; }
+    if (assistantOp) return;
+    var op = new AbortController(); assistantOp = op;
+    Store.update(function (s) { s.assistant.busy = kind; s.assistant.error = ''; });
+    try {
+      if (kind === 'extract') {
+        var ex = await Api.request('POST', '/api/assistant/extract', { text: a.screenText, consent: true }, { signal: op.signal, timeoutMs: 30000 });
+        Store.update(function (s) {
+          s.assistant.question = ex.question || '';
+          if (!ex.question) s.assistant.error = 'В тексте не нашлось вопроса собеседующего. Сформулируйте его сами в поле ниже.';
+        });
+      } else {
+        var prep = Store.prepById(a.prepId) || Store.activePrep() || Store.get().preps[0];
+        if (!prep || !prep.serverId) throw new Error('Выберите подготовку.');
+        var asked = a.hints.map(function (h) { return h.question; }).slice(-30);
+        var hint = await Api.request('POST', '/api/assistant/hint', { prepId: prep.serverId, question: a.question, consent: true, askedTopics: asked },
+          { signal: op.signal, timeoutMs: 30000 });
+        Store.update(function (s) {
+          s.assistant.hint = { question: hint.question, direction: hint.direction, remind: hint.remind, avoid: hint.avoid, source: hint.source, at: Date.now() };
+          s.assistant.hints = s.assistant.hints.concat([s.assistant.hint]).slice(-20);
+        });
+      }
+    } catch (e) {
+      Store.update(function (s) { s.assistant.error = e.message; });
+    } finally {
+      if (assistantOp === op) assistantOp = null;
+      Store.update(function (s) { s.assistant.busy = ''; });
+    }
   }
 
   async function liveBuildCard(prep) {
@@ -1537,6 +1574,18 @@
         return;
       case 'assistant:prep':
         Store.update(function (s) { s.assistant.prepId = data.value; s.activePrepId = data.value; });
+        return;
+      case 'assistant:consent':
+        Store.update(function (s) { s.assistant.consent = !!data.checked; });
+        return;
+      case 'assistant:extract':
+        liveAssistant('extract');
+        return;
+      case 'assistant:hint':
+        liveAssistant('hint');
+        return;
+      case 'assistant:cancel':
+        if (assistantOp) assistantOp.abort();
         return;
 
       /* -------- Тарифы -------- */

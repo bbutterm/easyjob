@@ -109,7 +109,8 @@ var Store = (function () {
       builder: emptyBuilder(),
       upload: { fileName: '', analysisShown: false, decisions: {} },
       vacancyDraft: { title: '', company: '', text: '', resumeId: '', url: '', imported: null, importError: '', importBusy: false, importElapsed: 0 },
-      assistant: { status: 'disconnected', prepId: filled ? 'prep-1' : null, hintIndex: 0, hintsOpen: false },
+      assistant: { status: 'disconnected', prepId: filled ? 'prep-1' : null, hintIndex: 0, hintsOpen: false,
+        screenText: '', question: '', consent: false, busy: '', error: '', hint: null, hints: [] },
       settings: {
         emailUpdates: true,
         weeklyDigest: false,

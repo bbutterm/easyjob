@@ -18,6 +18,17 @@ function ok(name) { checks++; console.log('PASS ' + name); }
   for (const data of [{}, { text: null }, { text: 'x'.repeat(32001) }]) assert.throws(() => STT.parse(data));
   for (const url of ['https://example.org/inference', 'http://127.0.0.1:8080/other', 'http://user:secret@localhost/inference']) assert.throws(() => STT.endpoint(url));
   assert.throws(() => STT.provider({ provider: 'openrouter' })); ok('chunking, Unicode, provider payload validation and local-only endpoint');
+  {
+    const wav = new Blob([new Uint8Array(100)], { type: 'audio/wav' });
+    let seen = null;
+    const server = STT.provider({ provider: 'server' }, async (url, init) => { seen = { url, init, body: JSON.parse(init.body) }; return new Response(JSON.stringify({ ok: true, text: 'сервер распознал', mock: false }), { status: 200 }); });
+    const out = await server.transcribe(wav);
+    assert.equal(seen.url, '/api/stt/transcribe'); assert.equal(seen.init.credentials, 'same-origin'); assert.equal(seen.body.consent, true);
+    assert.equal(Buffer.from(seen.body.wavBase64, 'base64').length, 100); assert.deepEqual(out, { chunks: ['сервер распознал'], mock: false });
+    const failing = STT.provider({ provider: 'server' }, async () => new Response(JSON.stringify({ ok: false, error: 'private detail' }), { status: 502 }));
+    await assert.rejects(failing.transcribe(wav));
+    ok('server STT provider posts base64 WAV with consent and same-origin cookies, surfaces failure');
+  }
 
   let snapshots = [], mic = 0;
   const machine = STT.create({ capture: () => { mic++; }, onState: s => snapshots.push(s) });

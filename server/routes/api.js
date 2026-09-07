@@ -7,6 +7,8 @@ const db = require('../lib/db.js');
 const ai = require('../lib/ai.js');
 const Compact = require('../lib/context-compact.js');
 const UrlImport = require('../lib/url-import.js');
+const SttServer = require('../lib/stt-server.js');
+const log = require('../lib/log.js');
 
 /* Ошибка задачи модели → HTTP: переполнение контекста 422, таймаут 504,
    отмена 499, остальное 502. Код ошибки всегда в теле ответа. */
@@ -463,6 +465,64 @@ function register(r) {
     db.preps.set(sid, prep.id, { card: result.json });
     db.preps.set(sid, prep.id, { sources: withSource(db.preps.get(sid, prep.id), 'card', sourceOf(result)) });
     sendJson(res, 200, { card: result.json, mock: result.mock, dropped: result.dropped, source: sourceOf(result) });
+  });
+
+  /* ---- Распознавание речи на сервере ----
+     Микрофон включает пользователь в браузере; сюда приходит только
+     готовый WAV фрагмента (до 1 МБ) с явным согласием. Аудио и текст не
+     сохраняются; в ответе — текст, признак заглушки и длительность. */
+  r.post('/api/stt/transcribe', async function ({ res, body, ctx }) {
+    if (body.consent !== true) throw new HttpError(400, 'Нужно подтвердить согласие на запись и распознавание.', { code: 'consent_required' });
+    const b64 = typeof body.wavBase64 === 'string' ? body.wavBase64 : '';
+    if (!b64 || b64.length > Math.ceil(SttServer.MAX_WAV / 3) * 4 + 4 || !/^[A-Za-z0-9+/]+={0,2}$/.test(b64)) {
+      throw new HttpError(413, 'Аудио: WAV до 1 МБ в base64.', { code: 'bad_audio' });
+    }
+    const bytes = Buffer.from(b64, 'base64');
+    const signal = require('../lib/request-scope.js').getStore()?.signal;
+    const result = await SttServer.transcribe(bytes, { signal });
+    log.info('stt.transcribe', { session: ctx.session.id.slice(0, 6), bytes: bytes.length, ms: result.latencyMs, mock: result.mock, chars: result.text.length });
+    sendJson(res, 200, { ok: true, text: result.text, mock: result.mock, provider: result.provider, latencyMs: result.latencyMs });
+  });
+
+  r.get('/api/stt', function ({ res }) {
+    sendJson(res, 200, SttServer.describe());
+  });
+
+  /* ---- Помощник на собеседовании: текстовый контур через сервер ----
+     Экран и звук веб-версия не захватывает: пользователь вставляет или
+     диктует текст. Оба маршрута требуют явного согласия участников,
+     идут на профиль живого интервью (Cerebras) и учитываются как
+     stage live_interview. Ничего из текста не хранится. */
+  r.post('/api/assistant/extract', async function ({ res, body, ctx }) {
+    if (body.consent !== true) throw new HttpError(400, 'Нужно подтвердить согласие участников разговора.', { code: 'consent_required' });
+    const text = str(body.text, 8000, 'text', true);
+    const textDelta = str(body.textDelta, 4000, 'textDelta');
+    const result = await ai.run(ctx.session.id, 'screen.extract', { moment: { text, textDelta: textDelta || undefined, captureConsent: true } });
+    if (!result.ok) throw aiError(result);
+    const j = result.json || {};
+    const question = j.question === null || j.question === undefined ? null : str(j.question, 500, 'question');
+    const confidence = Math.max(0, Math.min(1, Number(j.confidence) || 0));
+    const speakerGuess = ['interviewer', 'candidate', 'unknown'].indexOf(j.speakerGuess) >= 0 ? j.speakerGuess : 'unknown';
+    sendJson(res, 200, { question: question || null, confidence, speakerGuess, mock: result.mock, source: sourceOf(result) });
+  });
+
+  r.post('/api/assistant/hint', async function ({ res, body, ctx }) {
+    const sid = ctx.session.id;
+    if (body.consent !== true) throw new HttpError(400, 'Нужно подтвердить согласие участников разговора.', { code: 'consent_required' });
+    const prep = db.preps.get(sid, str(body.prepId, 64, 'prepId', true));
+    if (!prep) throw new HttpError(404, 'Подготовка не найдена');
+    const question = str(body.question, 1000, 'question', true);
+    const askedTopics = (Array.isArray(body.askedTopics) ? body.askedTopics : []).slice(0, 30).map(function (t) { return str(t, 80, 'topic'); }).filter(Boolean);
+    const resume = db.resumes.get(sid, prep.resumeId);
+    const vacancy = db.vacancies.get(sid, prep.vacancyId);
+    const result = await ai.run(sid, 'assistant.hint', { resume, vacancy, prep, askedTopics,
+      moment: { detectedQuestion: question, captureConsent: true } });
+    if (!result.ok) throw aiError(result);
+    const j = result.json || {};
+    const hint = { direction: str(j.direction, 600, 'direction'), remind: j.remind ? str(j.remind, 400, 'remind') : null,
+      avoid: j.avoid ? str(j.avoid, 400, 'avoid') : null };
+    if (!hint.direction) throw new HttpError(502, 'Модель не дала направление ответа. Повторите запрос.', { code: 'malformed_response' });
+    sendJson(res, 200, Object.assign(hint, { question, mock: result.mock, source: sourceOf(result), dropped: result.dropped }));
   });
 
   /* ---- Интервью ---- */

@@ -598,10 +598,12 @@ var ScreensPrep = (function () {
 
     return ''
       + pageHead('Помощник на собеседовании',
-          'Отдельный компонент, который по замыслу работает во время реального интервью.')
-      + note('alert', '<div><strong>Функции пока нет.</strong> Формат файла, операционные системы, способ установки и '
+          Api.live.enabled ? 'Текстовый контур работает через сервер; чтение экрана — отдельная программа для компьютера.'
+            : 'Отдельный компонент, который по замыслу работает во время реального интервью.')
+      + (Api.live.enabled ? serverAssistantCard(a, prepOptions)
+        : note('alert', '<div><strong>Функции пока нет.</strong> Формат файла, операционные системы, способ установки и '
         + 'протокол соединения не определены. В макете показан только предполагаемый порядок работы: '
-        + 'ничего не скачивается, звук и экран не захватываются, подсказки не генерируются.</div>')
+        + 'ничего не скачивается, звук и экран не захватываются, подсказки не генерируются.</div>'))
       + '<div class="card stack">'
       + '  <h2>Зачем нужен отдельный компонент</h2>'
       + '  <p class="muted">Собеседование обычно идёт в стороннем приложении для видеозвонков. Веб-страница не имеет '
@@ -671,6 +673,56 @@ var ScreensPrep = (function () {
         + 'без согласия участников может нарушать закон и правила площадки. Использование такого помощника — '
         + 'ответственность пользователя. Макет не обещает, что окно помощника невидимо при демонстрации экрана '
         + 'или незаметно для собеседника: это нерешённый технический и правовой вопрос.</div>')
+      + '</div>';
+  }
+
+  /* Текстовый помощник через сервер: пользователь вставляет (или диктует
+     через STT) то, что сказал собеседующий; сервер выделяет вопрос и даёт
+     направление ответа по подготовке. Экран и звук не захватываются. */
+  function effectiveAssistantPrep(a) {
+    var s = Store.get();
+    var chosen = a.prepId && Store.prepById(a.prepId) ? a.prepId : null;
+    return chosen || s.activePrepId || (s.preps[0] ? s.preps[0].id : '');
+  }
+
+  function serverAssistantCard(a, prepOptions) {
+    var prepId = effectiveAssistantPrep(a);
+    var hasPrep = !!prepId;
+    var busy = a.busy;
+    return '<div class="card stack assistant-live">'
+      + '  <h2>Текстовый помощник</h2>'
+      + '  <p class="muted">Вставьте или продиктуйте, что сказал собеседующий. Сервер выделит вопрос и подскажет направление ответа '
+      + 'по вашей подготовке. Подсказка — опора для своего ответа, не текст для зачитывания.</p>'
+      + UI.select({ id: 'assistant-prep', label: 'Резюме и вакансия', value: prepId || '', options: prepOptions, act: 'assistant:prep' })
+      + '  <label class="check"><input type="checkbox" id="asst-consent" data-act-change="assistant:consent"' + (a.consent ? ' checked' : '') + '> '
+      + 'Использование помощника согласовано с работодателем и участниками разговора.</label>'
+      + UI.field({ id: 'asst-text', label: 'Что сказал собеседующий', type: 'textarea', model: 'assistant.screenText', value: a.screenText || '',
+          rows: 4, placeholder: 'Например: «Расскажите про самую сложную задачу в вашей работе»' })
+      + '  <div class="btn-row">'
+      + '    <button type="button" class="btn" data-act="assistant:extract"' + (busy || !a.consent || !(a.screenText || '').trim() ? ' disabled' : '') + '>'
+      + (busy === 'extract' ? 'Выделяю вопрос…' : 'Выделить вопрос') + '</button>'
+      + '  </div>'
+      + UI.field({ id: 'asst-question', label: 'Вопрос собеседующего (можно поправить)', model: 'assistant.question', value: a.question || '',
+          hint: 'Подсказка строится по этому тексту.' })
+      + '  <div class="btn-row">'
+      + '    <button type="button" class="btn btn--primary" data-act="assistant:hint"' + (busy || !a.consent || !hasPrep || !(a.question || '').trim() ? ' disabled' : '') + '>'
+      + (busy === 'hint' ? 'Готовлю подсказку…' : 'Получить подсказку') + '</button>'
+      + (busy ? '<button type="button" class="btn" data-act="assistant:cancel">Отменить</button>' : '')
+      + (!hasPrep ? '<span class="muted small">Выберите подготовку.</span>' : '')
+      + '  </div>'
+      + (a.error ? note('alert', '<div class="asst-error"><strong>Не получилось.</strong> ' + esc(a.error) + '</div>') : '')
+      + (a.hint ? '<div class="note note--info asst-hint"><div>'
+          + '<p><b>Вопрос:</b> ' + esc(a.hint.question) + '</p>'
+          + '<p><b>Направление ответа:</b> ' + esc(a.hint.direction) + '</p>'
+          + (a.hint.remind ? '<p><b>Напоминание:</b> ' + esc(a.hint.remind) + '</p>' : '')
+          + (a.hint.avoid ? '<p><b>Чего избегать:</b> ' + esc(a.hint.avoid) + '</p>' : '')
+          + '<p class="muted small">' + (a.hint.source && a.hint.source.mode === 'mock' ? 'Заглушка модели, не настоящая подсказка' : 'Подсказка модели')
+          + (a.hint.source && a.hint.source.provider ? ': ' + esc(a.hint.source.provider) + (a.hint.source.model && a.hint.source.mode !== 'mock' ? ' · ' + esc(a.hint.source.model) : '') : '')
+          + (a.hint.source && a.hint.source.stage ? ' · ' + esc(a.hint.source.stage) : '') + '</p>'
+          + '</div></div>' : '')
+      + (a.hints.length > 1 ? '<details><summary>Прошлые подсказки (' + (a.hints.length - 1) + ')</summary><ul>'
+          + a.hints.slice(0, -1).reverse().map(function (h) { return '<li><b>' + esc(h.question) + '</b>: ' + esc(h.direction) + '</li>'; }).join('') + '</ul></details>' : '')
+      + '  <p class="small muted">Текст уходит на сервер и сервису модели только по кнопке; на сервере он не хранится. Затронутые темы передаются, чтобы подсказки не повторялись.</p>'
       + '</div>';
   }
 

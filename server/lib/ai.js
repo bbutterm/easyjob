@@ -242,6 +242,21 @@ function buildStore(taskId, parts, sid) {
       : undefined
   });
 
+  /* Слой «момент»: текст экрана или вопрос собеседующего для задач
+     помощника. Кадр экрана в веб-версии не принимается. Согласие — только
+     явное true от клиента. */
+  if (parts.moment) {
+    store.set('moment', {
+      text: parts.moment.text || undefined,
+      textDelta: parts.moment.textDelta || undefined,
+      detectedQuestion: parts.moment.detectedQuestion || undefined,
+      captureConsent: parts.moment.captureConsent === true
+    });
+  }
+  if (Array.isArray(parts.askedTopics) && parts.askedTopics.length) {
+    store.patch('session', { askedTopics: parts.askedTopics.slice(-30) });
+  }
+
   if (!turns || !turns.length) return { store, info };
 
   /* Сжатие: вход — прежняя память (если есть) и только диапазон новых

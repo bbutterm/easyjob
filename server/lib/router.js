@@ -77,7 +77,7 @@ function create() {
           body = {};
         } else {
           if (type.indexOf('application/json') < 0) throw new HttpError(415, 'Ожидается application/json');
-          const raw = await readBody(req, url.pathname === '/api/resumes/extract' ? 3 * 1024 * 1024 : MAX_BODY);
+          const raw = await readBody(req, url.pathname === '/api/resumes/extract' ? 3 * 1024 * 1024 : url.pathname === '/api/stt/transcribe' ? 2 * 1024 * 1024 : MAX_BODY);
           try { body = raw ? JSON.parse(raw) : {}; } catch (e) { throw new HttpError(400, 'Тело запроса — не JSON'); }
         }
       }

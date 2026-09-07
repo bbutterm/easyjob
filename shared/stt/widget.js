@@ -5,7 +5,7 @@
     const host = document.createElement('section'); host.className = 'card stack stt-widget';
     host.innerHTML = '<h2>Голос → текст</h2>'
       + '<p>Только микрофон, до 30 секунд. Системный звук не поддерживается. Для записи чужой речи нужно согласие участников.</p>'
-      + '<label>STT-провайдер <select data-stt="provider"><option value="mock">Заглушка — НЕ распознаёт речь</option><option value="whisper_cpp">Локальный whisper.cpp</option></select></label>'
+      + '<label>STT-провайдер <select data-stt="provider"><option value="mock">Заглушка — НЕ распознаёт речь</option><option value="whisper_cpp">Локальный whisper.cpp</option><option value="server">Сервер Easyjob (whisper.cpp на сервере)</option></select></label>'
       + '<label>Адрес локального STT <input data-stt="endpoint" value="http://127.0.0.1:8080/inference" spellcheck="false"></label>'
       + '<label><input type="checkbox" data-stt="consent"> Разрешаю запись микрофона и локальную транскрипцию; после проверки отправлю текст выбранной AI-модели. Согласие участников получено.</label>'
       + '<p data-stt="capability"></p><p role="status" aria-live="polite" data-stt="state">idle — Микрофон выключен</p>'

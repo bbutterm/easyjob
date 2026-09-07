@@ -32,14 +32,29 @@
   }
   function provider(config = {}, fetcher = globalThis.fetch) {
     const id = config.provider || 'mock';
-    if (!['mock', 'whisper_cpp'].includes(id)) throw new Error('Неизвестный STT-провайдер.');
-    const url = id === 'whisper_cpp' ? endpoint(config.endpoint) : null;
+    if (!['mock', 'whisper_cpp', 'server'].includes(id)) throw new Error('Неизвестный STT-провайдер.');
+    const url = id === 'whisper_cpp' ? endpoint(config.endpoint) : (id === 'server' ? '/api/stt/transcribe' : null);
     return {
       id,
       async transcribe(wav, signal) {
         if (signal && signal.aborted) throw new Error('Отменено.');
         if (id === 'mock') return { chunks: [MOCK_TEXT], mock: true };
         if (!(wav instanceof Blob) || wav.type !== 'audio/wav' || wav.size > 1000000 || wav.size <= 44) throw new Error('Некорректное аудио STT.');
+        if (id === 'server') {
+          /* Сервер Easyjob держит whisper.cpp у себя: фрагмент уходит как base64
+             в JSON с cookie сессии; аудио не хранится. */
+          const buf = new Uint8Array(await wav.arrayBuffer());
+          let bin = ''; for (let i = 0; i < buf.length; i += 0x8000) bin += String.fromCharCode.apply(null, buf.subarray(i, i + 0x8000));
+          let sres;
+          try {
+            sres = await fetcher(url, { method: 'POST', headers: { 'content-type': 'application/json', accept: 'application/json' },
+              body: JSON.stringify({ wavBase64: btoa(bin), consent: true }), signal, credentials: 'same-origin' });
+          } catch (_) { throw new Error('STT сервера недоступен или запрос отменён.'); }
+          let sdata = null;
+          try { sdata = await sres.json(); } catch (_) { sdata = null; }
+          if (!sres.ok || !sdata || sdata.ok !== true) throw new Error((sdata && sdata.error) || 'STT сервера недоступен.');
+          return { chunks: parse({ text: sdata.text }), mock: sdata.mock === true };
+        }
         const body = new FormData();
         body.append('file', wav, 'utterance.wav');
         body.append('response_format', 'json'); body.append('language', 'ru');

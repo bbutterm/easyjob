@@ -201,6 +201,22 @@ const VACANCY_TEXT = 'Ищем повара в ресторан полного �
   await page.waitForSelector('.card-model h3', { timeout: 15000 });
   ok('Карточка от модели переживает перезагрузку', (await page.locator('.card-model h3').count()) >= 1);
 
+  /* ---- Помощник через сервер ---- */
+  await page.goto(base + '/#/assistant');
+  await page.waitForSelector('#main');
+  if (await page.locator('button[data-act="plan:set"]').count()) await page.click('button[data-act="plan:set"]');
+  await page.waitForSelector('#asst-text', { timeout: 15000 });
+  ok('Помощник: кнопки выключены без согласия', await page.locator('button[data-act="assistant:extract"]').isDisabled());
+  await page.check('#asst-consent');
+  await page.fill('#asst-text', 'Итак. Расскажите про самую сложную задачу в вашей работе.');
+  await page.click('button[data-act="assistant:extract"]');
+  await page.waitForFunction(function () { return document.querySelector('#asst-question').value.length > 5; }, null, { timeout: 15000 });
+  ok('Помощник: вопрос выделен сервером', /задач/.test(await page.inputValue('#asst-question')));
+  await page.click('button[data-act="assistant:hint"]');
+  await page.waitForSelector('.asst-hint', { timeout: 15000 });
+  const hintText = await page.locator('.asst-hint').innerText();
+  ok('Помощник: подсказка показана с подписью заглушки и этапа', /Направление ответа/.test(hintText) && /Заглушка модели/.test(hintText) && /live_interview/.test(hintText));
+
   /* ---- Разбор вставленного резюме ---- */
   await page.goto(base + '/#/resume/upload');
   await page.waitForSelector('#upload-text');
