@@ -650,6 +650,13 @@ var ScreensCore = (function () {
       + '<ul class="list">' + rows + '</ul>';
   }
 
+  function hostOf(url) {
+    try { return new URL(url).hostname.replace(/^www\./, ''); } catch (e) { return String(url || ''); }
+  }
+  function sourceLabel(source) {
+    return { jsonld: 'структурированные данные вакансии', meta: 'заголовок страницы и основной текст', html: 'основной текст страницы', text: 'текстовая страница' }[source] || 'вручную';
+  }
+
   function vacancyNew() {
     var state = Store.get();
     var draft = state.vacancyDraft;
@@ -663,10 +670,24 @@ var ScreensCore = (function () {
       + '<div class="card stack">'
       + '  <h2>Импорт по ссылке</h2>'
       + UI.field({ id: 'vac-url', label: 'Ссылка на вакансию', model: 'vacancyDraft.url',
-          value: draft.url || '', placeholder: 'https://hh.ru/vacancy/...' })
-      + '  <div class="btn-row"><button type="button" class="btn" data-act="stub:import">Импортировать по ссылке</button></div>'
-      + note('alert', '<div><strong>Получение вакансии по ссылке не реализовано.</strong> Макет не ходит в сеть. '
-        + 'Вставьте текст вручную или откройте подготовленный пример.</div>')
+          value: draft.url || '', placeholder: 'https://hh.ru/vacancy/...',
+          hint: Api.live.enabled ? 'Сервер прочитает публичную страницу сам, без ваших куки. Текст покажется здесь для проверки до разбора.' : '' })
+      + '  <div class="btn-row">'
+      + '    <button type="button" class="btn" data-act="vacancy:import"' + (draft.importBusy ? ' disabled' : '') + '>'
+      + (draft.importBusy ? 'Получаю страницу…' : 'Импортировать по ссылке') + '</button>'
+      + (draft.importBusy ? '<button type="button" class="btn" data-act="vacancy:import-cancel">Отменить</button>' : '')
+      + '  </div>'
+      + (draft.importBusy ? '<p role="status" class="muted">Читаю страницу' + (draft.importElapsed >= 2 ? ' · ' + esc(String(draft.importElapsed)) + ' с' : '') + '</p>' : '')
+      + (Api.live.enabled ? '' : note('alert', '<div><strong>В автономном макете импорт по ссылке недоступен.</strong> Макет не ходит в сеть. '
+        + 'Вставьте текст вручную или откройте подготовленный пример.</div>'))
+      + (draft.importError ? note('alert', '<div id="vac-import-error"><strong>Не удалось получить вакансию.</strong> ' + esc(draft.importError) + '</div>') : '')
+      + (draft.imported && !draft.importError
+          ? note(draft.imported.needsReview ? 'info' : 'ok', '<div id="vac-import-ok"><strong>Получено с ' + esc(hostOf(draft.imported.sourceUrl)) + '</strong>'
+            + ' · ' + esc(UI.formatDate ? UI.formatDate(draft.imported.retrievedAt) : new Date(draft.imported.retrievedAt).toLocaleString('ru-RU'))
+            + ' · источник: ' + esc(sourceLabel(draft.imported.source))
+            + (draft.imported.needsReview ? '. Проверьте заголовок и текст ниже: страница разобрана по разметке, лишние блоки возможны.' : '.')
+            + (draft.imported.truncated ? ' Текст обрезан до 40 000 знаков.' : '') + '</div>')
+          : '')
       + '  <div class="btn-row"><button type="button" class="btn" data-act="vacancy:example">Открыть пример вакансии</button></div>'
       + '</div>'
       + '<div class="card stack">'

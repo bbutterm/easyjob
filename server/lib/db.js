@@ -143,6 +143,11 @@ function open(file) {
      не на текущей версии резюме — подмена версии незаметно запрещена. */
   const pcols = db.prepare('PRAGMA table_info(preps)').all().map(function (c) { return c.name; });
   if (pcols.indexOf('snapshot') < 0) db.exec('ALTER TABLE preps ADD COLUMN snapshot TEXT');
+  /* Источник вакансии: адрес без токенов, способ получения, время. */
+  const vcols = db.prepare('PRAGMA table_info(vacancies)').all().map(function (c) { return c.name; });
+  if (vcols.indexOf('source_url') < 0) db.exec('ALTER TABLE vacancies ADD COLUMN source_url TEXT');
+  if (vcols.indexOf('source') < 0) db.exec("ALTER TABLE vacancies ADD COLUMN source TEXT NOT NULL DEFAULT 'manual'");
+  if (vcols.indexOf('retrieved_at') < 0) db.exec('ALTER TABLE vacancies ADD COLUMN retrieved_at INTEGER');
   /* Индекс подтверждений: разделы резюме и реплики интервью для подбора
      evidence по текущему вопросу. FTS5 trigram — подстрочный поиск без
      морфологии; если сборка SQLite без FTS5, подбор идёт перебором в JS. */
@@ -362,17 +367,29 @@ function rowToVacancy(row) {
   return {
     id: row.id, title: row.title, company: row.company || '', rawText: row.raw_text,
     requirements: parse(row.requirements, null), rev: row.rev,
+    sourceUrl: row.source_url || '', source: row.source || 'manual', retrievedAt: row.retrieved_at || null,
     createdAt: row.created_at, updatedAt: row.updated_at
   };
 }
 
 const vacancies = {
-  create(sid, title, company, rawText) {
+  create(sid, title, company, rawText, origin) {
     const t = now();
     const vid = id('vac');
-    db.prepare('INSERT INTO vacancies (id, session_id, title, company, raw_text, rev, created_at, updated_at) VALUES (?, ?, ?, ?, ?, 1, ?, ?)')
-      .run(vid, sid, title, company || '', rawText, t, t);
+    const o = origin || {};
+    db.prepare(`INSERT INTO vacancies (id, session_id, title, company, raw_text, rev, created_at, updated_at, source_url, source, retrieved_at)
+      VALUES (?, ?, ?, ?, ?, 1, ?, ?, ?, ?, ?)`)
+      .run(vid, sid, title, company || '', rawText, t, t, o.sourceUrl || null, o.source || 'manual', o.retrievedAt || null);
     return vacancies.get(sid, vid);
+  },
+  /* Правка текста повышает версию и сбрасывает требования: их извлекут заново. */
+  update(sid, vid, title, company, rawText) {
+    const res = db.prepare(`UPDATE vacancies SET title = ?, company = ?, raw_text = ?, requirements = NULL, rev = rev + 1, updated_at = ?
+      WHERE id = ? AND session_id = ?`).run(title, company || '', rawText, now(), vid, sid);
+    return res.changes ? vacancies.get(sid, vid) : null;
+  },
+  remove(sid, vid) {
+    return db.prepare('DELETE FROM vacancies WHERE id = ? AND session_id = ?').run(vid, sid).changes > 0;
   },
   get(sid, vid) {
     return rowToVacancy(db.prepare('SELECT * FROM vacancies WHERE id = ? AND session_id = ?').get(vid, sid));

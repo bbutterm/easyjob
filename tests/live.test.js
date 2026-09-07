@@ -4,6 +4,7 @@
 'use strict';
 
 const { chromium } = require('playwright');
+const http = require('node:http');
 const { createApp } = require('../server/index.js');
 
 process.env.AI_PROVIDER = 'mock';
@@ -20,7 +21,7 @@ const VACANCY_TEXT = 'Ищем повара в ресторан полного �
   + '— Работа по технологическим картам\n— Действующая медицинская книжка\n\nУсловия: сменный график, оформление по ТК.';
 
 (async () => {
-  const { server } = createApp({ dbFile: ':memory:', freePrepsPerDay: 10, secure: false });
+  const { server } = createApp({ dbFile: ':memory:', freePrepsPerDay: 10, secure: false, rateLimit: { perMinute: 1000, expensivePerMinute: 100 } });
   await new Promise(function (r) { server.listen(0, '127.0.0.1', r); });
   const base = 'http://127.0.0.1:' + server.address().port;
 
@@ -60,6 +61,32 @@ const VACANCY_TEXT = 'Ищем повара в ресторан полного �
   const resumesOnServer = await (await fetch(base + '/api/resumes', { headers: { cookie: await cookieHeader(ctx) } })).json();
   ok('Резюме из мастера сохранено на сервере', resumesOnServer.length === 1 && resumesOnServer[0].data.profession === 'Повар');
 
+  /* ---- Импорт вакансии по ссылке: локальная «страница вакансии» ---- */
+  const jobSite = http.createServer(function (req, res) {
+    if (req.url === '/blocked') { res.writeHead(403, { 'content-type': 'text/html' }); return res.end('<html>captcha</html>'); }
+    res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' });
+    res.end('<html><head><title>Повар</title><script type="application/ld+json">' + JSON.stringify({ '@context': 'https://schema.org',
+      '@type': 'JobPosting', title: 'Повар горячего цеха', hiringOrganization: { '@type': 'Organization', name: 'Ресторан «Север»' },
+      description: '<p>Готовить по технологическим картам.</p><ul><li>Опыт на горячем цехе от 2 лет</li><li>Действующая медицинская книжка</li></ul>' })
+      + '</script></head><body><main><h1>Повар</h1></main></body></html>');
+  });
+  await new Promise(function (r) { jobSite.listen(0, '127.0.0.1', r); });
+  const jobHost = '127.0.0.1:' + jobSite.address().port;
+  process.env.URL_IMPORT_ALLOW_HOSTS = jobHost;
+  await page.fill('#vac-url', 'http://' + jobHost + '/blocked');
+  await page.click('button:has-text("Импортировать по ссылке")');
+  await page.waitForSelector('#vac-import-error', { timeout: 15000 });
+  ok('Импорт: отказ сайта показан честно, без подмены примером',
+    /не разрешил автоматическое чтение/.test(await page.locator('#vac-import-error').innerText()) && (await page.inputValue('#vac-text')) === '');
+  await page.fill('#vac-url', 'http://' + jobHost + '/vacancy/1');
+  await page.click('button:has-text("Импортировать по ссылке")');
+  await page.waitForSelector('#vac-import-ok', { timeout: 15000 });
+  ok('Импорт: заголовок, компания и текст подставлены для проверки перед разбором',
+    (await page.inputValue('#vac-title')) === 'Повар горячего цеха' && (await page.inputValue('#vac-company')) === 'Ресторан «Север»'
+    && /медицинская книжка/.test(await page.inputValue('#vac-text')) && /структурированные данные/.test(await page.locator('#vac-import-ok').innerText()));
+  ok('Импорт: ошибка прошлой попытки убрана', (await page.locator('#vac-import-error').count()) === 0);
+  jobSite.close();
+
   /* ---- Вакансия → подготовка с сопоставлением от сервера ---- */
   await page.fill('#vac-title', 'Повар');
   await page.fill('#vac-company', 'Демо-Ресторан');
@@ -68,6 +95,11 @@ const VACANCY_TEXT = 'Ищем повара в ресторан полного �
   await page.waitForSelector('text=Сопоставление резюме с вакансией', { timeout: 15000 });
   const matchText = await page.locator('#main').innerText();
   ok('Требования взяты из вставленного текста', matchText.indexOf('медицинская книжка') >= 0);
+  /* Источник импортированной вакансии сохранён вместе с ней (адрес локальной страницы). */
+  const vacanciesOnServer = await (await fetch(base + '/api/vacancies', { headers: { cookie: await cookieHeader(ctx) } })).json();
+  ok('Вакансия хранит адрес источника и способ получения', vacanciesOnServer.length === 1
+    && vacanciesOnServer[0].sourceUrl === 'http://' + jobHost + '/vacancy/1' && vacanciesOnServer[0].source === 'jsonld');
+  delete process.env.URL_IMPORT_ALLOW_HOSTS;
   ok('Экран честно сообщает о заглушке на сервере', matchText.indexOf('заглушке') >= 0);
   ok('Нет общего процента соответствия', !/\d+\s?%/.test(matchText));
 

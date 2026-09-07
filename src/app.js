@@ -518,9 +518,11 @@
     try {
       setPending('Отправляю резюме и вакансию на сервер…');
       var resumeSid = await liveEnsureResume(resume);
-      var vacancy = Api.vacancyFromServer(await Api.request('POST', '/api/vacancies', {
+      var origin = draft.imported && draft.imported.sourceUrl
+        ? { sourceUrl: draft.imported.sourceUrl, source: draft.imported.source, retrievedAt: draft.imported.retrievedAt } : {};
+      var vacancy = Api.vacancyFromServer(await Api.request('POST', '/api/vacancies', Object.assign({
         title: draft.title, company: draft.company || '', rawText: draft.text
-      }));
+      }, origin)));
       setPending('Сопоставляю резюме с требованиями…');
       var prep = Api.prepFromServer(await Api.request('POST', '/api/preps', {
         resumeId: resumeSid, vacancyId: vacancy.id, profession: resume.profession || draft.title
@@ -530,12 +532,55 @@
         s.vacancies.unshift(vacancy);
         s.preps.unshift(prep);
         s.activePrepId = prep.id;
-        s.vacancyDraft = { title: '', company: '', text: '', resumeId: '', url: '' };
+        s.vacancyDraft = { title: '', company: '', text: '', resumeId: '', url: '', imported: null, importError: '', importBusy: false, importElapsed: 0 };
         s.pending = null;
         Store.addHistory('Создана подготовка по вакансии', '#/prep/' + prep.id + '/match', prep.id);
       });
       go('#/prep/' + prep.id + '/match');
     } catch (e) { liveFail(e); }
+  }
+
+  /* Импорт вакансии по ссылке: сервер читает страницу, пользователь видит
+     и правит текст до разбора. Есть отмена и время ожидания; ошибка не
+     подменяется примером. */
+  var importOperation = null;
+  function cancelImport() {
+    if (importOperation) importOperation.abort();
+  }
+  async function liveImportVacancy() {
+    var draft = Store.get().vacancyDraft;
+    var url = String(draft.url || '').trim();
+    if (!url) { UI.toast('Вставьте ссылку на страницу вакансии.'); return; }
+    if (importOperation) return;
+    var op = new AbortController(); importOperation = op;
+    var started = Date.now();
+    Store.update(function (s) { s.vacancyDraft.importBusy = true; s.vacancyDraft.importError = ''; s.vacancyDraft.importElapsed = 0; });
+    var ticker = setInterval(function () {
+      Store.update(function (s) { s.vacancyDraft.importElapsed = Math.floor((Date.now() - started) / 1000); });
+    }, 1000);
+    try {
+      var data = await Api.request('POST', '/api/vacancies/import-url', { url: url }, { signal: op.signal, timeoutMs: 20000 });
+      if (data.ok === false) throw new Api.ApiError(422, data.error || 'Не удалось получить вакансию.', { code: data.code });
+      var v = data.vacancy || {};
+      Store.update(function (s) {
+        var d = s.vacancyDraft;
+        d.title = v.title || d.title;
+        d.company = v.company || d.company;
+        d.text = v.rawText || '';
+        d.imported = { sourceUrl: v.sourceUrl, source: v.source, retrievedAt: v.retrievedAt, needsReview: v.needsReview, truncated: v.truncated };
+        d.importError = '';
+        if (!d.resumeId && s.resumes.length) d.resumeId = s.resumes[0].id;
+      });
+      UI.toast(v.needsReview ? 'Текст получен: проверьте и поправьте его перед разбором.' : 'Вакансия получена со страницы.');
+    } catch (e) {
+      Store.update(function (s) {
+        s.vacancyDraft.importError = e.message + (e.extra && e.extra.code === 'cancelled' ? '' : ' Вставьте текст вакансии вручную.');
+      });
+    } finally {
+      clearInterval(ticker);
+      if (importOperation === op) importOperation = null;
+      Store.update(function (s) { s.vacancyDraft.importBusy = false; });
+    }
   }
 
   async function liveRebuild(prep) {
@@ -1444,6 +1489,13 @@
           title: 'Экспорт не реализован',
           body: '<p>Макет не создаёт PDF и не скачивает файлы. В готовом продукте здесь была бы выгрузка резюме.</p>'
         });
+        return;
+      case 'vacancy:import':
+        if (!Api.live.enabled) { dispatch('stub:import', {}); return; }
+        liveImportVacancy();
+        return;
+      case 'vacancy:import-cancel':
+        cancelImport();
         return;
       case 'stub:import':
         UI.openModal({

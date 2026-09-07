@@ -613,6 +613,50 @@ const VACANCY_TEXT = 'Ищем повара в ресторан.\n\nТребов
   if (prevMem === undefined) delete process.env.CONTEXT_MEMORY;
   eApp.server.close();
 
+  /* ---- Импорт вакансии по ссылке и правка вакансии ---- */
+  const iApp = createApp({ dbFile: ':memory:', freePrepsPerDay: 100, secure: false, retention: false,
+    rateLimit: { perMinute: 10000, expensivePerMinute: 10000, sessionsPerHour: 1000 } });
+  await new Promise(function (r) { iApp.server.listen(0, '127.0.0.1', r); });
+  const ibase = 'http://127.0.0.1:' + iApp.server.address().port;
+  const ic = client(ibase);
+  await ic.call('GET', '/api/me');
+  const imp1 = await ic.call('POST', '/api/vacancies/import-url', { url: 'http://127.0.0.1:' + iApp.server.address().port + '/api/health' });
+  ok('Импорт: loopback-адрес отклоняется с кодом private_url', imp1.status === 200 && imp1.data.code === 'private_url' && imp1.data.ok === false, JSON.stringify(imp1.data));
+  const imp2 = await ic.call('POST', '/api/vacancies/import-url', { url: 'ftp://example.com/job' });
+  ok('Импорт: не http(s) отклоняется', imp2.data.ok === false && imp2.data.code === 'private_url');
+  const imp3 = await ic.call('POST', '/api/vacancies/import-url', { url: 'http://169.254.169.254/latest/meta-data' });
+  ok('Импорт: адрес метаданных облака отклоняется', imp3.data.ok === false && imp3.data.code === 'private_url');
+  const imp4 = await ic.call('POST', '/api/vacancies/import-url', {});
+  ok('Импорт: без ссылки — 400', imp4.status === 400);
+  /* Сохранение с источником: адрес без токенов, способ и время. */
+  const iv = await ic.call('POST', '/api/vacancies', { title: 'Повар', rawText: VACANCY_TEXT,
+    sourceUrl: 'https://jobs.example.com/v/1?token=secret&page=2', source: 'jsonld', retrievedAt: 1700000000000 });
+  ok('Вакансия хранит источник без токена', iv.status === 201 && iv.data.sourceUrl === 'https://jobs.example.com/v/1?page=2'
+    && iv.data.source === 'jsonld' && iv.data.retrievedAt === 1700000000000, JSON.stringify(iv.data.sourceUrl));
+  const ivBad = await ic.call('POST', '/api/vacancies', { title: 'Повар', rawText: VACANCY_TEXT, sourceUrl: 'http://127.0.0.1/x' });
+  ok('Внутренний адрес как источник не принимается', ivBad.status === 400);
+  const ivGet = await ic.call('GET', '/api/vacancies/' + iv.data.id);
+  ok('Вакансию можно прочитать по id', ivGet.status === 200 && ivGet.data.id === iv.data.id);
+  const ivPut = await ic.call('PUT', '/api/vacancies/' + iv.data.id, { rawText: VACANCY_TEXT + '\n— Знание кассы' });
+  ok('Правка вакансии повышает версию и извлекает требования заново', ivPut.status === 200 && ivPut.data.rev === 2
+    && Array.isArray(ivPut.data.requirements) && ivPut.data.requirements.length > 0 && ivPut.data.sourceUrl === iv.data.sourceUrl);
+  const ir = await ic.call('POST', '/api/resumes', { title: 'Р', data: RESUME });
+  const ip = await ic.call('POST', '/api/preps', { resumeId: ir.data.id, vacancyId: iv.data.id });
+  await ic.call('PUT', '/api/vacancies/' + iv.data.id, { title: 'Су-шеф' });
+  const ipView = await ic.call('GET', '/api/preps/' + ip.data.id);
+  ok('Подготовка помечена устаревшей после правки вакансии', ipView.data.stale === true && /Вакансия/.test(ipView.data.staleReason));
+  const ivDelUsed = await ic.call('DELETE', '/api/vacancies/' + iv.data.id);
+  ok('Вакансию из подготовки удалить нельзя — 409', ivDelUsed.status === 409);
+  await ic.call('DELETE', '/api/preps/' + ip.data.id);
+  const ivDel = await ic.call('DELETE', '/api/vacancies/' + iv.data.id);
+  ok('Свободная вакансия удаляется', ivDel.status === 200 && (await ic.call('GET', '/api/vacancies/' + iv.data.id)).status === 404);
+  const stranger2 = client(ibase);
+  await stranger2.call('GET', '/api/me');
+  const iv2 = await ic.call('POST', '/api/vacancies', { title: 'Повар', rawText: VACANCY_TEXT });
+  ok('Чужая вакансия не читается и не правится', (await stranger2.call('GET', '/api/vacancies/' + iv2.data.id)).status === 404
+    && (await stranger2.call('PUT', '/api/vacancies/' + iv2.data.id, { title: 'x' })).status === 404);
+  iApp.server.close();
+
   /* ---- Обмен ключа GigaChat на токен ---- */
   const GigaChatAuth = require('../server/lib/gigachat-auth.js');
   GigaChatAuth.reset();

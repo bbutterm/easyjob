@@ -39,6 +39,8 @@ jobs:
 
       - name: Управление контекстом
         run: npm run test:context
+      - name: Импорт вакансии по ссылке (границы SSRF, разбор)
+        run: npm run test:import
 
       - name: Сервер
         run: npm run test:server

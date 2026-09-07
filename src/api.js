@@ -150,7 +150,8 @@ var Api = (function () {
   function vacancyFromServer(v) {
     return {
       id: v.id, serverId: v.id, demo: false, rev: v.rev, title: v.title, company: v.company || '',
-      location: '', text: v.rawText || '', requirements: v.requirements || []
+      location: '', text: v.rawText || '', requirements: v.requirements || [],
+      sourceUrl: v.sourceUrl || '', source: v.source || 'manual', retrievedAt: v.retrievedAt || null
     };
   }
 

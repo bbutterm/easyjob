@@ -108,7 +108,7 @@ var Store = (function () {
       activePrepId: filled ? 'prep-1' : null,
       builder: emptyBuilder(),
       upload: { fileName: '', analysisShown: false, decisions: {} },
-      vacancyDraft: { title: '', company: '', text: '', resumeId: '' },
+      vacancyDraft: { title: '', company: '', text: '', resumeId: '', url: '', imported: null, importError: '', importBusy: false, importElapsed: 0 },
       assistant: { status: 'disconnected', prepId: filled ? 'prep-1' : null, hintIndex: 0, hintsOpen: false },
       settings: {
         emailUpdates: true,

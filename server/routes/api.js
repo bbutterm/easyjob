@@ -6,6 +6,7 @@
 const db = require('../lib/db.js');
 const ai = require('../lib/ai.js');
 const Compact = require('../lib/context-compact.js');
+const UrlImport = require('../lib/url-import.js');
 
 /* Ошибка задачи модели → HTTP: переполнение контекста 422, таймаут 504,
    отмена 499, остальное 502. Код ошибки всегда в теле ответа. */
@@ -201,19 +202,77 @@ function register(r) {
 
   /* ---- Вакансии ---- */
 
+  /* Получить вакансию по публичной ссылке. Сервер читает страницу сам,
+     без куки и заголовков пользователя, с защитой от адресов внутренней
+     сети (server/lib/url-import.js). Результат — предпросмотр: текст
+     показывается пользователю и уходит в разбор только после его правки
+     и подтверждения через POST /api/vacancies. */
+  r.post('/api/vacancies/import-url', async function ({ res, body }) {
+    const url = str(body.url, 2048, 'url', true);
+    const signal = require('../lib/request-scope.js').getStore()?.signal;
+    try {
+      const vacancy = await UrlImport.importUrl(url, { signal });
+      sendJson(res, 200, { ok: true, vacancy });
+    } catch (e) {
+      /* Ожидаемый отказ импорта — не ошибка запроса: { ok:false, code, error }
+         с кодом 200, чтобы клиент показал причину и предложил вставить текст. */
+      if (e instanceof HttpError && e.extra && e.extra.ok === false) {
+        sendJson(res, 200, { ok: false, code: e.extra.code, error: e.message });
+        return;
+      }
+      throw e;
+    }
+  });
+
   r.post('/api/vacancies', async function ({ res, body, ctx }) {
     const sid = ctx.session.id;
     const title = str(body.title, 200, 'title', true);
     const company = str(body.company, 200, 'company');
     const rawText = str(body.rawText, 40000, 'rawText', true);
     if (rawText.length < 40) throw new HttpError(400, 'Текст вакансии слишком короткий, чтобы выделить требования.');
-    let vacancy = db.vacancies.create(sid, title, company, rawText);
+    /* Источник — только из поддерживаемого набора; адрес сохраняется без токенов. */
+    const origin = {};
+    if (body.sourceUrl) {
+      origin.sourceUrl = UrlImport.redactUrl(UrlImport.validateUrl(str(body.sourceUrl, 2048, 'sourceUrl')).url);
+      origin.source = ['jsonld', 'meta', 'html', 'text'].indexOf(body.source) >= 0 ? body.source : 'html';
+      origin.retrievedAt = Number(body.retrievedAt) || Date.now();
+    }
+    let vacancy = db.vacancies.create(sid, title, company, rawText, origin);
     vacancy = await ensureRequirements(sid, vacancy);
     sendJson(res, 201, vacancy);
   });
 
   r.get('/api/vacancies', function ({ res, ctx }) {
     sendJson(res, 200, db.vacancies.list(ctx.session.id));
+  });
+
+  r.get('/api/vacancies/:id', function ({ res, params, ctx }) {
+    const vacancy = db.vacancies.get(ctx.session.id, params.id);
+    if (!vacancy) throw new HttpError(404, 'Вакансия не найдена');
+    sendJson(res, 200, vacancy);
+  });
+
+  /* Правка текста: версия растёт, требования извлекаются заново,
+     подготовки на прежней версии помечаются устаревшими (по rev). */
+  r.put('/api/vacancies/:id', async function ({ res, params, body, ctx }) {
+    const sid = ctx.session.id;
+    const current = db.vacancies.get(sid, params.id);
+    if (!current) throw new HttpError(404, 'Вакансия не найдена');
+    const title = str(body.title !== undefined ? body.title : current.title, 200, 'title', true);
+    const company = str(body.company !== undefined ? body.company : current.company, 200, 'company');
+    const rawText = str(body.rawText !== undefined ? body.rawText : current.rawText, 40000, 'rawText', true);
+    if (rawText.length < 40) throw new HttpError(400, 'Текст вакансии слишком короткий, чтобы выделить требования.');
+    let vacancy = db.vacancies.update(sid, current.id, title, company, rawText);
+    vacancy = await ensureRequirements(sid, vacancy);
+    sendJson(res, 200, vacancy);
+  });
+
+  r.del('/api/vacancies/:id', function ({ res, params, ctx }) {
+    const sid = ctx.session.id;
+    const used = db.preps.list(sid).some(function (p) { return p.vacancyId === params.id; });
+    if (used) throw new HttpError(409, 'Вакансия используется в подготовке: сначала удалите подготовку.');
+    if (!db.vacancies.remove(sid, params.id)) throw new HttpError(404, 'Вакансия не найдена');
+    sendJson(res, 200, { ok: true });
   });
 
   /* ---- Подготовки ---- */

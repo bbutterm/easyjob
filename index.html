@@ -2322,7 +2322,7 @@ var Store = (function () {
       activePrepId: filled ? 'prep-1' : null,
       builder: emptyBuilder(),
       upload: { fileName: '', analysisShown: false, decisions: {} },
-      vacancyDraft: { title: '', company: '', text: '', resumeId: '' },
+      vacancyDraft: { title: '', company: '', text: '', resumeId: '', url: '', imported: null, importError: '', importBusy: false, importElapsed: 0 },
       assistant: { status: 'disconnected', prepId: filled ? 'prep-1' : null, hintIndex: 0, hintsOpen: false },
       settings: {
         emailUpdates: true,
@@ -2966,7 +2966,8 @@ var Api = (function () {
   function vacancyFromServer(v) {
     return {
       id: v.id, serverId: v.id, demo: false, rev: v.rev, title: v.title, company: v.company || '',
-      location: '', text: v.rawText || '', requirements: v.requirements || []
+      location: '', text: v.rawText || '', requirements: v.requirements || [],
+      sourceUrl: v.sourceUrl || '', source: v.source || 'manual', retrievedAt: v.retrievedAt || null
     };
   }
 
@@ -3655,6 +3656,13 @@ var ScreensCore = (function () {
       + '<ul class="list">' + rows + '</ul>';
   }
 
+  function hostOf(url) {
+    try { return new URL(url).hostname.replace(/^www\./, ''); } catch (e) { return String(url || ''); }
+  }
+  function sourceLabel(source) {
+    return { jsonld: 'структурированные данные вакансии', meta: 'заголовок страницы и основной текст', html: 'основной текст страницы', text: 'текстовая страница' }[source] || 'вручную';
+  }
+
   function vacancyNew() {
     var state = Store.get();
     var draft = state.vacancyDraft;
@@ -3668,10 +3676,24 @@ var ScreensCore = (function () {
       + '<div class="card stack">'
       + '  <h2>Импорт по ссылке</h2>'
       + UI.field({ id: 'vac-url', label: 'Ссылка на вакансию', model: 'vacancyDraft.url',
-          value: draft.url || '', placeholder: 'https://hh.ru/vacancy/...' })
-      + '  <div class="btn-row"><button type="button" class="btn" data-act="stub:import">Импортировать по ссылке</button></div>'
-      + note('alert', '<div><strong>Получение вакансии по ссылке не реализовано.</strong> Макет не ходит в сеть. '
-        + 'Вставьте текст вручную или откройте подготовленный пример.</div>')
+          value: draft.url || '', placeholder: 'https://hh.ru/vacancy/...',
+          hint: Api.live.enabled ? 'Сервер прочитает публичную страницу сам, без ваших куки. Текст покажется здесь для проверки до разбора.' : '' })
+      + '  <div class="btn-row">'
+      + '    <button type="button" class="btn" data-act="vacancy:import"' + (draft.importBusy ? ' disabled' : '') + '>'
+      + (draft.importBusy ? 'Получаю страницу…' : 'Импортировать по ссылке') + '</button>'
+      + (draft.importBusy ? '<button type="button" class="btn" data-act="vacancy:import-cancel">Отменить</button>' : '')
+      + '  </div>'
+      + (draft.importBusy ? '<p role="status" class="muted">Читаю страницу' + (draft.importElapsed >= 2 ? ' · ' + esc(String(draft.importElapsed)) + ' с' : '') + '</p>' : '')
+      + (Api.live.enabled ? '' : note('alert', '<div><strong>В автономном макете импорт по ссылке недоступен.</strong> Макет не ходит в сеть. '
+        + 'Вставьте текст вручную или откройте подготовленный пример.</div>'))
+      + (draft.importError ? note('alert', '<div id="vac-import-error"><strong>Не удалось получить вакансию.</strong> ' + esc(draft.importError) + '</div>') : '')
+      + (draft.imported && !draft.importError
+          ? note(draft.imported.needsReview ? 'info' : 'ok', '<div id="vac-import-ok"><strong>Получено с ' + esc(hostOf(draft.imported.sourceUrl)) + '</strong>'
+            + ' · ' + esc(UI.formatDate ? UI.formatDate(draft.imported.retrievedAt) : new Date(draft.imported.retrievedAt).toLocaleString('ru-RU'))
+            + ' · источник: ' + esc(sourceLabel(draft.imported.source))
+            + (draft.imported.needsReview ? '. Проверьте заголовок и текст ниже: страница разобрана по разметке, лишние блоки возможны.' : '.')
+            + (draft.imported.truncated ? ' Текст обрезан до 40 000 знаков.' : '') + '</div>')
+          : '')
       + '  <div class="btn-row"><button type="button" class="btn" data-act="vacancy:example">Открыть пример вакансии</button></div>'
       + '</div>'
       + '<div class="card stack">'
@@ -5432,9 +5454,11 @@ var QuickStart = (function () {
     try {
       setPending('Отправляю резюме и вакансию на сервер…');
       var resumeSid = await liveEnsureResume(resume);
-      var vacancy = Api.vacancyFromServer(await Api.request('POST', '/api/vacancies', {
+      var origin = draft.imported && draft.imported.sourceUrl
+        ? { sourceUrl: draft.imported.sourceUrl, source: draft.imported.source, retrievedAt: draft.imported.retrievedAt } : {};
+      var vacancy = Api.vacancyFromServer(await Api.request('POST', '/api/vacancies', Object.assign({
         title: draft.title, company: draft.company || '', rawText: draft.text
-      }));
+      }, origin)));
       setPending('Сопоставляю резюме с требованиями…');
       var prep = Api.prepFromServer(await Api.request('POST', '/api/preps', {
         resumeId: resumeSid, vacancyId: vacancy.id, profession: resume.profession || draft.title
@@ -5444,12 +5468,55 @@ var QuickStart = (function () {
         s.vacancies.unshift(vacancy);
         s.preps.unshift(prep);
         s.activePrepId = prep.id;
-        s.vacancyDraft = { title: '', company: '', text: '', resumeId: '', url: '' };
+        s.vacancyDraft = { title: '', company: '', text: '', resumeId: '', url: '', imported: null, importError: '', importBusy: false, importElapsed: 0 };
         s.pending = null;
         Store.addHistory('Создана подготовка по вакансии', '#/prep/' + prep.id + '/match', prep.id);
       });
       go('#/prep/' + prep.id + '/match');
     } catch (e) { liveFail(e); }
+  }
+
+  /* Импорт вакансии по ссылке: сервер читает страницу, пользователь видит
+     и правит текст до разбора. Есть отмена и время ожидания; ошибка не
+     подменяется примером. */
+  var importOperation = null;
+  function cancelImport() {
+    if (importOperation) importOperation.abort();
+  }
+  async function liveImportVacancy() {
+    var draft = Store.get().vacancyDraft;
+    var url = String(draft.url || '').trim();
+    if (!url) { UI.toast('Вставьте ссылку на страницу вакансии.'); return; }
+    if (importOperation) return;
+    var op = new AbortController(); importOperation = op;
+    var started = Date.now();
+    Store.update(function (s) { s.vacancyDraft.importBusy = true; s.vacancyDraft.importError = ''; s.vacancyDraft.importElapsed = 0; });
+    var ticker = setInterval(function () {
+      Store.update(function (s) { s.vacancyDraft.importElapsed = Math.floor((Date.now() - started) / 1000); });
+    }, 1000);
+    try {
+      var data = await Api.request('POST', '/api/vacancies/import-url', { url: url }, { signal: op.signal, timeoutMs: 20000 });
+      if (data.ok === false) throw new Api.ApiError(422, data.error || 'Не удалось получить вакансию.', { code: data.code });
+      var v = data.vacancy || {};
+      Store.update(function (s) {
+        var d = s.vacancyDraft;
+        d.title = v.title || d.title;
+        d.company = v.company || d.company;
+        d.text = v.rawText || '';
+        d.imported = { sourceUrl: v.sourceUrl, source: v.source, retrievedAt: v.retrievedAt, needsReview: v.needsReview, truncated: v.truncated };
+        d.importError = '';
+        if (!d.resumeId && s.resumes.length) d.resumeId = s.resumes[0].id;
+      });
+      UI.toast(v.needsReview ? 'Текст получен: проверьте и поправьте его перед разбором.' : 'Вакансия получена со страницы.');
+    } catch (e) {
+      Store.update(function (s) {
+        s.vacancyDraft.importError = e.message + (e.extra && e.extra.code === 'cancelled' ? '' : ' Вставьте текст вакансии вручную.');
+      });
+    } finally {
+      clearInterval(ticker);
+      if (importOperation === op) importOperation = null;
+      Store.update(function (s) { s.vacancyDraft.importBusy = false; });
+    }
   }
 
   async function liveRebuild(prep) {
@@ -6358,6 +6425,13 @@ var QuickStart = (function () {
           title: 'Экспорт не реализован',
           body: '<p>Макет не создаёт PDF и не скачивает файлы. В готовом продукте здесь была бы выгрузка резюме.</p>'
         });
+        return;
+      case 'vacancy:import':
+        if (!Api.live.enabled) { dispatch('stub:import', {}); return; }
+        liveImportVacancy();
+        return;
+      case 'vacancy:import-cancel':
+        cancelImport();
         return;
       case 'stub:import':
         UI.openModal({
