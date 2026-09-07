@@ -4772,7 +4772,8 @@ var QuickStart = (function () {
   var owner = null, status = null, seen = false, epoch = 0, busy = false, error = '';
   var resumeId = '', vacancyId = '', draft = {};
   var titles = ['Добро пожаловать', 'Резюме', 'Проверка резюме', 'Вакансия',
-    'Требования и сопоставление', 'Вопросы и первый ответ', 'Текстовое интервью', 'Что дальше'];
+    'Требования и сопоставление', 'Вопросы и первый ответ', 'Обратная связь на ответ', 'Текстовое интервью', 'Что дальше'];
+  var LAST = 8;
   function fresh() { return { step: 0, completed: [], skipped: [], finished: false, timestamp: Date.now() }; }
   function clean(value) {
     var s = fresh();
@@ -4833,9 +4834,12 @@ var QuickStart = (function () {
   }
   function facts(c) {
     var matched = !!(c.p && !c.p.stale && c.p.match && c.p.match.length);
+    var questions = !!(matched && c.p.questions && c.p.questions.length);
+    var firstId = questions ? c.p.questions[0].id : null;
     return [status.completed.indexOf(0) >= 0, !!c.r, !!(c.r && c.r.review), !!c.v,
-      matched, !!(matched && c.p.questions && c.p.questions.length),
-      !!(matched && (c.p.interviewStarted || (c.p.chat && c.p.chat.started))), status.completed.indexOf(7) >= 0];
+      matched, questions,
+      !!(questions && c.p.feedback && Object.keys(c.p.feedback).length),
+      !!(matched && (c.p.interviewStarted || (c.p.chat && c.p.chat.started))), status.completed.indexOf(LAST) >= 0];
   }
   function sync() {
     bind();
@@ -4908,21 +4912,33 @@ var QuickStart = (function () {
       } else { action = 'questions'; label = 'Сгенерировать вопросы'; }
     }
     if (i === 6) {
+      body = '<p>AI разберёт ваш ответ на первый вопрос: что сильно, чего не хватает и как переформулировать. Оценивается ответ, а не человек, без баллов.</p>';
+      var q6 = facts(c)[5] ? c.p.questions[0] : null;
+      var a6 = q6 ? String(c.p.answers[q6.id] || '').trim() : '';
+      if (q6) body += '<p><b>' + UI.esc(q6.text) + '</b></p>' + (a6 ? '<p>Ваш ответ: ' + UI.esc(a6) + '</p>' : '<p role="status">Ответ на этот вопрос ещё не сохранён: вернитесь на шаг назад и запишите его.</p>');
+      if (done) {
+        var fb6 = c.p.feedback[Object.keys(c.p.feedback)[0]];
+        body += '<details open><summary>Обратная связь</summary><pre class="qs-result">' + reviewText({ strong: fb6.strong, gaps: fb6.gaps, rewrite: fb6.rewrite }) + '</pre></details>'
+          + '<a href="#/prep/' + UI.esc(c.p.id) + '/questions">Все вопросы и обратная связь</a>';
+      } else if (a6) { action = 'feedback'; label = 'Получить обратную связь с AI'; }
+    }
+    if (i === 7) {
       body = '<p>Откройте текстовую тренировку и нажмите «Начать интервью», чтобы получить первый вопрос. Ответ можно набрать с клавиатуры; микрофон не нужен. Вернуться сюда можно через Quick Start в меню.</p>';
       if (!done) { action = 'interview'; label = 'Открыть текстовую тренировку'; }
       else body += '<p>Текстовое интервью уже начато.</p><a href="#/prep/' + UI.esc(c.p.id) + '/interview">Вернуться к интервью</a>';
     }
-    if (i === 7) {
+    if (i === 8) {
       body = '<p>Live-интервью и распознавание речи (STT) — отдельный следующий этап. Открытие тренировки не включает запись звука.</p>'
         + '<p>Перед live-сессией отдельно проверьте настройки провайдера, разрешения на запись и согласие участников. Mock или ненастроенный STT не означает работающее распознавание.</p>'
         + '<a href="#/assistant">Следующее действие: изучить live-помощник и его настройки</a>';
       label = 'Завершить Quick Start';
     }
-    var needs = (i === 2 && !c.r) || (i === 4 && (!c.r || !c.v)) || ((i === 5 || i === 6) && !facts(c)[4]);
+    var needs = (i === 2 && !c.r) || (i === 4 && (!c.r || !c.v)) || ((i === 5 || i === 6 || i === 7) && !facts(c)[4])
+      || (i === 6 && facts(c)[4] && !done && !(facts(c)[5] && String(c.p.answers[c.p.questions[0].id] || '').trim()));
     if (needs) body += '<p role="status">Сначала выберите резюме и вакансию и создайте подготовку на предыдущих шагах. Можно вернуться назад или пропустить этот шаг.</p>';
     return '<section class="quickstart" aria-labelledby="qs-title" aria-busy="' + busy + '">'
-      + '<p class="muted">Quick Start · Шаг ' + (i + 1) + ' из 8 · Выполнено ' + status.completed.length + ' из 8</p>'
-      + '<progress max="8" value="' + status.completed.length + '" aria-label="Выполнено шагов"></progress>'
+      + '<p class="muted">Quick Start · Шаг ' + (i + 1) + ' из ' + (LAST + 1) + ' · Выполнено ' + status.completed.length + ' из ' + (LAST + 1) + '</p>'
+      + '<progress max="' + (LAST + 1) + '" value="' + status.completed.length + '" aria-label="Выполнено шагов"></progress>'
       + '<ol class="qs-steps">' + titles.map(function (t, n) { return '<li' + (n === i ? ' aria-current="step"' : '') + '>' + t + ' — '
         + (status.completed.indexOf(n) >= 0 ? 'Готово' : status.skipped.indexOf(n) >= 0 ? 'Пропущено' : n === i ? 'Сейчас' : 'Впереди') + '</li>'; }).join('') + '</ol>'
       + '<h1 id="qs-title" tabindex="-1">' + titles[i] + '</h1>'
@@ -4950,12 +4966,12 @@ var QuickStart = (function () {
     if (action === 'later') { save(); navigate('#/overview'); return; }
     if (action === 'back' || action === 'skip' || action === 'continue') {
       var i = status.step;
-      if (action === 'continue' && !facts(context())[i] && i !== 0 && i !== 7) return;
-      if (action === 'continue' && (i === 0 || i === 7)) status.completed.push(i);
+      if (action === 'continue' && !facts(context())[i] && i !== 0 && i !== LAST) return;
+      if (action === 'continue' && (i === 0 || i === LAST)) status.completed.push(i);
       if (action === 'skip' && status.skipped.indexOf(i) < 0) status.skipped.push(i);
-      status.step = Math.max(0, Math.min(7, i + (action === 'back' ? -1 : 1)));
+      status.step = Math.max(0, Math.min(LAST, i + (action === 'back' ? -1 : 1)));
       error = ''; save();
-      if (i === 7 && action !== 'back') { status.finished = true; save(); navigate('#/overview'); }
+      if (i === LAST && action !== 'back') { status.finished = true; save(); navigate('#/overview'); }
       refresh(true); return;
     }
     if (busy) return;
@@ -5000,6 +5016,12 @@ var QuickStart = (function () {
         var answers = Object.assign({}, c.p.answers); answers[c.p.questions[0].id] = draft.answer;
         await Api.request('PUT', '/api/preps/' + c.p.serverId + '/answers', { answers: answers, ready: c.p.ready });
         if (!current()) return; c.p.answers = answers; delete draft.answer;
+      } else if (action === 'feedback' && facts(c)[5]) {
+        var qid = c.p.questions[0].id;
+        if (!String(c.p.answers[qid] || '').trim()) throw new Error('Сначала сохраните ответ на вопрос на предыдущем шаге.');
+        result = await Api.request('POST', '/api/preps/' + c.p.serverId + '/feedback', { questionId: qid });
+        if (!current()) return;
+        c.p.feedback = Object.assign({}, c.p.feedback); c.p.feedback[qid] = result.feedback;
       }
       if (current()) sync();
     } catch (e) {
