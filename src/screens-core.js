@@ -564,6 +564,7 @@ var ScreensCore = (function () {
           + ' Можно выгрузить резюме с hh.ru в PDF или DOCX и загрузить файлом ниже.</div>') : '')
       + (p
           ? note('info', '<div id="hh-resume-ok"><strong>Получено с hh.ru</strong> · ' + esc(new Date(p.retrievedAt || Date.now()).toLocaleString('ru-RU'))
+              + ' · ' + esc(sourceLabel(p.source)) + extractLabel(p.extract)
               + (p.structured ? '. Проверьте поля: страница разобрана по разметке.' : '. Разметка не распознана: сохранится текст страницы, поля заполните на карточке резюме.') + '</div>')
             + '<ul class="list" id="hh-resume-preview">'
             + '<li><b>Должность:</b> ' + esc(d.profession || '—') + '</li>'
@@ -769,8 +770,15 @@ var ScreensCore = (function () {
   function hostOf(url) {
     try { return new URL(url).hostname.replace(/^www\./, ''); } catch (e) { return String(url || ''); }
   }
+  /* Кто выделил поля со страницы: разметка, сырой текст или модель (с подписью). */
+  function extractLabel(x) {
+    if (!x) return '';
+    if (x.by === 'model') return ' · поля выделила ' + (x.mock ? 'заглушка модели' : 'модель ' + esc((x.source || {}).provider || '') + ' · ' + esc((x.source || {}).model || ''));
+    if (x.modelFailed) return ' · по ' + (x.by === 'markup' ? 'разметке' : 'тексту страницы') + ', модель не ответила';
+    return x.by === 'markup' ? ' · по разметке страницы' : ' · сырой текст страницы';
+  }
   function sourceLabel(source) {
-    return { jsonld: 'структурированные данные вакансии', meta: 'заголовок страницы и основной текст', html: 'основной текст страницы', text: 'текстовая страница', hh_api: 'API hh.ru' }[source] || 'вручную';
+    return { jsonld: 'структурированные данные вакансии', meta: 'заголовок страницы и основной текст', html: 'основной текст страницы', text: 'текстовая страница', hh_api: 'API hh.ru', hh_page: 'страница hh.ru', hh_browser: 'страница hh.ru в браузере сервера' }[source] || 'вручную';
   }
 
   function vacancyNew() {
@@ -801,6 +809,7 @@ var ScreensCore = (function () {
           ? note(draft.imported.needsReview ? 'info' : 'ok', '<div id="vac-import-ok"><strong>Получено с ' + esc(hostOf(draft.imported.sourceUrl)) + '</strong>'
             + ' · ' + esc(UI.formatDate ? UI.formatDate(draft.imported.retrievedAt) : new Date(draft.imported.retrievedAt).toLocaleString('ru-RU'))
             + ' · источник: ' + esc(sourceLabel(draft.imported.source))
+            + extractLabel(draft.imported.extract)
             + (draft.imported.needsReview ? '. Проверьте заголовок и текст ниже: страница разобрана по разметке, лишние блоки возможны.' : '.')
             + (draft.imported.truncated ? ' Текст обрезан до 40 000 знаков.' : '') + '</div>')
           : '')

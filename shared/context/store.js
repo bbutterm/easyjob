@@ -289,6 +289,11 @@
         copy.text = String(copy.text).slice(-allowed * 3);
         report.dropped.push('moment.text: оставлен хвост распознанного текста');
       }
+      /* Текст страницы: начало важнее хвоста (заголовок, описание), хвост — похожие вакансии. */
+      if (estimateTokens(copy) > allowed && copy.pageText && !protectedKey('pageText')) {
+        copy.pageText = String(copy.pageText).slice(0, allowed * 3) + '…';
+        report.dropped.push('moment.pageText: оставлено начало текста страницы');
+      }
       return copy;
     }
 

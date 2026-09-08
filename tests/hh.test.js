@@ -12,6 +12,7 @@ const path = require('node:path');
 process.env.AI_PROVIDER = 'mock';
 process.env.SESSION_SECRET = 'test-secret';
 process.env.LOG_LEVEL = 'error';
+process.env.HH_MODE = 'api'; /* браузерный режим — в tests/hh-browser.test.js */
 
 const Hh = require('../server/lib/adapters/hh.js');
 const { createApp } = require('../server/index.js');

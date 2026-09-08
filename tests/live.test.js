@@ -320,6 +320,7 @@ const VACANCY_TEXT = 'Ищем повара в ресторан полного �
   await new Promise(function (r) { hhSite.listen(0, '127.0.0.1', r); });
   process.env.HH_API_BASE = 'http://127.0.0.1:' + hhApi.address().port;
   process.env.HH_SITE_BASE = 'http://127.0.0.1:' + hhSite.address().port;
+  process.env.HH_MODE = 'api';
   await page.goto(base + '/#/resume/upload');
   await page.waitForSelector('#hh-resume-url');
   await page.fill('#hh-resume-url', 'https://hh.ru/resume/cafecafecafecafecafecafecafecafe');
@@ -351,7 +352,27 @@ const VACANCY_TEXT = 'Ищем повара в ресторан полного �
     && /Ключевые навыки/.test(await page.inputValue('#vac-text')) && /API hh\.ru/.test(await page.locator('#vac-import-ok').innerText())
     && (await page.inputValue('#vac-resume')) !== '', await page.locator('#vac-import-ok').innerText());
   hhApi.close(); hhSite.close();
-  delete process.env.HH_API_BASE; delete process.env.HH_SITE_BASE;
+  delete process.env.HH_API_BASE; delete process.env.HH_SITE_BASE; delete process.env.HH_MODE;
+
+  /* ---- hh.ru через браузер сервера (режим по умолчанию): страница без разметки → модель ---- */
+  const HhSite = require('./fixtures/hh-site.js');
+  const hhJs = HhSite.create();
+  process.env.HH_SITE_BASE = await hhJs.listen();
+  await page.goto(base + '/#/vacancy/new');
+  await page.waitForSelector('#vac-url');
+  await page.fill('#vac-url', 'https://hh.ru/vacancy/555');
+  await page.click('button:has-text("Импортировать по ссылке")');
+  await page.waitForFunction(function () { const el = document.getElementById('vac-import-ok'); return el && /в браузере сервера/.test(el.innerText); }, null, { timeout: 40000 });
+  const okText = await page.locator('#vac-import-ok').innerText();
+  ok('hh через браузер: страница открыта Chromium сервера, поля выделила заглушка модели, подпись видна',
+    /в браузере сервера/.test(okText) && /поля выделила заглушка модели/.test(okText) && (await page.inputValue('#vac-title')) === 'Су-шеф в ресторан «Пушкин»'
+    && !/Работодателям/.test(await page.inputValue('#vac-text')), okText);
+  await page.fill('#vac-url', 'https://hh.ru/vacancy/123456');
+  await page.click('button:has-text("Импортировать по ссылке")');
+  await page.waitForFunction(function () { const el = document.getElementById('vac-import-ok'); return el && /по разметке страницы/.test(el.innerText); }, null, { timeout: 40000 });
+  ok('hh через браузер: страница с разметкой — без вызова модели', (await page.inputValue('#vac-title')) === 'Повар горячего цеха' && /Ключевые навыки/.test(await page.inputValue('#vac-text')));
+  await require('../server/lib/adapters/hh-browser.js').close();
+  hhJs.close(); delete process.env.HH_SITE_BASE;
 
   ok('Нет сторонних запросов', external.length === 0, external.join(', '));
   ok('Нет ошибок в консоли', errors.length === 0, errors.join(' | '));

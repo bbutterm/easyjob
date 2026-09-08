@@ -9,6 +9,8 @@ const STAGES = Object.freeze({
   'prep.card': 'pre_interview', 'interview.summary': 'pre_interview',
   'interview.turn': 'live_interview', 'assistant.hint': 'live_interview',
   'screen.extract': 'live_interview',
+  /* Извлечение вакансии или резюме со страницы — структурированная задача подготовки. */
+  'page.extract': 'pre_interview',
   /* Сжатие памяти интервью — структурированная задача: идёт на профиль подготовки. */
   'context.compact': 'pre_interview'
 });

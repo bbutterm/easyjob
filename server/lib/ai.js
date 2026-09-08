@@ -124,6 +124,15 @@ function contextFlags() {
 
 const INTERVIEW_TASKS = ['interview.turn', 'interview.summary', 'context.compact'];
 
+/* Ответ page.extract: kind из допустимых, и под него — объект с нужными полями. */
+function validPageExtract(v) {
+  if (!v || typeof v !== 'object') return false;
+  if (['vacancy', 'resume', 'none'].indexOf(v.kind) < 0) return false;
+  if (v.kind === 'vacancy') return !!(v.vacancy && typeof v.vacancy === 'object' && typeof v.vacancy.title === 'string' && typeof v.vacancy.text === 'string');
+  if (v.kind === 'resume') return !!(v.resume && typeof v.resume === 'object' && (Array.isArray(v.resume.experience) || Array.isArray(v.resume.skills) || typeof v.resume.profession === 'string'));
+  return true;
+}
+
 /* Компактный снимок подготовки: профиль, требования, версии исходников.
    Строится из версий резюме и вакансии, на которых создана подготовка,
    и сохраняется в preps.snapshot — дальнейшие правки резюме активное
@@ -184,6 +193,7 @@ function buildStore(taskId, parts, sid) {
   const shares = legacy ? undefined
     : taskId === 'interview.turn' ? { identity: 0.05, preparation: 0.30, session: 0.60, moment: 0.02 }
     : (taskId === 'context.compact' || taskId === 'interview.summary') ? { identity: 0.05, preparation: 0.15, session: 0.75, moment: 0.02 }
+    : taskId === 'page.extract' ? { identity: 0.04, preparation: 0.02, session: 0.02, moment: 0.92 }
     : Routing.STAGES[taskId] === 'pre_interview' ? { identity: 0.05, preparation: 0.90, session: 0.03, moment: 0.02 }
     : undefined;
   const store = ContextStore.create({
@@ -259,6 +269,9 @@ function buildStore(taskId, parts, sid) {
       text: parts.moment.text || undefined,
       textDelta: parts.moment.textDelta || undefined,
       detectedQuestion: parts.moment.detectedQuestion || undefined,
+      pageText: parts.moment.pageText || undefined,
+      pageUrl: parts.moment.pageUrl || undefined,
+      pageKind: parts.moment.pageKind || undefined,
       captureConsent: parts.moment.captureConsent === true
     });
   }
@@ -505,7 +518,8 @@ async function run(sessionId, taskId, parts, options) {
     try { parsed = { ok: true, value: JSON.parse(String(result.text || '').trim()) }; } catch (_) { parsed = { ok: false }; }
     if (!parsed.ok || result.truncated || ['length', 'max_tokens'].indexOf(result.stopReason) >= 0
       || (taskId === 'resume.review' && !validReview(parsed.value))
-      || (taskId === 'prep.card' && !validPrepCard(parsed.value))) {
+      || (taskId === 'prep.card' && !validPrepCard(parsed.value))
+      || (taskId === 'page.extract' && !validPageExtract(parsed.value))) {
       result = Object.assign({}, result, { ok: false, code: 'malformed_response',
         error: 'Модель вернула неполный или некорректный структурированный ответ. Повторите запрос.' });
     } else {

@@ -101,7 +101,7 @@ function toVacancy(v) {
   return {
     sourceUrl: v.alternate_url || ('https://hh.ru/vacancy/' + v.id),
     title: String(v.name || '').slice(0, 200), company: String((v.employer && v.employer.name) || '').slice(0, 200),
-    rawText: rawText.slice(0, 40000), source: 'hh_api', retrievedAt: Date.now(), needsReview: false,
+    rawText: rawText.slice(0, 40000), source: 'hh_api', retrievedAt: Date.now(), needsReview: false, structured: true,
     hh: { id: String(v.id), area: v.area && v.area.name, salary: sal || null, experience: v.experience && v.experience.name, skills }
   };
 }
@@ -271,4 +271,36 @@ async function resumeByUrl(raw, opts) {
   return Object.assign(parsed, { sourceUrl: 'https://hh.ru/resume/' + hit.id, source: 'hh_page', retrievedAt: Date.now() });
 }
 
-module.exports = { detect, vacancyById, toVacancy, search, areas, rank, queryFromResume, parseResumeHtml, resumeByUrl, LIMITS, _cache: cache };
+/* ---- Режим: браузер или API ----
+   HH_MODE=browser (по умолчанию) — страницы открывает Chromium на сервере, API не
+   используется. HH_MODE=api — только публичный API. HH_MODE=auto — браузер, а при
+   его недоступности или отказе — API. Капча в любом режиме не обходится. */
+function mode(env) {
+  const m = String((env || process.env).HH_MODE || 'browser').toLowerCase();
+  return ['api', 'browser', 'auto'].indexOf(m) >= 0 ? m : 'browser';
+}
+function isCancel(e) { return e instanceof HttpError && e.extra && e.extra.code === 'cancelled'; }
+async function viaMode(opts, browserFn, apiFn) {
+  const m = mode(opts && opts.env);
+  if (m === 'api') return apiFn();
+  const Browser = require('./hh-browser.js');
+  if (m === 'browser') return browserFn(Browser);
+  try { return await browserFn(Browser); } catch (e) {
+    if (isCancel(e)) throw e;
+    try { return await apiFn(); } catch (e2) { throw isCancel(e2) ? e2 : e; }
+  }
+}
+function importVacancy(hit, opts) {
+  return viaMode(opts, function (B) { return B.vacancyByUrl(hit, opts); }, function () { return vacancyById(hit.id, opts); });
+}
+function findVacancies(params, opts) {
+  return viaMode(opts, function (B) { return B.search(params, opts); }, function () { return search(params, opts); });
+}
+function importResume(raw, opts) {
+  const hit = detect(raw);
+  if (!hit || hit.kind !== 'resume') throw fail('unsupported_site', 'Это не ссылка на резюме hh.ru вида https://hh.ru/resume/…');
+  return viaMode(opts, function (B) { return B.resumeByUrl(hit, opts); }, function () { return resumeByUrl(raw, opts); });
+}
+
+module.exports = { detect, vacancyById, toVacancy, search, areas, rank, queryFromResume, parseResumeHtml, resumeByUrl,
+  mode, importVacancy, findVacancies, importResume, LIMITS, _cache: cache };

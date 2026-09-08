@@ -254,6 +254,21 @@
           source: 'задача screen.extract', budget: 'мал',
           note: 'Вопрос, выделенный из текста экрана. Вход для задачи assistant.hint.' }
       ]
+    },
+    {
+      id: 'page',
+      title: 'Страница сайта, открытая сервером в браузере',
+      note: 'Заполняется только для задачи page.extract: пользователь вставил ссылку на вакансию или '
+        + 'резюме, сервер открыл её без куки пользователя. Текст живёт в памяти на время запроса.',
+      vars: [
+        { key: 'page.url', type: 'string', required: true, pii: false,
+          source: 'ссылка пользователя без параметров', budget: 'мал', note: 'Адрес страницы.' },
+        { key: 'page.kind', type: 'enum', required: true, pii: false,
+          source: 'распознавание ссылки', budget: '—', note: 'vacancy | resume | unknown — что ожидается на странице.' },
+        { key: 'page.text', type: 'string', required: true, pii: true,
+          source: 'браузер сервера, текст страницы', budget: 'большой',
+          note: 'Видимый текст страницы вместе с навигацией и мусором: задача модели — выделить полезное.' }
+      ]
     }
   ];
 
@@ -370,6 +385,18 @@
       outputShape: '{ question: string|null, confidence: 0..1, speakerGuess: interviewer|candidate|unknown }',
       note: 'При captureConsent=false задача не выполняется. Если вопрос не найден — question=null, '
         + 'и подсказка не запрашивается.'
+    },
+    {
+      id: 'page.extract',
+      title: 'Выделить вакансию или резюме из текста страницы',
+      uses: ['policy.*', 'page.url', 'page.kind', 'page.text'],
+      output: 'json',
+      outputShape: '{ kind: vacancy|resume|none, vacancy: { title, company, text }|null, '
+        + 'resume: { profession, summary, experience: [{role, company, period, details}], skills: string[], '
+        + 'education: [{place, program, period}] }|null }',
+      note: 'Текст страницы содержит меню, рекламу и похожие вакансии: в ответ идёт только сама вакансия '
+        + 'или само резюме, дословно, без пересказа и без добавления фактов. Если на странице нет ни того, '
+        + 'ни другого (капча, вход, ошибка) — kind=none.'
     },
     {
       id: 'assistant.hint',

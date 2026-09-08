@@ -48,6 +48,12 @@
       inputCap: 4000, outputReserve: 900, outputReserveThinkingOff: 300, windowTurns: 2,
       required: [], dropFirst: ['moment.image']
     },
+    /* Текст страницы нужен целиком: вакансия переносится дословно. Ответ
+       длинный — в нём весь текст вакансии или все поля резюме. */
+    'page.extract': {
+      inputCap: 24000, outputReserve: 6000, outputReserveThinkingOff: 6000, windowTurns: 0,
+      required: ['moment.pageText'], dropFirst: []
+    },
     /* Обзор резюме получает исходный текст целиком: загруженное резюме в
        40 тысяч знаков не выбрасывается — либо помещается, либо контролируемая
        ошибка. Поэтому предел шире гипотезы из документа владельца. */

@@ -616,7 +616,7 @@
         d.title = v.title || d.title;
         d.company = v.company || d.company;
         d.text = v.rawText || '';
-        d.imported = { sourceUrl: v.sourceUrl, source: v.source, retrievedAt: v.retrievedAt, needsReview: v.needsReview, truncated: v.truncated };
+        d.imported = { sourceUrl: v.sourceUrl, source: v.source, retrievedAt: v.retrievedAt, needsReview: v.needsReview, truncated: v.truncated, extract: v.extract || null };
         d.importError = '';
         if (!d.resumeId && s.resumes.length) d.resumeId = s.resumes[0].id;
       });

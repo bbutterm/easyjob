@@ -17,6 +17,7 @@ var API_VERSION = '2023-06-01';
 var EFFORT_BY_TASK = {
   'assistant.hint': 'low',
   'screen.extract': 'low',
+  'page.extract': 'low',
   'interview.turn': 'low',
   'answer.feedback': 'medium'
 };

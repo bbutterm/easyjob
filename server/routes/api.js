@@ -198,7 +198,7 @@ function register(r) {
      пользователя; результат — предпросмотр, который сохраняется только
      через POST /api/resumes после проверки. Капча и вход не обходятся:
      тогда ответ { ok:false, code:'blocked' } с советом выгрузить файл. */
-  r.post('/api/resumes/import-url', async function ({ res, body }) {
+  r.post('/api/resumes/import-url', async function ({ res, body, ctx }) {
     const url = str(body.url, 2048, 'url', true);
     const signal = require('../lib/request-scope.js').getStore()?.signal;
     try {
@@ -208,7 +208,8 @@ function register(r) {
           ? 'Это ссылка на вакансию hh.ru. Импортируйте её на экране добавления вакансии.'
           : 'Поддерживаются только ссылки на резюме hh.ru вида https://hh.ru/resume/…', { ok: false, code: 'unsupported_site' });
       }
-      const resume = await Hh.resumeByUrl(url, { signal });
+      let resume = await Hh.importResume(url, { signal });
+      resume = await refineWithModel(ctx.session.id, resume, 'resume');
       sendJson(res, 200, { ok: true, resume });
     } catch (e) {
       if (e instanceof HttpError && e.extra && e.extra.ok === false) {
@@ -282,6 +283,54 @@ function register(r) {
     } finally { reviews.delete(key); }
   });
 
+  /* Страница, открытая браузером сервера, идёт в задачу модели page.extract:
+     из видимого текста она выделяет саму вакансию или само резюме.
+     HH_EXTRACT=auto (по умолчанию) — модель только когда разметка страницы
+     не распозналась; model — всегда; off — никогда. Текст страницы в ответ
+     клиенту не уходит. Ошибка модели не роняет импорт: остаётся разбор по
+     разметке или сырой текст с пометкой. */
+  async function refineWithModel(sid, page, kind) {
+    const modeX = String(process.env.HH_EXTRACT || 'auto').toLowerCase();
+    const out = Object.assign({}, page);
+    delete out.pageText;
+    out.extract = { by: page.structured ? 'markup' : 'text' };
+    if (!page.pageText || modeX === 'off' || (modeX !== 'model' && page.structured)) return out;
+    const result = await ai.run(sid, 'page.extract', { moment: { pageText: page.pageText, pageUrl: page.sourceUrl, pageKind: kind } });
+    if (!result.ok) {
+      if (result.code === 'cancelled') throw aiError(result);
+      out.extract = { by: page.structured ? 'markup' : 'text', modelFailed: result.code || 'provider_failure' };
+      return out;
+    }
+    const json = result.json;
+    out.extract = { by: 'model', source: sourceOf(result), mock: result.mock === true };
+    if (json.kind === 'none') {
+      throw new HttpError(422, 'На странице не нашлось ' + (kind === 'resume' ? 'резюме' : 'вакансии') + ': возможно, проверка «не робот» или вход. Вставьте текст вручную.', { ok: false, code: 'not_job_page' });
+    }
+    if (kind === 'vacancy' && json.kind === 'vacancy') {
+      const v = json.vacancy;
+      out.title = str(v.title, 200, 'title') || out.title;
+      out.company = str(v.company, 200, 'company') || out.company;
+      if (String(v.text || '').trim().length >= 40) out.rawText = str(v.text, 40000, 'text');
+      out.needsReview = true;
+    } else if (kind === 'resume' && json.kind === 'resume') {
+      const r = json.resume;
+      const d = out.data = Object.assign({}, out.data);
+      const arr = function (x, n) { return Array.isArray(x) ? x.slice(0, n) : []; };
+      if (!d.profession) d.profession = str(r.profession, 200, 'profession');
+      if (!d.summary) d.summary = str(r.summary, 2000, 'summary');
+      if (!(d.experience || []).length) d.experience = arr(r.experience, 12).filter(function (e) { return e && e.role; })
+        .map(function (e) { return { role: str(e.role, 200, 'role'), company: str(e.company, 200, 'company'), period: str(e.period, 80, 'period'), details: str(e.details, 2000, 'details') }; });
+      if (!(d.skills || []).length) d.skills = arr(r.skills, 40).map(function (s) { return str(s, 80, 'skill'); }).filter(Boolean);
+      if (!(d.education || []).length) d.education = arr(r.education, 8).filter(function (e) { return e && (e.place || e.program); })
+        .map(function (e) { return { place: str(e.place, 200, 'place'), program: str(e.program, 200, 'program'), period: str(e.period, 80, 'period') }; });
+      const structured = !!(d.profession || d.experience.length || d.skills.length);
+      if (structured) { out.structured = true; delete d.rawText; out.title = d.profession ? d.profession.slice(0, 120) : out.title; }
+    } else {
+      out.extract.mismatch = json.kind;
+    }
+    return out;
+  }
+
   /* ---- Поиск вакансий на hh.ru ---- */
 
   /* Поиск через публичный API hh.ru. Запрос по умолчанию собирается из
@@ -299,7 +348,7 @@ function register(r) {
     const text = str(query.get('text'), 200, 'text') || (resume ? Hh.queryFromResume(resume) : '');
     if (!text) throw new HttpError(400, 'Введите запрос или выберите резюме с профессией.', { code: 'bad_query' });
     try {
-      const found = await Hh.search({ text, area: str(query.get('area'), 80, 'area'), page: Number(query.get('page')) || 0 }, { signal });
+      const found = await Hh.findVacancies({ text, area: str(query.get('area'), 80, 'area'), page: Number(query.get('page')) || 0 }, { signal });
       const items = resume ? Hh.rank(resume, found.items) : found.items.map(function (i) { return Object.assign({}, i, { score: null, why: [] }); });
       sendJson(res, 200, Object.assign({ ok: true }, found, { items, ranked: !!resume, resumeId: resume ? resume.id : null }));
     } catch (e) {
@@ -324,7 +373,7 @@ function register(r) {
      сети (server/lib/url-import.js). Результат — предпросмотр: текст
      показывается пользователю и уходит в разбор только после его правки
      и подтверждения через POST /api/vacancies. */
-  r.post('/api/vacancies/import-url', async function ({ res, body }) {
+  r.post('/api/vacancies/import-url', async function ({ res, body, ctx }) {
     const url = str(body.url, 2048, 'url', true);
     const signal = require('../lib/request-scope.js').getStore()?.signal;
     try {
@@ -335,10 +384,8 @@ function register(r) {
       if (hh && hh.kind === 'resume') throw new HttpError(422, 'Это ссылка на резюме hh.ru, а не на вакансию. Импортируйте её на экране загрузки резюме.', { ok: false, code: 'not_job_page' });
       let vacancy = null;
       if (hh && hh.kind === 'vacancy') {
-        try { vacancy = await Hh.vacancyById(hh.id, { signal }); } catch (e) {
-          if (e instanceof HttpError && e.extra && e.extra.code === 'cancelled') throw e;
-          log.warn('hh vacancy api failed, falling back to page', { id: hh.id, code: e.extra && e.extra.code });
-        }
+        vacancy = await Hh.importVacancy(hh, { signal });
+        vacancy = await refineWithModel(ctx.session.id, vacancy, 'vacancy');
       }
       if (!vacancy) vacancy = await UrlImport.importUrl(url, { signal });
       sendJson(res, 200, { ok: true, vacancy });
@@ -363,7 +410,7 @@ function register(r) {
     const origin = {};
     if (body.sourceUrl) {
       origin.sourceUrl = UrlImport.redactUrl(UrlImport.validateUrl(str(body.sourceUrl, 2048, 'sourceUrl')).url);
-      origin.source = ['jsonld', 'meta', 'html', 'text', 'hh_api'].indexOf(body.source) >= 0 ? body.source : 'html';
+      origin.source = ['jsonld', 'meta', 'html', 'text', 'hh_api', 'hh_browser'].indexOf(body.source) >= 0 ? body.source : 'html';
       origin.retrievedAt = Number(body.retrievedAt) || Date.now();
     }
     let vacancy = db.vacancies.create(sid, title, company, rawText, origin);

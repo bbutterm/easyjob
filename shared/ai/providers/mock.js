@@ -82,6 +82,30 @@ var CANNED = {
       reminders: ['Ответ до двух минут, заканчивать результатом.']
     });
   },
+  /* Страница: заглушка берёт заголовок из первой строки, компанию — из строки
+     «Компания:», текст — всё до раздела «Похожие вакансии». Это разбор по
+     строкам, не модель; ответ помечен как заглушка на уровне run(). */
+  'page.extract': function (request) {
+    var text = String(request.userText || '');
+    var kind = /\[СТРАНИЦА: ЧТО ОЖИДАЕТСЯ\]\nрезюме/.test(text) ? 'resume' : 'vacancy';
+    var m = /\[СТРАНИЦА: ВИДИМЫЙ ТЕКСТ\]\n([\s\S]*)$/.exec(text);
+    var body = m ? m[1] : '';
+    if (!body.trim() || /капча|не робот|captcha/i.test(body.slice(0, 400))) return JSON.stringify({ kind: 'none', vacancy: null, resume: null });
+    /* Служебные строки сайта (меню, подвал) заглушка отбрасывает по простым
+       признакам; настоящая модель делает это по смыслу. */
+    var lines = body.split('\n').map(function (l) { return l.trim(); }).filter(function (l) {
+      return l && !/^(войти|создать резюме|работодателям|помощь|©|соглашение|включите javascript)/i.test(l) && (l.split(' · ').length < 3);
+    });
+    var cut = lines.findIndex(function (l) { return /^похожие вакансии|^вакансии дня|^другие резюме/i.test(l); });
+    var useful = cut > 0 ? lines.slice(0, cut) : lines;
+    if (kind === 'vacancy') {
+      var company = (useful.find(function (l) { return /^компания:/i.test(l); }) || '').replace(/^компания:\s*/i, '') || useful[1] || '';
+      return JSON.stringify({ kind: 'vacancy', vacancy: { title: useful[0] || 'Вакансия', company: company, text: useful.join('\n') }, resume: null });
+    }
+    var skillsAt = useful.findIndex(function (l) { return /^(ключевые )?навыки:?$/i.test(l); });
+    return JSON.stringify({ kind: 'resume', resume: {
+      profession: useful[0] || '', summary: '', experience: [], skills: skillsAt >= 0 ? useful.slice(skillsAt + 1, skillsAt + 6) : [], education: [] }, vacancy: null });
+  },
   'screen.extract': function () {
     return JSON.stringify({
       question: 'Расскажите про самую сложную задачу в вашей работе.',

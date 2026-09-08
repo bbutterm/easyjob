@@ -45,6 +45,8 @@ jobs:
         run: npm run test:voice
       - name: Адаптер hh.ru (ссылки, API, разбор резюме, поиск, маршруты)
         run: npm run test:hh
+      - name: Адаптер hh.ru через браузер сервера (Chromium, режимы, извлечение моделью)
+        run: npm run test:hh:browser
 
       - name: Сервер
         run: npm run test:server

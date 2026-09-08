@@ -51,6 +51,7 @@
     'context.compact': { maxOutputTokens: 2500, contextBudget: 16000, outputFormat: 'json', streaming: false },
     'prep.card': { maxOutputTokens: 2500, contextBudget: 24000, outputFormat: 'json', streaming: false },
     'screen.extract': { maxOutputTokens: 900, contextBudget: 8000, outputFormat: 'json', streaming: false },
+    'page.extract': { maxOutputTokens: 6000, contextBudget: 24000, outputFormat: 'json', streaming: false },
     'assistant.hint': { maxOutputTokens: 1200, contextBudget: 12000, outputFormat: 'json', streaming: true,
       maxWords: 40 }
   };
