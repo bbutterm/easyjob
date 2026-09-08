@@ -1,0 +1,2 @@
+Снимки для лендинга: NODE_PATH=node_modules node tools/landing-shots.js (демо-режим и сервер с заглушкой, наружу не ходит).
+Сборка страницы: python3 tools/build-landing.py
