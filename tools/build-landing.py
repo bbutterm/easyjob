@@ -183,9 +183,9 @@ def page(img, standalone):
     tail = '\n</body>\n</html>\n' if standalone else '\n'
     return head + body(img) + tail
 
-open(ROOT + '/docs/presentation.html', 'w', encoding='utf-8').write(page(lambda n: 'screenshots/landing/' + n + '.png', True))
 def data_uri(n):
     return 'data:image/png;base64,' + base64.b64encode(open(SHOTS + n + '.png', 'rb').read()).decode()
-out = page(data_uri, False)
-open(ROOT + '/docs/presentation.inline.html', 'w', encoding='utf-8').write(out)
-print('repo file', os.path.getsize(ROOT + '/docs/presentation.html'), 'artifact', len(out.encode()))
+# Один самодостаточный файл: стили и снимки внутри, внешних зависимостей нет.
+open(ROOT + '/docs/presentation.html', 'w', encoding='utf-8').write(page(data_uri, True))
+open('/tmp/claude-0/-home-user-easyjob/e445e512-7b39-5223-9e48-4c98b8736e26/scratchpad/easyjob-deck.html', 'w', encoding='utf-8').write(page(data_uri, False))
+print('docs/presentation.html', os.path.getsize(ROOT + '/docs/presentation.html'), 'bytes')
