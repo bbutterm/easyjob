@@ -1,0 +1,389 @@
+<title>Easyjob</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Unbounded:wght@500;700&family=Golos+Text:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap">
+<style>
+  :root {
+    --paper: #EDF2EE;
+    --paper-2: #E2EAE4;
+    --ink: #14211C;
+    --ink-2: #4A5A53;
+    --ink-3: #7E8C86;
+    --line: #C9D4CD;
+    --teal: #0F6E63;
+    --teal-ink: #0B4F47;
+    --mark: #F5CF4E;
+    --ok: #1E7F4A;
+    --warn: #B9760E;
+    --miss: #B3372F;
+    --panel: #FFFFFF;
+    --shadow: 0 18px 40px -24px rgba(20, 33, 28, .35);
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --paper: #101714;
+      --paper-2: #17211C;
+      --ink: #EAF1EC;
+      --ink-2: #B4C1BA;
+      --ink-3: #7F8D86;
+      --line: #2B3832;
+      --teal: #4FB8A9;
+      --teal-ink: #8FD9CC;
+      --mark: #D9B33A;
+      --ok: #5CC489;
+      --warn: #E1A94A;
+      --miss: #E4736A;
+      --panel: #1A2520;
+      --shadow: 0 18px 40px -24px rgba(0, 0, 0, .7);
+    }
+  }
+  :root[data-theme="dark"] {
+    --paper: #101714;
+    --paper-2: #17211C;
+    --ink: #EAF1EC;
+    --ink-2: #B4C1BA;
+    --ink-3: #7F8D86;
+    --line: #2B3832;
+    --teal: #4FB8A9;
+    --teal-ink: #8FD9CC;
+    --mark: #D9B33A;
+    --ok: #5CC489;
+    --warn: #E1A94A;
+    --miss: #E4736A;
+    --panel: #1A2520;
+    --shadow: 0 18px 40px -24px rgba(0, 0, 0, .7);
+  }
+
+  * { box-sizing: border-box; }
+  html, body { height: 100%; }
+  body {
+    margin: 0;
+    background: var(--paper);
+    color: var(--ink);
+    font-family: "Golos Text", "Segoe UI", Roboto, Arial, sans-serif;
+    font-size: 17px;
+    line-height: 1.5;
+    -webkit-font-smoothing: antialiased;
+  }
+  h1, h2, h3 { font-family: "Unbounded", "Golos Text", Arial, sans-serif; margin: 0; text-wrap: balance; line-height: 1.1; }
+  p { margin: 0; }
+  .mono { font-family: "JetBrains Mono", ui-monospace, Menlo, Consolas, monospace; }
+  .eyebrow { font-family: "JetBrains Mono", ui-monospace, monospace; font-size: 12px; letter-spacing: .12em; text-transform: uppercase; color: var(--teal); }
+  mark { background: linear-gradient(transparent 55%, var(--mark) 55%); color: inherit; padding: 0 .08em; }
+
+  .deck {
+    display: flex;
+    height: 100vh;
+    overflow-x: auto;
+    overflow-y: hidden;
+    scroll-snap-type: x mandatory;
+    scroll-behavior: smooth;
+    scrollbar-width: none;
+  }
+  .deck::-webkit-scrollbar { display: none; }
+  @media (prefers-reduced-motion: reduce) { .deck { scroll-behavior: auto; } }
+
+  .slide {
+    flex: 0 0 100vw;
+    height: 100vh;
+    scroll-snap-align: start;
+    display: grid;
+    grid-template-rows: auto 1fr auto;
+    padding: clamp(20px, 4vh, 44px) clamp(20px, 6vw, 96px);
+    gap: clamp(14px, 3vh, 28px);
+    overflow: hidden;
+  }
+  .slide__top { display: flex; justify-content: space-between; align-items: baseline; gap: 16px; }
+  .slide__body { min-height: 0; display: grid; align-content: center; gap: clamp(16px, 3vh, 32px); }
+  .slide__foot { display: flex; justify-content: space-between; align-items: center; color: var(--ink-3); font-size: 13px; gap: 16px; }
+  .brand { font-family: "Unbounded"; font-weight: 700; font-size: 15px; letter-spacing: -.01em; }
+  .brand small { font-family: "Golos Text"; font-weight: 400; color: var(--ink-3); margin-left: 10px; font-size: 13px; }
+
+  .h-xl { font-size: clamp(30px, 5.2vw, 68px); font-weight: 700; letter-spacing: -.02em; max-width: 14ch; }
+  .h-lg { font-size: clamp(24px, 3.4vw, 42px); font-weight: 700; letter-spacing: -.015em; max-width: 22ch; }
+  .lead { font-size: clamp(17px, 1.5vw, 21px); color: var(--ink-2); max-width: 58ch; }
+  .lead b, .body b { color: var(--ink); font-weight: 600; }
+  .body { color: var(--ink-2); max-width: 60ch; }
+
+  .cols { display: grid; grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr); gap: clamp(24px, 4vw, 64px); align-items: center; min-height: 0; }
+  @media (max-width: 860px) { .cols { grid-template-columns: 1fr; } .cols > .panel { display: none; } }
+
+  .facts { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 0; border-top: 1px solid var(--line); }
+  .fact { padding: 18px 20px 0 0; border-right: 1px solid var(--line); margin-right: 20px; }
+  .fact:last-child { border-right: 0; margin-right: 0; }
+  .fact .n { font-family: "Unbounded"; font-weight: 500; font-size: clamp(22px, 2.6vw, 34px); letter-spacing: -.02em; font-variant-numeric: tabular-nums; }
+  .fact .l { color: var(--ink-3); font-size: 14px; margin-top: 4px; }
+  @media (max-width: 860px) { .facts { grid-template-columns: 1fr; } .fact { border-right: 0; margin-right: 0; padding-right: 0; } }
+
+  /* Дорожка пути пользователя */
+  .track { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 10px; align-items: stretch; }
+  .step { position: relative; padding: 16px 14px 16px; background: var(--panel); border: 1px solid var(--line); border-radius: 6px; display: grid; gap: 8px; align-content: start; }
+  .step .k { font-family: "JetBrains Mono"; font-size: 11px; letter-spacing: .1em; text-transform: uppercase; color: var(--ink-3); }
+  .step .t { font-weight: 600; font-size: 16px; line-height: 1.25; }
+  .step .d { font-size: 13.5px; color: var(--ink-2); line-height: 1.4; }
+  .step--live { border-color: var(--teal); box-shadow: inset 0 3px 0 var(--teal); }
+  @media (max-width: 1100px) { .track { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
+  @media (max-width: 640px) { .track { grid-template-columns: 1fr 1fr; } }
+
+  /* Списки возможностей */
+  .list { display: grid; gap: 14px; padding: 0; margin: 0; list-style: none; }
+  .list li { display: grid; grid-template-columns: 22px 1fr; gap: 12px; align-items: start; color: var(--ink-2); }
+  .list li::before { content: ""; width: 10px; height: 10px; margin-top: 8px; border-radius: 50%; background: var(--teal); justify-self: center; }
+  .list li b { color: var(--ink); font-weight: 600; }
+
+  /* Панель-макет экрана */
+  .panel { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; box-shadow: var(--shadow); padding: 18px 20px; display: grid; gap: 12px; font-size: 14px; min-width: 0; }
+  .panel .ph { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; border-bottom: 1px solid var(--line); padding-bottom: 10px; }
+  .panel .ph b { font-weight: 600; font-size: 15px; }
+  .panel .ph span { font-family: "JetBrains Mono"; font-size: 11px; color: var(--ink-3); }
+  .req { display: grid; grid-template-columns: 96px 1fr; gap: 12px; align-items: start; padding: 8px 0; border-bottom: 1px dashed var(--line); }
+  .req:last-child { border-bottom: 0; }
+  .pill { display: inline-block; font-family: "JetBrains Mono"; font-size: 11px; letter-spacing: .04em; padding: 3px 8px; border-radius: 4px; color: #fff; text-align: center; white-space: nowrap; }
+  .pill--ok { background: var(--ok); } .pill--warn { background: var(--warn); } .pill--miss { background: var(--miss); }
+  .req .q { font-weight: 500; }
+  .req .e { color: var(--ink-2); font-size: 13px; margin-top: 2px; }
+  .chat { display: grid; gap: 10px; }
+  .bubble { padding: 10px 14px; border-radius: 12px; max-width: 88%; line-height: 1.4; }
+  .bubble--them { background: var(--paper-2); border-bottom-left-radius: 4px; }
+  .bubble--me { background: var(--teal); color: #fff; justify-self: end; border-bottom-right-radius: 4px; }
+  .bubble small { display: block; font-family: "JetBrains Mono"; font-size: 10.5px; opacity: .75; margin-top: 4px; }
+  .wave { display: flex; gap: 3px; align-items: flex-end; height: 26px; }
+  .wave i { flex: 1; background: var(--teal); border-radius: 2px; opacity: .7; }
+  .hint { border-left: 3px solid var(--mark); padding: 8px 12px; background: var(--paper-2); border-radius: 0 6px 6px 0; display: grid; gap: 4px; }
+  .hint .lbl { font-family: "JetBrains Mono"; font-size: 11px; letter-spacing: .08em; text-transform: uppercase; color: var(--ink-3); }
+  .src { font-family: "JetBrains Mono"; font-size: 11px; color: var(--ink-3); }
+
+  .grid-2 { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: clamp(16px, 3vw, 40px); }
+  .grid-3 { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: clamp(16px, 3vw, 40px); }
+  @media (max-width: 860px) { .grid-2, .grid-3 { grid-template-columns: 1fr; } }
+  .block h3 { font-size: 17px; font-weight: 700; margin-bottom: 8px; }
+  .block p { color: var(--ink-2); font-size: 15px; max-width: 42ch; }
+
+  .cta { display: inline-flex; align-items: center; gap: 10px; background: var(--teal); color: #fff; padding: 14px 22px; border-radius: 6px; font-weight: 600; text-decoration: none; font-size: 16px; width: fit-content; }
+  .cta:focus-visible, .nav button:focus-visible { outline: 3px solid var(--mark); outline-offset: 2px; }
+  .cmd { font-family: "JetBrains Mono"; font-size: 14px; background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 12px 16px; color: var(--ink); overflow-x: auto; white-space: nowrap; }
+
+  .nav { display: flex; align-items: center; gap: 10px; }
+  .nav button { font: inherit; background: transparent; border: 1px solid var(--line); color: var(--ink); width: 34px; height: 34px; border-radius: 50%; cursor: pointer; }
+  .nav button:hover { border-color: var(--teal); color: var(--teal); }
+  .dots { display: flex; gap: 6px; }
+  .dots i { width: 6px; height: 6px; border-radius: 50%; background: var(--line); display: block; }
+  .dots i.on { background: var(--teal); }
+  .counter { font-family: "JetBrains Mono"; font-size: 12px; color: var(--ink-3); font-variant-numeric: tabular-nums; }
+
+  @media (max-height: 640px) { .slide { gap: 10px; } .h-xl { font-size: 30px; } .lead { font-size: 16px; } }
+  @media print {
+    .deck { display: block; height: auto; overflow: visible; }
+    .slide { height: auto; min-height: 90vh; page-break-after: always; }
+    .nav { display: none; }
+  }
+</style>
+
+<main class="deck" id="deck" aria-label="Презентация Easyjob">
+
+  <!-- 1. Обложка -->
+  <section class="slide" id="s1">
+    <div class="slide__top"><div class="brand">easyjob<small>Карьерный помощник</small></div><div class="eyebrow">Презентация возможностей</div></div>
+    <div class="slide__body">
+      <div class="cols">
+        <div style="display:grid;gap:22px">
+          <h1 class="h-xl">От ссылки на вакансию до <mark>уверенного ответа</mark> на собеседовании</h1>
+          <p class="lead">Сервис собирает подготовку под конкретную вакансию: читает резюме и вакансию, честно сопоставляет их, собирает вопросы, тренирует голосом и текстом и подсказывает на живом собеседовании.</p>
+        </div>
+        <div class="panel" aria-hidden="true">
+          <div class="ph"><b>Сопоставление резюме с вакансией</b><span>повар горячего цеха</span></div>
+          <div class="req"><span class="pill pill--ok">есть</span><div><div class="q">Опыт на горячем цехе от 2 лет</div><div class="e">В резюме: «Вёл горячий цех, заготовки, соусы» — 4 года 4 месяца</div></div></div>
+          <div class="req"><span class="pill pill--warn">неясно</span><div><div class="q">Работа по технологическим картам</div><div class="e">Упомянуто без деталей: подготовьте пример</div></div></div>
+          <div class="req"><span class="pill pill--miss">нет</span><div><div class="q">Действующая медицинская книжка</div><div class="e">В резюме не найдено — формальное требование</div></div></div>
+          <div class="src">общий «процент соответствия» не считается — он вводит в заблуждение</div>
+        </div>
+      </div>
+      <div class="facts">
+        <div class="fact"><div class="n">6 шагов</div><div class="l">резюме → вакансия → сопоставление → вопросы → тренировка → собеседование</div></div>
+        <div class="fact"><div class="n">Любая профессия</div><div class="l">повар, водитель, бухгалтер, разработчик — без подмены офисными ролями</div></div>
+        <div class="fact"><div class="n">Открытые модели</div><div class="l">ключи только на сервере, источник каждого ответа подписан</div></div>
+      </div>
+    </div>
+    <div class="slide__foot"><span>Стрелки ← → или пробел — листать</span><div class="nav" data-nav></div></div>
+  </section>
+
+  <!-- 2. Путь -->
+  <section class="slide" id="s2">
+    <div class="slide__top"><div class="brand">easyjob</div><div class="eyebrow">Путь пользователя</div></div>
+    <div class="slide__body">
+      <h2 class="h-lg">Одна подготовка на одну вакансию. Каждый шаг сохраняется и переживает перезагрузку.</h2>
+      <div class="track">
+        <div class="step"><span class="k">резюме</span><span class="t">Загрузить или собрать</span><span class="d">PDF, DOCX, TXT до 2 МБ; мастер по шагам; импорт с hh.ru по ссылке</span></div>
+        <div class="step"><span class="k">вакансия</span><span class="t">Вставить или найти</span><span class="d">Текст, ссылка, поиск подходящих на hh.ru прямо из резюме</span></div>
+        <div class="step"><span class="k">разбор</span><span class="t">Требования и сопоставление</span><span class="d">Каждое требование: есть / неясно / нет, с цитатой из резюме</span></div>
+        <div class="step"><span class="k">вопросы</span><span class="t">Ответы и обратная связь</span><span class="d">Вероятные вопросы, автосохранение ответов, разбор каждого, карточка-шпаргалка</span></div>
+        <div class="step"><span class="k">тренировка</span><span class="t">Текстом и голосом</span><span class="d">Интервьюер-модель, синтез речи, распознавание, память интервью</span></div>
+        <div class="step step--live"><span class="k">собеседование</span><span class="t">Помощник в реальном времени</span><span class="d">Видит вопрос, подсказывает направление ответа по вашему резюме</span></div>
+      </div>
+      <p class="body">Состояние подготовки хранится на сервере: «требования выделены», «сопоставление готово», «ответы начаты», «интервью завершено». Если резюме или вакансия изменились, старый разбор помечается устаревшим и пересобирается одной кнопкой.</p>
+    </div>
+    <div class="slide__foot"><span>Quick Start ведёт новичка по этим шагам за один сеанс</span><div class="nav" data-nav></div></div>
+  </section>
+
+  <!-- 3. Резюме и вакансия -->
+  <section class="slide" id="s3">
+    <div class="slide__top"><div class="brand">easyjob</div><div class="eyebrow">Резюме и вакансия</div></div>
+    <div class="slide__body">
+      <div class="cols">
+        <div style="display:grid;gap:22px">
+          <h2 class="h-lg">Ссылка на hh.ru <mark>вместо копипасты</mark></h2>
+          <ul class="list">
+            <li><span><b>Вакансия по ссылке.</b> Сервер открывает страницу в собственном браузере, без ваших куки. Название, компания, зарплата, описание и ключевые навыки подставляются в форму для проверки.</span></li>
+            <li><span><b>Резюме по ссылке.</b> Публичное резюме hh.ru раскладывается по полям: должность, опыт с компаниями и периодами, навыки, образование. Сохраняется только после вашего подтверждения.</span></li>
+            <li><span><b>Поиск подходящих вакансий.</b> Запрос собирается из профессии и навыков, выдача сортируется по похожести на резюме с объяснением «совпало: …». Кнопка «Создать подготовку» переносит вакансию в работу.</span></li>
+            <li><span><b>Модель читает страницу, а не регулярка.</b> Если разметка сайта не распозналась, модель выделяет саму вакансию из текста страницы, отбрасывая меню и «похожие вакансии».</span></li>
+          </ul>
+        </div>
+        <div class="panel" aria-hidden="true">
+          <div class="ph"><b>Поиск вакансий</b><span>по резюме «Повар горячего цеха»</span></div>
+          <div class="req"><span class="pill pill--ok">похожесть 65</span><div><div class="q">Повар горячего цеха · Ресторан «Север»</div><div class="e">Санкт-Петербург · от 90 000 ₽ · совпало: повар, горячего, цеха, технологические, карты</div></div></div>
+          <div class="req"><span class="pill pill--warn">похожесть 21</span><div><div class="q">Су-шеф · Ресторан «Пушкин»</div><div class="e">Санкт-Петербург · совпало: цеха, заготовки, соусы</div></div></div>
+          <div class="req"><span class="pill pill--miss">похожесть 3</span><div><div class="q">Менеджер по продажам · ООО Ромашка</div><div class="e">совпало: работа</div></div></div>
+          <div class="src">похожесть — совпадение слов, не оценка модели; наружу уходит только текст запроса</div>
+        </div>
+      </div>
+    </div>
+    <div class="slide__foot"><span>Капча и закрытые резюме не обходятся: честный отказ и совет загрузить файл</span><div class="nav" data-nav></div></div>
+  </section>
+
+  <!-- 4. Тренировка -->
+  <section class="slide" id="s4">
+    <div class="slide__top"><div class="brand">easyjob</div><div class="eyebrow">Тренировочное интервью</div></div>
+    <div class="slide__body">
+      <div class="cols">
+        <div class="panel" aria-hidden="true">
+          <div class="ph"><b>Голосовая тренировка</b><span>интервьюер · live_interview</span></div>
+          <div class="chat">
+            <div class="bubble bubble--them">Расскажите о смене, когда на кухне что-то пошло не так. Что вы сделали первым?<small>озвучено за 0,5 с · фраза за фразой</small></div>
+            <div class="wave"><i style="height:30%"></i><i style="height:70%"></i><i style="height:100%"></i><i style="height:55%"></i><i style="height:80%"></i><i style="height:40%"></i><i style="height:90%"></i><i style="height:35%"></i><i style="height:65%"></i><i style="height:20%"></i></div>
+            <div class="bubble bubble--me">Сломалась плита на горячем цехе в пятницу вечером. Перекинул заказы на гриль и пароконвектомат, предупредил зал о задержке в десять минут.<small>распознано в браузере · можно перебить интервьюера голосом</small></div>
+            <div class="bubble bubble--them">Хорошо. Сколько столов вы тогда обслужили без плиты?</div>
+          </div>
+          <div class="src">память интервью: «плита сломалась в пятницу» — факт из реплики 3, не повторять</div>
+        </div>
+        <div style="display:grid;gap:22px">
+          <h2 class="h-lg">Интервьюер, который <mark>помнит, что вы сказали</mark></h2>
+          <ul class="list">
+            <li><span><b>Текстом и голосом.</b> Реплики интервьюера озвучиваются по фразам, ответ распознаётся с микрофона, можно перебить. Синтез в браузере или на сервере.</span></li>
+            <li><span><b>Память интервью.</b> Факты из ваших реплик фиксируются с цитатой и статусом: сказано, есть в резюме, подтверждено, противоречит. Длинное интервью сжимается без потери фактов.</span></li>
+            <li><span><b>Обратная связь без баллов.</b> По каждому ответу: что сильно, чего не хватает, как переформулировать. Итог интервью и карточка-шпаргалка перед встречей.</span></li>
+            <li><span><b>Честность по умолчанию.</b> Модель не добавляет опыт, которого нет в резюме, и говорит, чего ей не хватает, вместо догадки.</span></li>
+          </ul>
+        </div>
+      </div>
+    </div>
+    <div class="slide__foot"><span>Первая фраза интервьюера звучит через полсекунды после ответа модели</span><div class="nav" data-nav></div></div>
+  </section>
+
+  <!-- 5. Помощник на собеседовании -->
+  <section class="slide" id="s5">
+    <div class="slide__top"><div class="brand">easyjob</div><div class="eyebrow">Живое собеседование</div></div>
+    <div class="slide__body">
+      <div class="cols">
+        <div style="display:grid;gap:22px">
+          <h2 class="h-lg">Подсказка — <mark>опора для своего ответа</mark>, не текст для зачитывания</h2>
+          <ul class="list">
+            <li><span><b>Видит вопрос.</b> Текст с экрана видеозвонка распознаётся, модель выделяет вопрос собеседующего и только тогда просит подсказку.</span></li>
+            <li><span><b>Отвечает по вашему резюме.</b> Направление, о чём напомнить и чего избегать, до 40 слов, чтобы читалось в разговоре.</span></li>
+            <li><span><b>Только с явного согласия.</b> Захват экрана включается вручную, кадр в веб-версии не отправляется, текст экрана нигде не хранится.</span></li>
+            <li><span><b>Программа для компьютера.</b> Прозрачное окно поверх звонка, готовый прототип на Electron в репозитории.</span></li>
+          </ul>
+        </div>
+        <div class="panel" aria-hidden="true">
+          <div class="ph"><b>Помощник</b><span>согласие получено · экран: «Google Meet»</span></div>
+          <div class="src">распознано: «…и последний вопрос: почему вы уходите с текущего места?»</div>
+          <div class="hint"><span class="lbl">направление</span><span>Назовите одну причину, связанную с ростом, и что именно хотите делать здесь. Опирайтесь на переход из «Севера» в «Пушкин» — это уже в резюме.</span></div>
+          <div class="hint"><span class="lbl">напомнить</span><span>Не критикуйте прежнего работодателя: одна фраза о причине, дальше о задачах.</span></div>
+          <div class="hint"><span class="lbl">избегать</span><span>Не приписывайте себе опыт, которого нет в резюме.</span></div>
+          <div class="src">источник: модель · live_interview · 1,1 с</div>
+        </div>
+      </div>
+    </div>
+    <div class="slide__foot"><span>Подсказка подписана источником: провайдер, модель, этап</span><div class="nav" data-nav></div></div>
+  </section>
+
+  <!-- 6. Доверие -->
+  <section class="slide" id="s6">
+    <div class="slide__top"><div class="brand">easyjob</div><div class="eyebrow">Доверие и стоимость</div></div>
+    <div class="slide__body">
+      <h2 class="h-lg">Построено так, чтобы <mark>владелец видел расходы</mark>, а пользователь — свои данные</h2>
+      <div class="grid-3">
+        <div class="block"><h3>Открытые модели</h3><p>Продуктовые задачи идут только на модели с открытыми весами через совместимые API. Маршрут «подготовка» и «живое интервью» настраиваются отдельно: дешёвая и быстрая модель там, где важна скорость.</p></div>
+        <div class="block"><h3>Ключи на сервере</h3><p>Браузер и программа для компьютера не знают ключей. Каждый запрос ограничен по размеру: исходный текст резюме никогда не выбрасывается молча, а не помещается — честная ошибка вместо платного вызова.</p></div>
+        <div class="block"><h3>Расход по этапам</h3><p>Каждый вызов модели учтён: задача, этап, токены, стоимость, повторы. Владелец видит сводку за 30 дней в разделе «Расходы AI».</p></div>
+        <div class="block"><h3>Данные пользователя</h3><p>Аккаунт, свои резюме и подготовки, удаление всех данных одной кнопкой. Наружу уходит только то, что нужно задаче, и только с согласия.</p></div>
+        <div class="block"><h3>Проверено</h3><p>Более 600 автоматических проверок: сервер, браузерные сценарии, импорт, голос, hh.ru, программа для компьютера. Ни одна не выходит в сеть.</p></div>
+        <div class="block"><h3>Простой запуск</h3><p>Node 22 и SQLite, один процесс, без внешних сервисов. Распознавание и синтез речи можно поднять рядом на своём сервере.</p></div>
+      </div>
+    </div>
+    <div class="slide__foot"><span>Заглушки помечены как заглушки: пользователь всегда знает, отвечала ли модель</span><div class="nav" data-nav></div></div>
+  </section>
+
+  <!-- 7. Финал -->
+  <section class="slide" id="s7">
+    <div class="slide__top"><div class="brand">easyjob</div><div class="eyebrow">Попробовать</div></div>
+    <div class="slide__body">
+      <div class="cols">
+        <div style="display:grid;gap:22px">
+          <h2 class="h-xl" style="max-width:16ch">Подготовка к <mark>конкретной</mark> вакансии за один вечер</h2>
+          <p class="lead">Quick Start проводит по всем шагам: резюме, вакансия, сопоставление, вопросы, обратная связь, тренировка. Дальше сервис ждёт вас на живом собеседовании.</p>
+          <a class="cta" href="#s1">Начать с первого слайда ↺</a>
+        </div>
+        <div style="display:grid;gap:14px">
+          <div class="eyebrow">Запуск на своём сервере</div>
+          <div class="cmd">npm ci && npx playwright install --with-deps chromium</div>
+          <div class="cmd">cp .env.example .env   # ключ провайдера, маршруты моделей</div>
+          <div class="cmd">npm start              # http://localhost:8080</div>
+          <p class="body" style="font-size:14px">Документация: <span class="mono">docs/quickstart.md</span>, <span class="mono">docs/hh.md</span>, <span class="mono">docs/REAL_TEST_GUIDE.md</span>. Статус: рабочий прототип, живые модели подключаются ключом на сервере.</p>
+        </div>
+      </div>
+    </div>
+    <div class="slide__foot"><span>easyjob · Карьерный помощник</span><div class="nav" data-nav></div></div>
+  </section>
+</main>
+
+<script>
+(function () {
+  var deck = document.getElementById('deck');
+  var slides = Array.prototype.slice.call(deck.querySelectorAll('.slide'));
+  function current() { return Math.round(deck.scrollLeft / deck.clientWidth); }
+  function go(i) {
+    i = Math.max(0, Math.min(slides.length - 1, i));
+    deck.scrollTo({ left: i * deck.clientWidth, behavior: 'smooth' });
+  }
+  function navHtml() {
+    var dots = slides.map(function (_, i) { return '<i data-i="' + i + '"></i>'; }).join('');
+    return '<button type="button" data-dir="-1" aria-label="Предыдущий слайд">←</button>'
+      + '<span class="dots">' + dots + '</span><span class="counter"></span>'
+      + '<button type="button" data-dir="1" aria-label="Следующий слайд">→</button>';
+  }
+  Array.prototype.forEach.call(document.querySelectorAll('[data-nav]'), function (n) { n.innerHTML = navHtml(); });
+  document.addEventListener('click', function (e) {
+    var b = e.target.closest('[data-dir]');
+    if (b) { go(current() + Number(b.getAttribute('data-dir'))); return; }
+    var d = e.target.closest('[data-i]');
+    if (d) go(Number(d.getAttribute('data-i')));
+    var a = e.target.closest('a[href^="#s"]');
+    if (a) { e.preventDefault(); go(Number(a.getAttribute('href').slice(2)) - 1); }
+  });
+  document.addEventListener('keydown', function (e) {
+    if (e.key === 'ArrowRight' || e.key === ' ' || e.key === 'PageDown') { e.preventDefault(); go(current() + 1); }
+    if (e.key === 'ArrowLeft' || e.key === 'PageUp') { e.preventDefault(); go(current() - 1); }
+    if (e.key === 'Home') go(0);
+    if (e.key === 'End') go(slides.length - 1);
+  });
+  function paint() {
+    var i = current();
+    Array.prototype.forEach.call(document.querySelectorAll('.dots'), function (dots) {
+      Array.prototype.forEach.call(dots.children, function (d, k) { d.classList.toggle('on', k === i); });
+    });
+    Array.prototype.forEach.call(document.querySelectorAll('.counter'), function (c) { c.textContent = (i + 1) + ' / ' + slides.length; });
+  }
+  deck.addEventListener('scroll', function () { window.requestAnimationFrame(paint); });
+  window.addEventListener('resize', function () { go(current()); });
+  paint();
+})();
+</script>
