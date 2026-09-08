@@ -7,6 +7,7 @@ const db = require('../lib/db.js');
 const ai = require('../lib/ai.js');
 const Compact = require('../lib/context-compact.js');
 const UrlImport = require('../lib/url-import.js');
+const Hh = require('../lib/adapters/hh.js');
 const SttServer = require('../lib/stt-server.js');
 const TtsServer = require('../lib/tts-server.js');
 const log = require('../lib/log.js');
@@ -193,6 +194,31 @@ function register(r) {
     sendJson(res, 200, { rawText });
   });
 
+  /* Резюме по публичной ссылке hh.ru. Сервер читает страницу без куки
+     пользователя; результат — предпросмотр, который сохраняется только
+     через POST /api/resumes после проверки. Капча и вход не обходятся:
+     тогда ответ { ok:false, code:'blocked' } с советом выгрузить файл. */
+  r.post('/api/resumes/import-url', async function ({ res, body }) {
+    const url = str(body.url, 2048, 'url', true);
+    const signal = require('../lib/request-scope.js').getStore()?.signal;
+    try {
+      const hit = Hh.detect(url);
+      if (!hit || hit.kind !== 'resume') {
+        throw new HttpError(422, hit && hit.kind === 'vacancy'
+          ? 'Это ссылка на вакансию hh.ru. Импортируйте её на экране добавления вакансии.'
+          : 'Поддерживаются только ссылки на резюме hh.ru вида https://hh.ru/resume/…', { ok: false, code: 'unsupported_site' });
+      }
+      const resume = await Hh.resumeByUrl(url, { signal });
+      sendJson(res, 200, { ok: true, resume });
+    } catch (e) {
+      if (e instanceof HttpError && e.extra && e.extra.ok === false) {
+        sendJson(res, 200, { ok: false, code: e.extra.code, error: e.message });
+        return;
+      }
+      throw e;
+    }
+  });
+
   r.post('/api/resumes', function ({ res, body, ctx }) {
     const sid = ctx.session.id;
     const title = str(body.title, 200, 'title', true);
@@ -256,6 +282,41 @@ function register(r) {
     } finally { reviews.delete(key); }
   });
 
+  /* ---- Поиск вакансий на hh.ru ---- */
+
+  /* Поиск через публичный API hh.ru. Запрос по умолчанию собирается из
+     профессии и навыков резюме; результаты ранжируются пересечением слов
+     резюме и вакансии (не модель). Наружу уходит только текст запроса и
+     регион, не резюме. */
+  r.get('/api/jobs/search', async function ({ res, query, ctx }) {
+    const sid = ctx.session.id;
+    const signal = require('../lib/request-scope.js').getStore()?.signal;
+    let resume = null;
+    if (query.get('resumeId')) {
+      resume = db.resumes.get(sid, String(query.get('resumeId')));
+      if (!resume) throw new HttpError(404, 'Резюме не найдено');
+    }
+    const text = str(query.get('text'), 200, 'text') || (resume ? Hh.queryFromResume(resume) : '');
+    if (!text) throw new HttpError(400, 'Введите запрос или выберите резюме с профессией.', { code: 'bad_query' });
+    try {
+      const found = await Hh.search({ text, area: str(query.get('area'), 80, 'area'), page: Number(query.get('page')) || 0 }, { signal });
+      const items = resume ? Hh.rank(resume, found.items) : found.items.map(function (i) { return Object.assign({}, i, { score: null, why: [] }); });
+      sendJson(res, 200, Object.assign({ ok: true }, found, { items, ranked: !!resume, resumeId: resume ? resume.id : null }));
+    } catch (e) {
+      if (e instanceof HttpError && e.extra && e.extra.ok === false) {
+        sendJson(res, 200, { ok: false, code: e.extra.code, error: e.message, query: text });
+        return;
+      }
+      throw e;
+    }
+  });
+
+  r.get('/api/jobs/areas', async function ({ res, query }) {
+    const text = str(query.get('text'), 60, 'text');
+    if (!text) { sendJson(res, 200, { items: [] }); return; }
+    sendJson(res, 200, { items: await Hh.areas(text, { signal: require('../lib/request-scope.js').getStore()?.signal }) });
+  });
+
   /* ---- Вакансии ---- */
 
   /* Получить вакансию по публичной ссылке. Сервер читает страницу сам,
@@ -267,7 +328,19 @@ function register(r) {
     const url = str(body.url, 2048, 'url', true);
     const signal = require('../lib/request-scope.js').getStore()?.signal;
     try {
-      const vacancy = await UrlImport.importUrl(url, { signal });
+      /* Ссылка hh.ru: карточка берётся из публичного API (полный текст и
+         навыки), а не со страницы, которая требует JS и часто отдаёт капчу.
+         Если API недоступен — общий импорт страницы как запасной путь. */
+      const hh = Hh.detect(url);
+      if (hh && hh.kind === 'resume') throw new HttpError(422, 'Это ссылка на резюме hh.ru, а не на вакансию. Импортируйте её на экране загрузки резюме.', { ok: false, code: 'not_job_page' });
+      let vacancy = null;
+      if (hh && hh.kind === 'vacancy') {
+        try { vacancy = await Hh.vacancyById(hh.id, { signal }); } catch (e) {
+          if (e instanceof HttpError && e.extra && e.extra.code === 'cancelled') throw e;
+          log.warn('hh vacancy api failed, falling back to page', { id: hh.id, code: e.extra && e.extra.code });
+        }
+      }
+      if (!vacancy) vacancy = await UrlImport.importUrl(url, { signal });
       sendJson(res, 200, { ok: true, vacancy });
     } catch (e) {
       /* Ожидаемый отказ импорта — не ошибка запроса: { ok:false, code, error }
@@ -290,7 +363,7 @@ function register(r) {
     const origin = {};
     if (body.sourceUrl) {
       origin.sourceUrl = UrlImport.redactUrl(UrlImport.validateUrl(str(body.sourceUrl, 2048, 'sourceUrl')).url);
-      origin.source = ['jsonld', 'meta', 'html', 'text'].indexOf(body.source) >= 0 ? body.source : 'html';
+      origin.source = ['jsonld', 'meta', 'html', 'text', 'hh_api'].indexOf(body.source) >= 0 ? body.source : 'html';
       origin.retrievedAt = Number(body.retrievedAt) || Date.now();
     }
     let vacancy = db.vacancies.create(sid, title, company, rawText, origin);

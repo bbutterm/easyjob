@@ -296,6 +296,63 @@ const VACANCY_TEXT = 'Ищем повара в ресторан полного �
   ok('В настройках есть удаление своих данных с сервера',
     await page.locator('button:has-text("Удалить все мои данные с сервера")').isVisible());
 
+  /* ---- hh.ru: резюме по ссылке, поиск вакансий, перенос в подготовку ---- */
+  const fs = require('node:fs');
+  const path = require('node:path');
+  const hhApiFx = JSON.parse(fs.readFileSync(path.join(__dirname, 'fixtures', 'hh-api.json'), 'utf8'));
+  const hhSeen = [];
+  const hhApi = http.createServer(function (req, res) {
+    hhSeen.push(req.url);
+    const u = new URL(req.url, 'http://x');
+    res.setHeader('content-type', 'application/json');
+    if (u.pathname === '/vacancies/123456') return res.end(JSON.stringify(hhApiFx.vacancy));
+    if (u.pathname === '/vacancies') return res.end(JSON.stringify(hhApiFx.search));
+    if (u.pathname === '/suggests/areas') return res.end(JSON.stringify(hhApiFx.areas));
+    res.statusCode = 404; res.end('{}');
+  });
+  const hhSite = http.createServer(function (req, res) {
+    res.setHeader('content-type', 'text/html; charset=utf-8');
+    if (/^\/resume\/0123456789abcdef0123456789abcdef/.test(req.url)) return res.end(fs.readFileSync(path.join(__dirname, 'fixtures', 'hh-resume.html'), 'utf8'));
+    if (/^\/resume\/cafe/.test(req.url)) return res.end(fs.readFileSync(path.join(__dirname, 'fixtures', 'hh-captcha.html'), 'utf8'));
+    res.statusCode = 404; res.end('<html>404</html>');
+  });
+  await new Promise(function (r) { hhApi.listen(0, '127.0.0.1', r); });
+  await new Promise(function (r) { hhSite.listen(0, '127.0.0.1', r); });
+  process.env.HH_API_BASE = 'http://127.0.0.1:' + hhApi.address().port;
+  process.env.HH_SITE_BASE = 'http://127.0.0.1:' + hhSite.address().port;
+  await page.goto(base + '/#/resume/upload');
+  await page.waitForSelector('#hh-resume-url');
+  await page.fill('#hh-resume-url', 'https://hh.ru/resume/cafecafecafecafecafecafecafecafe');
+  await page.click('button:has-text("Получить резюме")');
+  await page.waitForSelector('#hh-resume-error', { timeout: 15000 });
+  ok('hh: капча показана честно с советом выгрузить файл', /не робот/.test(await page.locator('#hh-resume-error').innerText()) && /PDF/.test(await page.locator('#hh-resume-error').innerText()));
+  await page.fill('#hh-resume-url', 'https://hh.ru/resume/0123456789abcdef0123456789abcdef');
+  await page.click('button:has-text("Получить резюме")');
+  await page.waitForSelector('#hh-resume-preview', { timeout: 15000 });
+  const hhPreview = await page.locator('#hh-resume-preview').innerText();
+  ok('hh: предпросмотр резюме с должностью, опытом и навыками', /Повар горячего цеха/.test(hhPreview) && /Ресторан «Север»/.test(hhPreview) && /ХАССП/.test(hhPreview));
+  const resumesBefore = (await (await fetch(base + '/api/resumes', { headers: { cookie: await cookieHeader(ctx) } })).json()).length;
+  await page.click('button:has-text("Сохранить резюме")');
+  await page.waitForSelector('#jobs-resume', { timeout: 15000 });
+  const resumesAfter = await (await fetch(base + '/api/resumes', { headers: { cookie: await cookieHeader(ctx) } })).json();
+  ok('hh: резюме сохранено на сервере только после подтверждения, с адресом источника', resumesAfter.length === resumesBefore + 1
+    && resumesAfter.some(function (r) { return r.data.sourceUrl === 'https://hh.ru/resume/0123456789abcdef0123456789abcdef' && r.data.profession === 'Повар горячего цеха'; }));
+  ok('hh: после сохранения открыт поиск с выбранным резюме', (await page.inputValue('#jobs-resume')) !== '');
+  await page.waitForSelector('#jobs-results', { timeout: 15000 });
+  const jobsText = await page.locator('#jobs-results').innerText();
+  ok('hh: поиск запущен по резюме, запрос из профессии, повар первым с объяснением',
+    /запрос «Повар горячего цеха/.test(jobsText) && /похожести на резюме/.test(jobsText) && jobsText.indexOf('Повар горячего цеха', jobsText.indexOf('Найдено')) < jobsText.indexOf('Менеджер по продажам') && /совпало:/.test(jobsText), jobsText.slice(0, 300));
+  ok('hh: наружу ушёл только текст запроса', hhSeen.some(function (u) { return /\/vacancies\?text=/.test(u); }) && !hhSeen.some(function (u) { return /Пушкин/.test(decodeURIComponent(u)); }));
+  ok('hh: ссылка на вакансию открывается на hh.ru в новой вкладке', (await page.locator('#jobs-results a[href="https://hh.ru/vacancy/123456"][target="_blank"]').count()) === 1);
+  await page.locator('#jobs-results button:has-text("Создать подготовку")').first().click();
+  await page.waitForSelector('#vac-import-ok', { timeout: 15000 });
+  ok('hh: «Создать подготовку» переносит ссылку и резюме в форму и импортирует через API hh',
+    (await page.inputValue('#vac-url')) === 'https://hh.ru/vacancy/123456' && (await page.inputValue('#vac-title')) === 'Повар горячего цеха'
+    && /Ключевые навыки/.test(await page.inputValue('#vac-text')) && /API hh\.ru/.test(await page.locator('#vac-import-ok').innerText())
+    && (await page.inputValue('#vac-resume')) !== '', await page.locator('#vac-import-ok').innerText());
+  hhApi.close(); hhSite.close();
+  delete process.env.HH_API_BASE; delete process.env.HH_SITE_BASE;
+
   ok('Нет сторонних запросов', external.length === 0, external.join(', '));
   ok('Нет ошибок в консоли', errors.length === 0, errors.join(' | '));
   ok('Страница отдана с политикой безопасности содержимого',

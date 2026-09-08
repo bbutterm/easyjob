@@ -446,6 +446,7 @@ var ScreensCore = (function () {
       + pageHead('Загрузка готового резюме', 'Загрузите документ или вставьте текст для разбора.')
       + note('info', '<div>PDF с текстом, DOCX и TXT — до 2 МБ и 40 000 символов. Для DOC и RTF нужна конвертация. '
         + 'Сканы не распознаются: OCR недоступен. Исходный файл не сохраняется; извлечённый текст сохраняется при запуске разбора.</div>')
+      + hhResumeBlock(state.hhResume || {})
       + '<div class="card">'
       + '  <button type="button" class="dropzone" id="dropzone" data-act="upload:pick"' + (up.busy ? ' disabled' : '') + '>'
       + '    <b>Перетащите файл сюда или нажмите, чтобы выбрать</b>'
@@ -542,6 +543,109 @@ var ScreensCore = (function () {
       + '</div>';
   }
 
+  /* ---------------- Импорт резюме с hh.ru ---------------- */
+
+  function hhResumeBlock(hh) {
+    var p = hh.preview;
+    var d = p ? (p.data || {}) : {};
+    return ''
+      + '<div class="card stack" id="hh-resume">'
+      + '  <h2>Импорт с hh.ru по ссылке</h2>'
+      + UI.field({ id: 'hh-resume-url', label: 'Ссылка на резюме', model: 'hhResume.url', value: hh.url || '',
+          placeholder: 'https://hh.ru/resume/…', disabled: !!hh.busy,
+          hint: Api.live.enabled
+            ? 'Резюме должно быть открыто «всем» в настройках видимости на hh.ru. Сервер читает страницу без ваших куки; проверка «не робот» не обходится.'
+            : 'В автономном макете импорт недоступен.' })
+      + '  <div class="btn-row">'
+      + '    <button type="button" class="btn" data-act="resume:import-hh"' + (hh.busy ? ' disabled' : '') + '>' + (hh.busy ? 'Читаю страницу…' : 'Получить резюме') + '</button>'
+      + (hh.busy ? '<button type="button" class="btn" data-act="resume:import-hh-cancel">Отменить</button>' : '')
+      + '  </div>'
+      + (hh.error ? note('alert', '<div id="hh-resume-error"><strong>Не удалось получить резюме.</strong> ' + esc(hh.error)
+          + ' Можно выгрузить резюме с hh.ru в PDF или DOCX и загрузить файлом ниже.</div>') : '')
+      + (p
+          ? note('info', '<div id="hh-resume-ok"><strong>Получено с hh.ru</strong> · ' + esc(new Date(p.retrievedAt || Date.now()).toLocaleString('ru-RU'))
+              + (p.structured ? '. Проверьте поля: страница разобрана по разметке.' : '. Разметка не распознана: сохранится текст страницы, поля заполните на карточке резюме.') + '</div>')
+            + '<ul class="list" id="hh-resume-preview">'
+            + '<li><b>Должность:</b> ' + esc(d.profession || '—') + '</li>'
+            + (d.summary ? '<li><b>О себе:</b> ' + esc(d.summary.slice(0, 300)) + '</li>' : '')
+            + '<li><b>Опыт:</b> ' + (d.experience && d.experience.length
+                ? '<ul>' + d.experience.map(function (e) { return '<li>' + esc(e.role) + (e.company ? ' — ' + esc(e.company) : '') + (e.period ? ' (' + esc(e.period) + ')' : '') + '</li>'; }).join('') + '</ul>'
+                : 'не найден') + '</li>'
+            + '<li><b>Навыки:</b> ' + esc((d.skills || []).join(', ') || '—') + '</li>'
+            + (d.education && d.education.length ? '<li><b>Образование:</b> ' + esc(d.education.map(function (e) { return e.place + (e.program ? ' — ' + e.program : ''); }).join('; ')) + '</li>' : '')
+            + '</ul>'
+            + '<div class="btn-row">'
+            + '<button type="button" class="btn btn--primary" data-act="resume:import-hh-save">Сохранить резюме</button>'
+            + '<button type="button" class="btn" data-act="resume:import-hh-clear">Отменить</button>'
+            + '</div>'
+          : '')
+      + '</div>';
+  }
+
+  /* ---------------- Поиск вакансий на hh.ru ---------------- */
+
+  function jobs() {
+    var state = Store.get();
+    var j = state.jobs || {};
+    var resumeOptions = [{ value: '', label: 'Без резюме (только по запросу)' }].concat(
+      state.resumes.map(function (r) { return { value: r.id, label: r.title }; }));
+    var res = j.result;
+    var head = pageHead('Поиск вакансий', 'Публичный поиск hh.ru. Запрос собирается из профессии и навыков резюме; наружу уходит только текст запроса и город, не само резюме.');
+    if (!Api.live.enabled) {
+      return head + note('alert', '<div><strong>В автономном макете поиск недоступен.</strong> Макет не ходит в сеть. Запустите сервер и откройте приложение через HTTP.</div>');
+    }
+    var items = res ? (res.items || []) : [];
+    var list = items.map(function (it) {
+      var score = typeof it.score === 'number'
+        ? '<span class="tag ' + (it.score >= 40 ? 'tag--ok' : it.score >= 15 ? 'tag--info' : '') + '" title="Совпадение слов резюме и вакансии, не оценка модели">похожесть ' + it.score + '</span> '
+        : '';
+      return ''
+        + '<li><div class="row-item job-item">'
+        + '  <div class="row-item__main">'
+        + '    <div class="row-item__title">' + score + esc(it.title) + '</div>'
+        + '    <div class="row-item__meta">' + esc(it.company || '—') + (it.area ? ' · ' + esc(it.area) : '') + (it.salary ? ' · ' + esc(it.salary) : '')
+        + (it.experience ? ' · ' + esc(it.experience) : '') + '</div>'
+        + (it.requirement ? '<p class="muted" style="font-size:13.5px;margin:6px 0 0">' + esc(it.requirement) + '</p>' : '')
+        + (it.why && it.why.length ? '<p class="faint" style="font-size:12.5px;margin:4px 0 0">совпало: ' + esc(it.why.join(', ')) + '</p>' : '')
+        + '  </div>'
+        + '  <div class="btn-row">'
+        + '    <button type="button" class="btn btn--sm btn--primary" data-act="jobs:prepare" data-url="' + esc(it.url) + '">Создать подготовку</button>'
+        + '    <a class="btn btn--sm" href="' + esc(it.url) + '" target="_blank" rel="noopener noreferrer">Открыть на hh.ru</a>'
+        + '  </div>'
+        + '</div></li>';
+    }).join('');
+    var pager = res && res.pages > 1
+      ? '<div class="btn-row" style="margin-top:12px">'
+        + (res.page > 0 ? '<button type="button" class="btn btn--sm" data-act="jobs:page" data-page="' + (res.page - 1) + '">Назад</button>' : '')
+        + '<span class="muted">страница ' + (res.page + 1) + ' из ' + res.pages + '</span>'
+        + (res.page + 1 < res.pages ? '<button type="button" class="btn btn--sm" data-act="jobs:page" data-page="' + (res.page + 1) + '">Дальше</button>' : '')
+        + '</div>'
+      : '';
+    return head
+      + '<div class="card stack">'
+      + UI.select({ id: 'jobs-resume', label: 'Резюме для подбора', model: 'jobs.resumeId', value: j.resumeId || '', options: resumeOptions, act: 'jobs:resume',
+          hint: 'С резюме результаты ранжируются по совпадению слов; это подсказка, а не оценка модели.' })
+      + '  <div class="grid-2">'
+      + UI.field({ id: 'jobs-query', label: 'Запрос', model: 'jobs.query', value: j.query || '', placeholder: 'например, повар горячего цеха', disabled: !!j.busy,
+          hint: j.resumeId && !j.query ? 'Пусто — запрос соберётся из профессии и навыков резюме.' : '' })
+      + UI.field({ id: 'jobs-area', label: 'Город или регион', model: 'jobs.area', value: j.area || '', placeholder: 'Санкт-Петербург', disabled: !!j.busy })
+      + '  </div>'
+      + '  <div class="btn-row">'
+      + '    <button type="button" class="btn btn--primary" data-act="jobs:search"' + (j.busy ? ' disabled' : '') + '>' + (j.busy ? 'Ищу…' : 'Найти вакансии') + '</button>'
+      + '  </div>'
+      + (j.busy ? '<p role="status" class="muted">Запрашиваю hh.ru' + (j.elapsed >= 2 ? ' · ' + esc(String(j.elapsed)) + ' с' : '') + '</p>' : '')
+      + (j.error ? note('alert', '<div id="jobs-error"><strong>Поиск не удался.</strong> ' + esc(j.error) + '</div>') : '')
+      + '</div>'
+      + (res
+          ? '<div class="card stack" id="jobs-results">'
+            + '<div class="card__head"><div class="card__title"><h2>Найдено: ' + esc(String(res.found)) + '</h2>'
+            + '<small>запрос «' + esc(res.query || '') + '»' + (res.areaName ? ' · ' + esc(res.areaName) : '') + (res.ranked ? ' · отсортировано по похожести на резюме' : ' · порядок hh.ru') + '</small></div></div>'
+            + (items.length ? '<ul class="list">' + list + '</ul>' + pager
+              : '<p class="muted">Ничего не найдено. Упростите запрос или уберите регион.</p>')
+            + '</div>'
+          : '');
+  }
+
   /* ---------------- Список резюме и карточка ---------------- */
 
   function resumes() {
@@ -565,7 +669,7 @@ var ScreensCore = (function () {
         + '    <div class="row-item__title">' + esc(r.title) + ' '
         + (r.demo ? UI.demoBadge('Демо-данные') : '') + '</div>'
         + '    <div class="row-item__meta">Версия ' + r.rev + ' · изменено ' + esc(r.updatedAt)
-        + ' · ' + (r.source === 'uploaded' ? 'из файла' : 'создано в мастере') + '</div>'
+        + ' · ' + (r.source === 'uploaded' ? 'из файла' : r.source === 'hh' ? 'с hh.ru' : 'создано в мастере') + '</div>'
         + '  </div>'
         + '  <div class="btn-row">'
         + '    <button type="button" class="btn btn--sm" data-act="go:#/resume/' + esc(r.id) + '">Открыть</button>'
@@ -650,7 +754,8 @@ var ScreensCore = (function () {
 
     return ''
       + pageHead('Вакансии и подготовка', 'Каждая подготовка связывает вакансию, версию резюме, сопоставление и вопросы.')
-      + '<div class="btn-row" style="margin-bottom:16px"><a class="btn btn--primary" href="#/vacancy/new">Добавить вакансию</a></div>'
+      + '<div class="btn-row" style="margin-bottom:16px"><a class="btn btn--primary" href="#/vacancy/new">Добавить вакансию</a>'
+      + (Api.live.enabled ? '<a class="btn" href="#/jobs">Найти вакансии на hh.ru</a>' : '') + '</div>'
       + '<ul class="list">' + rows + '</ul>';
   }
 
@@ -665,7 +770,7 @@ var ScreensCore = (function () {
     try { return new URL(url).hostname.replace(/^www\./, ''); } catch (e) { return String(url || ''); }
   }
   function sourceLabel(source) {
-    return { jsonld: 'структурированные данные вакансии', meta: 'заголовок страницы и основной текст', html: 'основной текст страницы', text: 'текстовая страница' }[source] || 'вручную';
+    return { jsonld: 'структурированные данные вакансии', meta: 'заголовок страницы и основной текст', html: 'основной текст страницы', text: 'текстовая страница', hh_api: 'API hh.ru' }[source] || 'вручную';
   }
 
   function vacancyNew() {
@@ -699,7 +804,8 @@ var ScreensCore = (function () {
             + (draft.imported.needsReview ? '. Проверьте заголовок и текст ниже: страница разобрана по разметке, лишние блоки возможны.' : '.')
             + (draft.imported.truncated ? ' Текст обрезан до 40 000 знаков.' : '') + '</div>')
           : '')
-      + '  <div class="btn-row"><button type="button" class="btn" data-act="vacancy:example">Открыть пример вакансии</button></div>'
+      + '  <div class="btn-row"><button type="button" class="btn" data-act="vacancy:example">Открыть пример вакансии</button>'
+      + (Api.live.enabled ? '<a class="btn" href="#/jobs">Найти вакансии на hh.ru</a>' : '') + '</div>'
       + '</div>'
       + '<div class="card stack">'
       + '  <h2>Текст вакансии</h2>'
@@ -805,6 +911,7 @@ var ScreensCore = (function () {
     overview: overview,
     resumeWizard: resumeWizard,
     upload: upload,
+    jobs: jobs,
     resumes: resumes,
     resumeCard: resumeCard,
     vacancies: vacancies,

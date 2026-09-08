@@ -127,11 +127,11 @@ var Api = (function () {
     var data = r.data || {};
     return {
       id: r.id, serverId: r.id, title: r.title, rev: r.rev, updatedAt: label(r.updatedAt),
-      source: data.rawText ? 'uploaded' : 'created', demo: false,
+      source: data.sourceUrl ? 'hh' : data.rawText ? 'uploaded' : 'created', demo: false,
       profession: data.profession || '', wishes: data.wishes || '', summary: data.summary || '',
       experience: data.experience || [], skills: data.skills || [],
       achievements: data.achievements || [], education: data.education || [],
-      rawText: data.rawText || '', review: r.review || null
+      rawText: data.rawText || '', sourceUrl: data.sourceUrl || '', review: r.review || null
     };
   }
 
@@ -142,7 +142,7 @@ var Api = (function () {
         profession: resume.profession || '', wishes: resume.wishes || '', summary: resume.summary || '',
         experience: resume.experience || [], skills: resume.skills || [],
         achievements: resume.achievements || [], education: resume.education || [],
-        rawText: resume.rawText || undefined
+        rawText: resume.rawText || undefined, sourceUrl: resume.sourceUrl || undefined
       }
     };
   }

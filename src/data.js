@@ -221,7 +221,7 @@ var DemoSet = (function () {
         'Добавление вакансии и сопоставление',
         'Вопросы для подготовки'
       ],
-      sections: ['overview', 'resumes', 'vacancies', 'plans', 'history', 'settings']
+      sections: ['overview', 'resumes', 'vacancies', 'jobs', 'plans', 'history', 'settings']
     },
     {
       id: 'training',
@@ -234,7 +234,7 @@ var DemoSet = (function () {
         'Голосовое пробное интервью',
         'Итоги тренировок в истории'
       ],
-      sections: ['overview', 'resumes', 'vacancies', 'interviews', 'plans', 'history', 'settings']
+      sections: ['overview', 'resumes', 'vacancies', 'jobs', 'interviews', 'plans', 'history', 'settings']
     },
     {
       id: 'assistant',
@@ -246,7 +246,7 @@ var DemoSet = (function () {
         'Помощник на собеседовании (отдельная программа для компьютера)',
         'Подсказки во время согласованного интервью'
       ],
-      sections: ['overview', 'resumes', 'vacancies', 'interviews', 'assistant', 'plans', 'history', 'settings']
+      sections: ['overview', 'resumes', 'vacancies', 'jobs', 'interviews', 'assistant', 'plans', 'history', 'settings']
     }
   ];
 

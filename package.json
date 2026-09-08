@@ -8,11 +8,11 @@
     "replay": "node --no-warnings tools/context-replay.js",
     "smoke": "node --no-warnings tools/smoke-provider.js",
     "docs": "node tools/gen-ai-docs.js",
-    "test": "npm run test:quickstart && npm run test:usage && npm run test:stt && npm run test:shared && npm run test:context && npm run test:import && npm run test:voice && npm run test:auth && npm run test:server && npm run test:web && npm run test:live",
+    "test": "npm run test:quickstart && npm run test:usage && npm run test:stt && npm run test:shared && npm run test:context && npm run test:import && npm run test:voice && npm run test:hh && npm run test:auth && npm run test:server && npm run test:web && npm run test:live",
     "test:shared": "node tests/shared.test.js && node tests/routing.test.js",
     "test:web": "node build.js && node tests/check.js",
     "test:desktop": "node tests/desktop.test.js",
-    "test:all": "npm run test:resume && npm run test:quickstart && npm run test:quickstart:browser && npm run test:resume:browser && npm run test:usage && npm run test:stt && npm run test:stt:browser && npm run test:shared && npm run test:context && npm run test:import && npm run test:auth && npm run test:server && npm run test:web && npm run test:live && npm run test:desktop",
+    "test:all": "npm run test:resume && npm run test:quickstart && npm run test:quickstart:browser && npm run test:resume:browser && npm run test:usage && npm run test:stt && npm run test:stt:browser && npm run test:shared && npm run test:context && npm run test:import && npm run test:voice && npm run test:hh && npm run test:auth && npm run test:server && npm run test:web && npm run test:live && npm run test:desktop",
     "screenshots": "SCREENSHOTS=1 node tests/check.js && SCREENSHOTS=1 node tests/desktop.test.js",
     "start": "node server/index.js",
     "test:resume": "node --no-warnings tests/resume-reliability.test.js && node tests/resume-ingestion.test.js",
@@ -28,6 +28,7 @@
     "test:context": "node tests/context.test.js",
     "test:import": "node --no-warnings tests/url-import.test.js",
     "test:voice": "node --no-warnings tests/live-voice.test.js",
+    "test:hh": "node --no-warnings tests/hh.test.js",
     "bench:live": "node tools/live-bench.js"
   },
   "engines": {

@@ -56,6 +56,9 @@ ingestion, usage/admin) без частей управления контекс�
 | Маршрут | Назначение |
 | --- | --- |
 | `POST /api/vacancies/import-url` | предпросмотр вакансии по ссылке; `{ ok:false, code, error }` при отказе |
+| `POST /api/vacancies/import-url` (hh-ссылка) | карточка из публичного API hh.ru, источник `hh_api`; при сбое API — общий импорт страницы (`docs/hh.md`) |
+| `POST /api/resumes/import-url` | предпросмотр резюме по публичной ссылке hh.ru; капча/403 → `{ ok:false, code:'blocked' }` |
+| `GET /api/jobs/search`, `GET /api/jobs/areas` | поиск вакансий hh.ru по запросу или резюме (`resumeId`), ранжирование по совпадению слов, подсказка регионов |
 | `GET/PUT/DELETE /api/vacancies/:id` | чтение, правка (rev+1, требования заново), удаление (409, если в подготовке) |
 | `POST /api/vacancies` | принимает `sourceUrl`, `source`, `retrievedAt` |
 | `POST /api/preps/:id/feedback` | обратная связь на один ответ; хранится по `questionId` с отпечатком ответа |

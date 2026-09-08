@@ -109,6 +109,8 @@ var Store = (function () {
       builder: emptyBuilder(),
       upload: { fileName: '', analysisShown: false, decisions: {} },
       vacancyDraft: { title: '', company: '', text: '', resumeId: '', url: '', imported: null, importError: '', importBusy: false, importElapsed: 0 },
+      hhResume: { url: '', busy: false, error: '', preview: null },
+      jobs: { query: '', area: '', resumeId: '', page: 0, busy: false, error: '', result: null, elapsed: 0 },
       voiceUi: { state: 'idle', stats: null, mock: false, error: '' },
       assistant: { status: 'disconnected', prepId: filled ? 'prep-1' : null, hintIndex: 0, hintsOpen: false,
         screenText: '', question: '', consent: false, busy: '', error: '', hint: null, hints: [] },

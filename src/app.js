@@ -17,6 +17,7 @@
     { section: 'overview', href: '#/overview', label: 'Обзор' },
     { section: 'resumes', href: '#/resumes', label: 'Мои резюме' },
     { section: 'vacancies', href: '#/vacancies', label: 'Вакансии и подготовка' },
+    { section: 'jobs', href: '#/jobs', label: 'Поиск вакансий' },
     { section: 'interviews', href: '#/interviews', label: 'Тренировочные интервью' },
     { section: 'assistant', href: '#/assistant', label: 'Помощник на собеседовании' },
     { section: 'plans', href: '#/plans', label: 'Тарифы и лимиты' },
@@ -52,7 +53,7 @@
   }
 
   var KNOWN = ['start', 'auth', 'onboarding', 'overview', 'resumes', 'resume', 'vacancies',
-    'vacancy', 'prep', 'interviews', 'assistant', 'plans', 'history', 'settings', 'privacy', 'admin', 'quickstart'];
+    'vacancy', 'jobs', 'prep', 'interviews', 'assistant', 'plans', 'history', 'settings', 'privacy', 'admin', 'quickstart'];
 
   /* ---------------- Отрисовка ---------------- */
 
@@ -125,6 +126,7 @@
         return ScreensCore.resumeCard(parts[1]);
       case 'vacancies': return ScreensCore.vacancies();
       case 'vacancy': return ScreensCore.vacancyNew();
+      case 'jobs': return ScreensCore.jobs();
       case 'prep': {
         var prepId = parts[1];
         var view = parts[2] || 'match';
@@ -364,6 +366,10 @@
     }
     UI.reveal(root, entering);
     lastRenderRoute = routeKey;
+    /* Экран поиска с выбранным резюме и без результатов: запрос уходит сам. */
+    if (entering && route.name === 'jobs' && Api.live.enabled && state.jobs.resumeId && !state.jobs.result && !state.jobs.busy && !state.jobs.error) {
+      liveJobsSearch(0);
+    }
 
     if (state.modal) UI.trapFocus(root);
     if (focusId && !state.modal) {
@@ -624,6 +630,92 @@
       if (importOperation === op) importOperation = null;
       Store.update(function (s) { s.vacancyDraft.importBusy = false; });
     }
+  }
+
+  /* Резюме по ссылке hh.ru: сервер читает публичную страницу, показывает
+     предпросмотр; сохраняется только после подтверждения. Капча и вход не
+     обходятся — при отказе совет выгрузить файл. */
+  var hhResumeOperation = null;
+  async function liveImportHhResume() {
+    var url = String(Store.get().hhResume.url || '').trim();
+    if (!url) { UI.toast('Вставьте ссылку на резюме hh.ru.'); return; }
+    if (hhResumeOperation) return;
+    var op = new AbortController(); hhResumeOperation = op;
+    Store.update(function (s) { s.hhResume.busy = true; s.hhResume.error = ''; s.hhResume.preview = null; });
+    try {
+      var data = await Api.request('POST', '/api/resumes/import-url', { url: url }, { signal: op.signal, timeoutMs: 20000 });
+      if (data.ok === false) throw new Api.ApiError(422, data.error || 'Не удалось получить резюме.', { code: data.code });
+      Store.update(function (s) { s.hhResume.preview = data.resume; });
+      UI.toast('Резюме получено: проверьте поля и сохраните.');
+    } catch (e) {
+      Store.update(function (s) { s.hhResume.error = e.message; });
+    } finally {
+      if (hhResumeOperation === op) hhResumeOperation = null;
+      Store.update(function (s) { s.hhResume.busy = false; });
+    }
+  }
+  async function liveSaveHhResume() {
+    var preview = Store.get().hhResume.preview;
+    if (!preview) return;
+    var op = beginOperation('Сохраняю резюме…');
+    if (!op) return;
+    try {
+      var created = await Api.request('POST', '/api/resumes', { title: preview.title, data: Object.assign({}, preview.data, { sourceUrl: preview.sourceUrl }) }, op);
+      var resume = Api.resumeFromServer(created);
+      Store.update(function (s) {
+        s.resumes.unshift(resume);
+        s.vacancyDraft.resumeId = resume.id;
+        s.jobs.resumeId = resume.id;
+        s.hhResume = { url: '', busy: false, error: '', preview: null };
+        s.pending = null;
+        Store.addHistory('Резюме импортировано с hh.ru', '#/resume/' + resume.id, null);
+      });
+      UI.toast('Резюме сохранено. Теперь можно найти подходящие вакансии.');
+      go('#/jobs');
+    } catch (e) { liveFail(e); } finally { endOperation(); }
+  }
+
+  /* Поиск вакансий на hh.ru: запрос по умолчанию собирается на сервере из
+     резюме; наружу уходит только текст запроса и регион. */
+  var jobsOperation = null;
+  async function liveJobsSearch(page) {
+    var j = Store.get().jobs;
+    if (!Api.live.enabled) { UI.toast('Поиск работает только с сервером.'); return; }
+    if (jobsOperation) jobsOperation.abort();
+    var op = new AbortController(); jobsOperation = op;
+    var started = Date.now();
+    Store.update(function (s) { s.jobs.busy = true; s.jobs.error = ''; s.jobs.elapsed = 0; s.jobs.page = page || 0; });
+    var ticker = setInterval(function () { Store.update(function (s) { s.jobs.elapsed = Math.floor((Date.now() - started) / 1000); }); }, 1000);
+    try {
+      var qs = [];
+      if (j.query) qs.push('text=' + encodeURIComponent(j.query));
+      if (j.area) qs.push('area=' + encodeURIComponent(j.area));
+      if (j.resumeId) {
+        var r = Store.resumeById(j.resumeId);
+        if (r && r.serverId) qs.push('resumeId=' + encodeURIComponent(r.serverId));
+      }
+      qs.push('page=' + (page || 0));
+      var data = await Api.request('GET', '/api/jobs/search?' + qs.join('&'), undefined, { signal: op.signal, timeoutMs: 20000 });
+      if (data.ok === false) throw new Api.ApiError(422, data.error || 'Поиск не удался.', { code: data.code });
+      Store.update(function (s) { s.jobs.result = data; if (!s.jobs.query) s.jobs.query = data.query || ''; });
+    } catch (e) {
+      if (op.signal.aborted) return;
+      Store.update(function (s) { s.jobs.error = e.message; });
+    } finally {
+      clearInterval(ticker);
+      if (jobsOperation === op) { jobsOperation = null; Store.update(function (s) { s.jobs.busy = false; }); }
+    }
+  }
+  /* Из результата поиска — сразу в форму вакансии: ссылка и резюме
+     подставлены, импорт запускается без лишних действий. */
+  function jobsPrepare(url) {
+    var j = Store.get().jobs;
+    Store.update(function (s) {
+      s.vacancyDraft = { title: '', company: '', text: '', resumeId: j.resumeId || s.vacancyDraft.resumeId || '', url: url,
+        imported: null, importError: '', importBusy: false, importElapsed: 0 };
+    });
+    go('#/vacancy/new');
+    liveImportVacancy();
   }
 
   async function liveRebuild(prep) {
@@ -1760,6 +1852,32 @@
           body: '<p>Макет не создаёт PDF и не скачивает файлы. В готовом продукте здесь была бы выгрузка резюме.</p>'
         });
         return;
+      case 'resume:import-hh':
+        if (!Api.live.enabled) { dispatch('stub:import', {}); return; }
+        liveImportHhResume();
+        return;
+      case 'resume:import-hh-cancel':
+        if (hhResumeOperation) hhResumeOperation.abort();
+        return;
+      case 'resume:import-hh-save':
+        liveSaveHhResume();
+        return;
+      case 'resume:import-hh-clear':
+        Store.update(function (s) { s.hhResume = { url: '', busy: false, error: '', preview: null }; });
+        return;
+      case 'jobs:search':
+        liveJobsSearch(0);
+        return;
+      case 'jobs:page':
+        liveJobsSearch(Number(data.page) || 0);
+        return;
+      case 'jobs:resume':
+        Store.update(function (s) { s.jobs.query = ''; s.jobs.result = null; });
+        liveJobsSearch(0);
+        return;
+      case 'jobs:prepare':
+        jobsPrepare(String(data.url || ''));
+        return;
       case 'vacancy:import':
         if (!Api.live.enabled) { dispatch('stub:import', {}); return; }
         liveImportVacancy();
@@ -1858,7 +1976,9 @@
       step: element.getAttribute('data-step'),
       plan: element.getAttribute('data-plan'),
       prep: element.getAttribute('data-prep'),
-      status: element.getAttribute('data-status')
+      status: element.getAttribute('data-status'),
+      url: element.getAttribute('data-url'),
+      page: element.getAttribute('data-page')
     }, element);
   });
 
