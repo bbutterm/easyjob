@@ -1,3 +1,8 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Easyjob</title>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Unbounded:wght@500;700&family=Golos+Text:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap">
 <style>
@@ -85,14 +90,16 @@
     flex: 0 0 100vw;
     height: 100vh;
     scroll-snap-align: start;
-    display: grid;
-    grid-template-rows: auto 1fr auto;
+    display: flex;
+    flex-direction: column;
     padding: clamp(20px, 4vh, 44px) clamp(20px, 6vw, 96px);
     gap: clamp(14px, 3vh, 28px);
-    overflow: hidden;
+    overflow-x: hidden;
+    overflow-y: auto;
   }
   .slide__top { display: flex; justify-content: space-between; align-items: baseline; gap: 16px; }
-  .slide__body { min-height: 0; display: grid; align-content: center; gap: clamp(16px, 3vh, 32px); }
+  .slide__body { margin: auto 0; display: grid; gap: clamp(16px, 3vh, 32px); }
+  .slide__top, .slide__foot { flex: 0 0 auto; }
   .slide__foot { display: flex; justify-content: space-between; align-items: center; color: var(--ink-3); font-size: 13px; gap: 16px; }
   .brand { font-family: "Unbounded"; font-weight: 700; font-size: 15px; letter-spacing: -.01em; }
   .brand small { font-family: "Golos Text"; font-weight: 400; color: var(--ink-3); margin-left: 10px; font-size: 13px; }
@@ -103,8 +110,8 @@
   .lead b, .body b { color: var(--ink); font-weight: 600; }
   .body { color: var(--ink-2); max-width: 60ch; }
 
-  .cols { display: grid; grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr); gap: clamp(24px, 4vw, 64px); align-items: center; min-height: 0; }
-  @media (max-width: 860px) { .cols { grid-template-columns: 1fr; } .cols > .panel { display: none; } }
+  .cols { display: grid; grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr); gap: clamp(24px, 4vw, 64px); align-items: center; }
+  @media (max-width: 860px) { .cols { grid-template-columns: 1fr; } }
 
   .facts { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 0; border-top: 1px solid var(--line); }
   .fact { padding: 18px 20px 0 0; border-right: 1px solid var(--line); margin-right: 20px; }
@@ -169,14 +176,15 @@
   .dots i.on { background: var(--teal); }
   .counter { font-family: "JetBrains Mono"; font-size: 12px; color: var(--ink-3); font-variant-numeric: tabular-nums; }
 
-  @media (max-height: 640px) { .slide { gap: 10px; } .h-xl { font-size: 30px; } .lead { font-size: 16px; } }
+  @media (max-height: 760px) { .slide { gap: 12px; } .h-xl { font-size: clamp(28px, 4.2vw, 48px); } .h-lg { font-size: clamp(22px, 2.8vw, 32px); } .lead { font-size: 16px; } .fact .n { font-size: 22px; } .list { gap: 10px; } }
   @media print {
     .deck { display: block; height: auto; overflow: visible; }
     .slide { height: auto; min-height: 90vh; page-break-after: always; }
     .nav { display: none; }
   }
 </style>
-
+</head>
+<body>
 <main class="deck" id="deck" aria-label="Презентация Easyjob">
 
   <!-- 1. Обложка -->
@@ -387,3 +395,5 @@
   paint();
 })();
 </script>
+</body>
+</html>
