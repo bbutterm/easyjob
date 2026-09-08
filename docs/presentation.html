@@ -11,190 +11,178 @@
     --accent: #35704f; --accent-hover: #2b5c41; --accent-soft: #e7f0ea; --accent-border: #a9c8b6;
     --warn: #7a5c12; --warn-soft: #fbf3df; --warn-border: #e2cf9d;
     --danger: #9b3b32; --danger-soft: #fbeceb; --danger-border: #e6c0bc;
-    --info: #2f5673; --info-soft: #e9f0f5; --info-border: #b6cbdb;
     --radius: 7px; --radius-lg: 11px;
     --shadow-1: 0 1px 2px rgba(24, 34, 29, .06);
     --font-ui: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
     color-scheme: light;
   }
   * { box-sizing: border-box; }
-  body { margin: 0; background: var(--bg); color: var(--text); font-family: var(--font-ui); font-size: 15px; line-height: 1.5; -webkit-text-size-adjust: 100%; }
-  h1, h2, h3 { margin: 0; font-weight: 620; line-height: 1.25; letter-spacing: -.01em; text-wrap: balance; }
-  h1 { font-size: 28px; } h2 { font-size: 19px; } h3 { font-size: 13px; text-transform: uppercase; letter-spacing: .04em; color: var(--text-faint); font-weight: 600; }
+  body { margin: 0; background: var(--bg); color: var(--text); font-family: var(--font-ui); font-size: 16px; line-height: 1.55; -webkit-text-size-adjust: 100%; }
+  h1, h2 { margin: 0; font-weight: 640; line-height: 1.2; letter-spacing: -.015em; text-wrap: balance; }
+  h1 { font-size: 36px; } h2 { font-size: 24px; }
   p { margin: 0; }
   .muted { color: var(--text-muted); } .faint { color: var(--text-faint); }
   a { color: var(--accent); }
 
   .top { position: sticky; top: 0; z-index: 2; background: var(--surface); border-bottom: 1px solid var(--border); }
-  .top__in { max-width: 860px; margin: 0 auto; padding: 12px 20px; display: flex; align-items: center; justify-content: space-between; gap: 16px; }
+  .top__in { max-width: 820px; margin: 0 auto; padding: 12px 20px; display: flex; align-items: center; justify-content: space-between; gap: 16px; }
   .wordmark { font-weight: 700; letter-spacing: -.02em; font-size: 16px; }
   .wordmark small { font-weight: 400; color: var(--text-muted); margin-left: 8px; font-size: 13px; }
-  .top .faint { font-size: 13px; }
+  .top .btn { min-height: 36px; padding: 0 14px; font-size: 14px; }
 
-  .page { max-width: 860px; margin: 0 auto; padding: 32px 20px 64px; display: grid; gap: 28px; }
-  .intro { display: grid; gap: 10px; }
-  .intro p { color: var(--text-muted); max-width: 64ch; font-size: 16px; }
+  .page { max-width: 820px; margin: 0 auto; padding: 40px 20px 72px; display: grid; gap: 56px; }
 
-  /* Шаги по порядку */
-  .steps { display: grid; gap: 0; counter-reset: step; }
-  .step { display: grid; grid-template-columns: 40px 1fr; gap: 16px; padding-bottom: 28px; position: relative; }
-  .step::before { counter-increment: step; content: counter(step); width: 40px; height: 40px; border-radius: 50%; background: var(--accent); color: #fff; font-weight: 700; font-size: 16px; display: flex; align-items: center; justify-content: center; z-index: 1; }
-  .step::after { content: ""; position: absolute; left: 19px; top: 40px; bottom: 0; width: 2px; background: var(--accent-border); }
-  .step:last-child::after { display: none; }
-  .step__card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-lg); box-shadow: var(--shadow-1); padding: 18px 22px; display: grid; gap: 14px; }
-  .step__title { display: grid; gap: 4px; }
-  .step__title h2 { margin: 0; }
-  .step__title p { color: var(--text-muted); font-size: 14px; }
-  .cols { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; }
-  .col { display: grid; gap: 6px; align-content: start; font-size: 14px; }
-  .col p { color: var(--text-muted); }
-  .col--out { background: var(--accent-soft); border: 1px solid var(--accent-border); border-radius: var(--radius); padding: 10px 12px; }
-  .col--out h3 { color: var(--accent); }
-  .col--out p { color: var(--text); }
-  @media (max-width: 700px) { .cols { grid-template-columns: 1fr; } .step { grid-template-columns: 32px 1fr; gap: 12px; } .step::before { width: 32px; height: 32px; font-size: 14px; } .step::after { left: 15px; top: 32px; } }
+  .hero { display: grid; gap: 18px; }
+  .hero .lead { font-size: 19px; color: var(--text-muted); max-width: 60ch; }
+  .hero .pain { font-size: 15px; color: var(--text-faint); max-width: 60ch; border-left: 3px solid var(--border-strong); padding-left: 12px; }
+  .btn { display: inline-flex; align-items: center; justify-content: center; min-height: 44px; padding: 0 20px; border-radius: var(--radius); border: 1px solid var(--border-strong); background: var(--surface); color: var(--text); font: inherit; font-weight: 560; text-decoration: none; }
+  .btn--primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+  .btn--primary:hover { background: var(--accent-hover); }
+  .btn-row { display: flex; gap: 10px; flex-wrap: wrap; }
 
-  /* Макеты экрана внутри шага */
-  .demo { border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface-2); padding: 12px 14px; font-size: 13.5px; display: grid; gap: 8px; }
-  .demo__head { display: flex; justify-content: space-between; gap: 10px; font-size: 12px; color: var(--text-faint); }
-  .row { display: grid; grid-template-columns: 72px 1fr; gap: 10px; align-items: start; }
-  .row .e { color: var(--text-muted); font-size: 12.5px; }
-  .tag { display: inline-block; padding: 1px 8px; border: 1px solid var(--border-strong); border-radius: var(--radius); background: var(--surface); font-size: 12px; font-weight: 560; white-space: nowrap; text-align: center; }
+  /* Моменты истории */
+  .moment { display: grid; gap: 14px; }
+  .when { font-size: 13px; font-weight: 600; color: var(--accent); letter-spacing: .04em; text-transform: uppercase; }
+  .moment .story { color: var(--text-muted); max-width: 62ch; }
+  .moment .story b { color: var(--text); font-weight: 600; }
+  .proof { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-lg); box-shadow: var(--shadow-1); padding: 16px 20px; display: grid; gap: 10px; font-size: 14px; max-width: 640px; }
+  .proof__head { display: flex; justify-content: space-between; gap: 10px; font-size: 12.5px; color: var(--text-faint); border-bottom: 1px solid var(--border); padding-bottom: 8px; }
+  .proof__head b { color: var(--text); font-weight: 600; }
+  .row { display: grid; grid-template-columns: 76px 1fr; gap: 10px; align-items: start; }
+  .row .e { color: var(--text-muted); font-size: 13px; }
+  .tag { display: inline-block; padding: 1px 8px; border: 1px solid var(--border-strong); border-radius: var(--radius); background: var(--surface-2); font-size: 12px; font-weight: 560; white-space: nowrap; text-align: center; }
   .tag--ok { background: var(--accent-soft); border-color: var(--accent-border); color: var(--accent); }
   .tag--demo { background: var(--warn-soft); border-color: var(--warn-border); color: var(--warn); }
   .tag--alert { background: var(--danger-soft); border-color: var(--danger-border); color: var(--danger); }
-  .bubble { padding: 7px 11px; border-radius: 10px; max-width: 92%; background: var(--surface); border: 1px solid var(--border); }
-  .bubble--me { background: var(--accent); border-color: var(--accent); color: #fff; justify-self: end; }
-  .hint { padding: 6px 10px; border-left: 3px solid var(--accent); background: var(--surface); border-radius: 0 var(--radius) var(--radius) 0; }
+  .bubble { padding: 8px 12px; border-radius: 10px; max-width: 92%; background: var(--surface-2); }
+  .bubble--me { background: var(--accent); color: #fff; justify-self: end; }
+  .hint { padding: 8px 12px; border-left: 3px solid var(--accent); background: var(--surface-2); border-radius: 0 var(--radius) var(--radius) 0; }
   .hint b { display: block; font-size: 11.5px; color: var(--text-faint); font-weight: 600; text-transform: uppercase; letter-spacing: .04em; }
-  .field { background: var(--surface); border: 1px solid var(--border-strong); border-radius: var(--radius); padding: 6px 10px; color: var(--text-muted); font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 12.5px; overflow-x: auto; white-space: nowrap; }
+  .field { background: var(--surface-2); border: 1px solid var(--border-strong); border-radius: var(--radius); padding: 7px 10px; font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 12.5px; color: var(--text-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .why { font-size: 14px; color: var(--text-muted); max-width: 62ch; }
+  .why b { color: var(--accent); font-weight: 600; }
 
-  .trust { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-lg); padding: 18px 22px; display: grid; gap: 12px; }
-  .trust ul { margin: 0; padding-left: 18px; color: var(--text-muted); font-size: 14px; display: grid; gap: 4px; }
-  .trust li b { color: var(--text); font-weight: 600; }
+  .contrast { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+  .contrast > div { border-radius: var(--radius-lg); padding: 18px 20px; display: grid; gap: 8px; font-size: 15px; }
+  .contrast .before { background: var(--surface-2); border: 1px solid var(--border); color: var(--text-muted); }
+  .contrast .after { background: var(--accent-soft); border: 1px solid var(--accent-border); }
+  .contrast h2 { font-size: 16px; }
+  .contrast ul { margin: 0; padding-left: 18px; display: grid; gap: 4px; }
+  @media (max-width: 640px) { .contrast { grid-template-columns: 1fr; } h1 { font-size: 30px; } h2 { font-size: 21px; } }
+
+  .trust { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
+  .trust div { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 12px 14px; font-size: 14px; color: var(--text-muted); }
+  .trust b { display: block; color: var(--text); font-weight: 600; margin-bottom: 2px; }
+  @media (max-width: 640px) { .trust { grid-template-columns: 1fr; } }
+
+  .cta { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-lg); padding: 24px; display: grid; gap: 12px; }
+  .cta p { color: var(--text-muted); max-width: 60ch; }
   footer { color: var(--text-faint); font-size: 13px; border-top: 1px solid var(--border); padding-top: 16px; }
-  code { font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 13px; background: var(--surface-2); padding: 2px 6px; border-radius: 4px; }
 </style>
 </head>
 <body>
 
 <header class="top"><div class="top__in">
   <div class="wordmark">easyjob<small>Карьерный помощник</small></div>
-  <span class="faint">7 шагов от резюме до собеседования</span>
+  <a class="btn btn--primary" href="#try">Попробовать</a>
 </div></header>
 
 <main class="page">
 
-  <div class="intro">
-    <h1>Что сервис делает за вас на каждом шаге поиска работы</h1>
-    <p>Вы идёте по порядку: резюме, вакансия, сопоставление, вопросы, тренировка, собеседование. На каждом шаге понятно, что вы делаете сами, чем помогает сервис и что получаете на выходе. Любая профессия: повар, водитель, бухгалтер, разработчик.</p>
-  </div>
+  <section class="hero">
+    <h1>Собеседование в понедельник. К нему можно быть готовым уже сегодня вечером.</h1>
+    <p class="lead">Easyjob берёт вашу вакансию и ваше резюме и делает из них подготовку: показывает, где вы сильны и где провал, собирает вопросы, репетирует с вами голосом и тихо подсказывает на самом собеседовании.</p>
+    <p class="pain">Как обычно бывает: гуглите «вопросы на собеседовании повара», зубрите чужие ответы, а на встрече забываете половину и не можете вспомнить свой же лучший пример.</p>
+    <div class="btn-row"><a class="btn btn--primary" href="#try">Попробовать</a><a class="btn" href="#story">Как это выглядит</a></div>
+  </section>
 
-  <div class="steps">
+  <section class="moment" id="story">
+    <div class="when">Пятница, 19:40</div>
+    <h2>Вакансия из ссылки. Резюме из ссылки. Пять секунд, и всё уже в работе.</h2>
+    <p class="story">Марина, повар горячего цеха, увидела вакансию в ресторане «Север». Вместо того чтобы копировать текст по кускам, она <b>вставила ссылку с hh.ru</b>. Сервер сам открыл страницу и достал название, компанию, зарплату, описание и ключевые навыки. Резюме подтянулось так же, по ссылке на её страницу.</p>
+    <div class="proof">
+      <div class="proof__head"><b>Добавление вакансии</b><span>получено со страницы hh.ru · по разметке</span></div>
+      <div class="field">https://spb.hh.ru/vacancy/123456</div>
+      <div class="row"><span class="tag tag--ok">готово</span><div>Повар горячего цеха · Ресторан «Север»<div class="e">Санкт-Петербург · от 90 000 ₽ · сменный график · ключевые навыки: горячий цех, технологические карты</div></div></div>
+    </div>
+    <p class="why"><b>Зачем это вам.</b> Ноль ручной работы на старте. А если вакансии ещё нет, поиск сам подберёт похожие на ваше резюме и объяснит, что совпало.</p>
+  </section>
 
-    <div class="step"><div class="step__card">
-      <div class="step__title"><h2>Загрузите резюме</h2><p>Файл, текст, мастер по шагам или ссылка на резюме hh.ru</p></div>
-      <div class="cols">
-        <div class="col"><h3>Вы делаете</h3><p>Перетаскиваете PDF, DOCX или TXT, вставляете текст, отвечаете на вопросы мастера или вставляете ссылку на открытое резюме hh.ru.</p></div>
-        <div class="col"><h3>Сервис делает</h3><p>Читает файл или страницу, раскладывает по полям: должность, опыт с компаниями и периодами, навыки, образование. Разбирает резюме: сильные стороны, расплывчатые формулировки, чего не хватает.</p></div>
-        <div class="col col--out"><h3>Вы получаете</h3><p>Резюме в структурированном виде и список правок с цитатами. Ничего не додумано: модель предлагает формулировки, а факты добавляете только вы.</p></div>
-      </div>
-      <div class="demo">
-        <div class="demo__head"><span>Разбор резюме</span><span>источник: модель · pre_interview</span></div>
-        <div class="row"><span class="tag tag--demo">неясно</span><div>«Выполнял рабочие задачи»<div class="e">Опишите задачу, свою роль и результат: что именно готовили, на сколько посадочных мест</div></div></div>
-        <div class="row"><span class="tag tag--alert">нет</span><div>Масштаб работы<div class="e">Нет цифр: число блюд в смену, размер бригады, стаж на каждом месте</div></div></div>
-      </div>
-    </div></div>
+  <section class="moment">
+    <div class="when">Пятница, 19:42</div>
+    <h2>Вы сразу видите, где вы сильны, а где провалитесь на первом вопросе.</h2>
+    <p class="story">Через минуту Марина смотрит не на «соответствие 78%», а на честную таблицу. Опыт на горячем цехе подтверждён её же словами из резюме. Технологические карты упомянуты, но без деталей: <b>это спросят, и нужен пример</b>. Медицинской книжки в резюме нет вообще.</p>
+    <div class="proof">
+      <div class="proof__head"><b>Сопоставление резюме с вакансией</b><span>по каждому требованию, с цитатой</span></div>
+      <div class="row"><span class="tag tag--ok">есть</span><div>Опыт на горячем цехе от 2 лет<div class="e">В резюме: «Вёл горячий цех, заготовки, соусы» · 4 года 4 месяца</div></div></div>
+      <div class="row"><span class="tag tag--demo">неясно</span><div>Работа по технологическим картам<div class="e">Упомянуто без деталей: подготовьте один конкретный пример</div></div></div>
+      <div class="row"><span class="tag tag--alert">нет</span><div>Действующая медицинская книжка<div class="e">В резюме не найдено. Формальное требование: проверьте до понедельника</div></div></div>
+    </div>
+    <p class="why"><b>Зачем это вам.</b> Вы готовитесь не ко всему подряд, а к трём вещам, которые решат исход. Общий процент мы не показываем принципиально: он успокаивает и врёт.</p>
+  </section>
 
-    <div class="step"><div class="step__card">
-      <div class="step__title"><h2>Добавьте вакансию</h2><p>Вставьте текст, ссылку или найдите подходящие на hh.ru</p></div>
-      <div class="cols">
-        <div class="col"><h3>Вы делаете</h3><p>Вставляете ссылку на вакансию hh.ru или текст. Либо открываете «Поиск вакансий»: запрос уже собран из вашей профессии и навыков.</p></div>
-        <div class="col"><h3>Сервис делает</h3><p>Открывает страницу в собственном браузере на сервере, без ваших куки, и достаёт название, компанию, зарплату, описание и навыки. В поиске сортирует выдачу по похожести на ваше резюме и объясняет, что совпало.</p></div>
-        <div class="col col--out"><h3>Вы получаете</h3><p>Готовую карточку вакансии для проверки перед разбором и список подходящих вакансий, каждую из которых одна кнопка переносит в подготовку.</p></div>
-      </div>
-      <div class="demo">
-        <div class="demo__head"><span>Поиск вакансий · по резюме «Повар горячего цеха»</span><span>наружу уходит только текст запроса</span></div>
-        <div class="row"><span class="tag tag--ok">похоже 65</span><div>Повар горячего цеха · Ресторан «Север»<div class="e">Санкт-Петербург · от 90 000 ₽ · совпало: повар, горячего, цеха, технологические карты</div></div></div>
-        <div class="row"><span class="tag">похоже 21</span><div>Су-шеф · Ресторан «Пушкин»<div class="e">совпало: цеха, заготовки, соусы</div></div></div>
-      </div>
-    </div></div>
+  <section class="moment">
+    <div class="when">Суббота, 11:00</div>
+    <h2>Вопросы, которые действительно зададут. И ваши ответы уже написаны заранее.</h2>
+    <p class="story">Сервис собрал вопросы из требований вакансии и слабых мест сопоставления, к каждому объяснил, почему его зададут. Марина написала ответы за чашкой кофе, по каждому получила разбор: <b>что сильно, чего не хватает, как сказать лучше</b>. Без баллов, без оценок личности. К вечеру у неё карточка-шпаргалка: с чего начать, чем гордиться, где осторожно, что спросить у них.</p>
+    <div class="proof">
+      <div class="proof__head"><b>Обратная связь на ответ</b><span>вопрос 3 из 8 · технологические карты</span></div>
+      <div class="row"><span class="tag tag--ok">сильно</span><div>Есть конкретная ситуация и своя роль в ней</div></div>
+      <div class="row"><span class="tag tag--demo">не хватает</span><div>Нет результата: сколько блюд, какой брак был до и после</div></div>
+      <div class="row"><span class="tag">как сказать</span><div class="e">«Перевёл цех на карты за месяц: брак по горячему упал с трёх возвратов в смену до одного в неделю»</div></div>
+    </div>
+    <p class="why"><b>Зачем это вам.</b> На собеседовании не придётся сочинять на ходу. Свои лучшие примеры вы уже нашли и отрепетировали в тексте.</p>
+  </section>
 
-    <div class="step"><div class="step__card">
-      <div class="step__title"><h2>Посмотрите сопоставление</h2><p>Каждое требование вакансии против вашего резюме</p></div>
-      <div class="cols">
-        <div class="col"><h3>Вы делаете</h3><p>Нажимаете «Создать подготовку». Дальше только читаете.</p></div>
-        <div class="col"><h3>Сервис делает</h3><p>Выделяет требования из текста вакансии, не додумывая их по названию должности. По каждому ищет подтверждение в резюме и ставит статус: есть, неясно, нет. Общий процент соответствия не считает: он вводит в заблуждение.</p></div>
-        <div class="col col--out"><h3>Вы получаете</h3><p>Список слабых мест с советом, что подготовить, и точную цитату из резюме под каждым подтверждённым пунктом.</p></div>
-      </div>
-      <div class="demo">
-        <div class="demo__head"><span>Сопоставление</span><span>повар горячего цеха · Ресторан «Север»</span></div>
-        <div class="row"><span class="tag tag--ok">есть</span><div>Опыт на горячем цехе от 2 лет<div class="e">В резюме: «Вёл горячий цех, заготовки, соусы» · 4 года 4 месяца</div></div></div>
-        <div class="row"><span class="tag tag--demo">неясно</span><div>Работа по технологическим картам<div class="e">Упомянуто без деталей: подготовьте пример</div></div></div>
-        <div class="row"><span class="tag tag--alert">нет</span><div>Действующая медицинская книжка<div class="e">В резюме не найдено, формальное требование</div></div></div>
-      </div>
-    </div></div>
+  <section class="moment">
+    <div class="when">Воскресенье, 16:30</div>
+    <h2>Репетиция с интервьюером, который слушает и помнит, что вы сказали.</h2>
+    <p class="story">Марина надела наушники и нажала «Начать голосом». Интервьюер задаёт по одному вопросу, <b>цепляется за её слова</b> и спрашивает дальше, как живой человек. Его можно перебить. Он не повторяет темы и не ловит на противоречиях молча: если слова разошлись с резюме, это всплывёт в итоге тренировки, а не на настоящем собеседовании.</p>
+    <div class="proof">
+      <div class="proof__head"><b>Голосовая тренировка</b><span>интервьюер помнит: «плита сломалась в пятницу»</span></div>
+      <div class="bubble">Расскажите о смене, когда на кухне что-то пошло не так. Что вы сделали первым?</div>
+      <div class="bubble bubble--me">Сломалась плита в пятницу вечером. Перекинул заказы на гриль и пароконвектомат, предупредил зал о задержке.</div>
+      <div class="bubble">Сколько столов вы тогда обслужили без плиты?</div>
+    </div>
+    <p class="why"><b>Зачем это вам.</b> Первое волнение вы отдаёте тренажёру, а не работодателю. Тренировок можно сколько угодно, итог каждой сохраняется.</p>
+  </section>
 
-    <div class="step"><div class="step__card">
-      <div class="step__title"><h2>Ответьте на вероятные вопросы</h2><p>Письменно, в своём темпе, с обратной связью по каждому</p></div>
-      <div class="cols">
-        <div class="col"><h3>Вы делаете</h3><p>Пишете ответ под каждым вопросом. Ответы сохраняются сами, можно вернуться завтра. Отмечаете «Подготовлено».</p></div>
-        <div class="col"><h3>Сервис делает</h3><p>Составляет вопросы по требованиям и слабым местам сопоставления, объясняет, почему их зададут, и на что опереться. По каждому ответу: что сильно, чего не хватает, как переформулировать. Без баллов и рейтингов.</p></div>
-        <div class="col col--out"><h3>Вы получаете</h3><p>Продуманные ответы на самые вероятные вопросы и карточку-шпаргалку перед встречей: с чего начать, сильные стороны, рискованные темы, что спросить у них.</p></div>
-      </div>
-    </div></div>
+  <section class="moment">
+    <div class="when">Понедельник, 10:05</div>
+    <h2>На самом собеседовании: тихая подсказка о вашем же опыте, а не чужой текст.</h2>
+    <p class="story">Видеозвонок. Марина включила помощника и дала согласие на чтение экрана. Когда на экране появился вопрос «Почему вы уходите с текущего места?», через секунду рядом возникла подсказка: <b>направление ответа, о чём напомнить, чего избегать</b>. Три строки, которые читаются за мгновение. Ничего, чего нет в её резюме.</p>
+    <div class="proof">
+      <div class="proof__head"><b>Помощник на собеседовании</b><span>согласие получено · до 40 слов</span></div>
+      <div class="hint"><b>Направление</b>Одна причина, связанная с ростом, и что именно хотите делать здесь. Опирайтесь на переход из «Севера» в «Пушкин»: это уже в резюме.</div>
+      <div class="hint"><b>Избегать</b>Не критикуйте прежнего работодателя. Не приписывайте себе опыт, которого нет.</div>
+    </div>
+    <p class="why"><b>Зачем это вам.</b> Опора в момент, когда голова пустая. Подсказка работает только с вашего согласия, текст экрана нигде не сохраняется.</p>
+  </section>
 
-    <div class="step"><div class="step__card">
-      <div class="step__title"><h2>Потренируйтесь с интервьюером</h2><p>Текстом или голосом, как в настоящем разговоре</p></div>
-      <div class="cols">
-        <div class="col"><h3>Вы делаете</h3><p>Выбираете текстовое или голосовое интервью. Говорите в микрофон, можете перебить интервьюера. В конце нажимаете «Завершить».</p></div>
-        <div class="col"><h3>Сервис делает</h3><p>Ведёт интервью по вашей вакансии: один вопрос за раз, помнит сказанное, не повторяет темы, задаёт уточняющие вопросы по вашим же словам. Озвучивает реплики по фразам, распознаёт ответ.</p></div>
-        <div class="col col--out"><h3>Вы получаете</h3><p>Итог интервью: что было сильно, что стоит повторить, совет на следующую попытку. Тренировок можно сколько угодно.</p></div>
-      </div>
-      <div class="demo">
-        <div class="demo__head"><span>Голосовая тренировка</span><span>первая фраза звучит через полсекунды</span></div>
-        <div class="bubble">Расскажите о смене, когда на кухне что-то пошло не так. Что вы сделали первым?</div>
-        <div class="bubble bubble--me">Сломалась плита в пятницу вечером. Перекинул заказы на гриль и пароконвектомат, предупредил зал о задержке.</div>
-        <div class="bubble">Сколько столов вы тогда обслужили без плиты?</div>
-      </div>
-    </div></div>
+  <section class="contrast">
+    <div class="before">
+      <h2>Без Easyjob</h2>
+      <ul><li>Чужие списки вопросов из интернета</li><li>«Вроде подхожу», но непонятно, где слабо</li><li>Примеры вспоминаются уже после собеседования</li><li>Первая репетиция происходит на настоящей встрече</li></ul>
+    </div>
+    <div class="after">
+      <h2>С Easyjob</h2>
+      <ul><li>Вопросы по этой вакансии и этому резюме</li><li>Три конкретных места, которые решат исход</li><li>Свои лучшие примеры найдены и отрепетированы</li><li>Волнение отдано тренажёру, на встрече есть опора</li></ul>
+    </div>
+  </section>
 
-    <div class="step"><div class="step__card">
-      <div class="step__title"><h2>Включите помощника на собеседовании</h2><p>Подсказки в реальном времени по вопросам с экрана</p></div>
-      <div class="cols">
-        <div class="col"><h3>Вы делаете</h3><p>Перед звонком открываете помощника, даёте согласие и выбираете окно видеозвонка. На компьютере можно запустить прозрачное окно поверх звонка.</p></div>
-        <div class="col"><h3>Сервис делает</h3><p>Распознаёт текст на экране, выделяет вопрос собеседующего и только тогда просит подсказку. Подсказка строится на вашем резюме и ответах, до 40 слов, чтобы читалось в разговоре.</p></div>
-        <div class="col col--out"><h3>Вы получаете</h3><p>Опору для своего ответа: направление, о чём напомнить, чего избегать. Не текст для зачитывания и никогда не выдуманный опыт.</p></div>
-      </div>
-      <div class="demo">
-        <div class="demo__head"><span>Помощник · согласие получено</span><span>распознано: «Почему вы уходите с текущего места?»</span></div>
-        <div class="hint"><b>Направление</b>Одна причина, связанная с ростом, и что именно хотите делать здесь. Опирайтесь на переход из «Севера» в «Пушкин»: это уже в резюме.</div>
-        <div class="hint"><b>Избегать</b>Не критикуйте прежнего работодателя. Не приписывайте себе опыт, которого нет в резюме.</div>
-      </div>
-    </div></div>
+  <section class="trust">
+    <div><b>Ничего не выдумывает</b>Модель работает только с вашими данными и прямо говорит, чего ей не хватает. Каждый ответ подписан источником.</div>
+    <div><b>Данные под контролем</b>Ключи моделей только на сервере. Голос и текст экрана не хранятся. Всё своё можно удалить одной кнопкой.</div>
+    <div><b>Любая профессия</b>Повар, водитель, бухгалтер, разработчик. Сервис не сводит всех к офисным ролям и не подменяет профессию похожей.</div>
+  </section>
 
-    <div class="step"><div class="step__card">
-      <div class="step__title"><h2>Обновите и повторите для следующей вакансии</h2><p>Всё сохранено, ничего не теряется</p></div>
-      <div class="cols">
-        <div class="col"><h3>Вы делаете</h3><p>Правите резюме после разбора, добавляете новую вакансию. Старые подготовки остаются в списке.</p></div>
-        <div class="col"><h3>Сервис делает</h3><p>Замечает, что резюме или вакансия изменились, помечает старое сопоставление устаревшим и пересобирает его одной кнопкой. Состояние каждой подготовки видно в списке.</p></div>
-        <div class="col col--out"><h3>Вы получаете</h3><p>Отдельную подготовку под каждую вакансию и историю всех шагов. Все свои данные можно удалить одной кнопкой.</p></div>
-      </div>
-    </div></div>
+  <section class="cta" id="try">
+    <h2>Следующая вакансия может стать вашей уже подготовленной.</h2>
+    <p>Quick Start проведёт по всем шагам за один вечер: резюме, вакансия, сопоставление, вопросы, репетиция. Рабочий прототип: живые модели подключаются ключом на сервере, без ключа работает демонстрационный режим и это честно показано на каждом экране.</p>
+    <div class="btn-row"><a class="btn btn--primary" href="#story">Начать с истории Марины</a></div>
+  </section>
 
-  </div>
-
-  <div class="trust">
-    <h2>Почему этому можно доверять</h2>
-    <ul>
-      <li><b>Ничего не выдумывается.</b> Модель работает только с вашими данными и прямо говорит, чего ей не хватает. Каждый ответ подписан: провайдер, модель, этап. Заглушка всегда помечена как заглушка.</li>
-      <li><b>Данные под контролем.</b> Ключи моделей только на сервере. Наружу уходит только то, что нужно задаче, и только с вашего согласия. Текст экрана и голос нигде не хранятся.</li>
-      <li><b>Открытые модели и понятная стоимость.</b> Продуктовые задачи идут на модели с открытыми весами; владелец видит расход по каждой задаче и этапу.</li>
-      <li><b>Проверено.</b> Более 600 автоматических проверок: сервер, браузерные сценарии, импорт, голос, hh.ru, программа для компьютера.</li>
-    </ul>
-    <p class="muted" style="font-size:14px">Статус: рабочий прототип. Запуск: <code>npm ci</code>, <code>npm start</code>, ключ провайдера в <code>.env</code>. Подробнее в <code>docs/quickstart.md</code>.</p>
-  </div>
-
-  <footer>easyjob · Карьерный помощник</footer>
+  <footer>easyjob · Карьерный помощник · Марина и ресторан «Север» — демонстрационный пример из комплекта сервиса</footer>
 </main>
 </body>
 </html>
