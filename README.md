@@ -1,3 +1,9 @@
+<img src="./docs/portfolio-cover.svg" width="900" alt="Career Assistant — Interactive career workflow">
+
+**Experimental prototype**
+
+---
+
 # Карьерный помощник — кликабельный макет
 
 Демонстрационный frontend-прототип русскоязычного сервиса подготовки к поиску работы и
